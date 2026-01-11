@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*$py.class
+family_finance.duckdb
+family_finance.duckdb.wal
+node_modules/
+.env
+.venv/
+dist/
+.DS_Store

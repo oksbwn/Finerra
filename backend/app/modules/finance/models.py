@@ -1,0 +1,55 @@
+import uuid
+from datetime import datetime
+from sqlalchemy import Column, String, DateTime, ForeignKey, Numeric, Boolean
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy.orm import relationship
+from backend.app.core.database import Base
+import enum
+
+class AccountType(str, enum.Enum):
+    BANK = "BANK"
+    CREDIT_CARD = "CREDIT_CARD"
+    LOAN = "LOAN"
+    WALLET = "WALLET"
+    INVESTMENT = "INVESTMENT"
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    owner_id = Column(String, ForeignKey("users.id"), nullable=True) # None = Shared Family Account
+    name = Column(String, nullable=False)
+    type = Column(SqlEnum(AccountType), nullable=False)
+    currency = Column(String, default="INR", nullable=False)
+    account_mask = Column(String, nullable=True) # e.g. "XX1234" used for SMS matching
+    owner_name = Column(String, nullable=True) # Display name of owner (e.g. "Dad")
+    balance = Column(Numeric(15, 2), default=0.0) # Current Balance
+    is_verified = Column(Boolean, default=True, nullable=False) # False = Auto-detected from SMS
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    transactions = relationship("Transaction", back_populates="account")
+
+
+
+class TransactionType(str, enum.Enum):
+    CREDIT = "CREDIT"
+    DEBIT = "DEBIT"
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    account_id = Column(String, ForeignKey("accounts.id"), nullable=False)
+    type = Column(SqlEnum(TransactionType), default=TransactionType.DEBIT, nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False) # Precision for currency
+    date = Column(DateTime, nullable=False)
+    description = Column(String, nullable=True)
+    category = Column(String, nullable=True) # Keeping simple string for now, could be FK later
+    tags = Column(String, nullable=True) # JSON Array string
+    tags = Column(String, nullable=True) # JSON Array string
+    external_id = Column(String, nullable=True) # For de-duplication
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    account = relationship("Account", back_populates="transactions")
