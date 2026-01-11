@@ -11,6 +11,7 @@ const notify = useNotificationStore()
 
 const transactions = ref<any[]>([])
 const accounts = ref<any[]>([])
+const categories = ref<any[]>([])
 const loading = ref(true)
 const selectedAccount = ref<string>('')
 
@@ -34,26 +35,24 @@ const accountOptions = computed(() => {
     return accounts.value.map(a => ({ label: a.name, value: a.id }))
 })
 
-const categoryOptions = [
-    { label: 'Food & Dining', value: 'Food' },
-    { label: 'Groceries', value: 'Groceries' },
-    { label: 'Travel & Transport', value: 'Travel' },
-    { label: 'Shopping', value: 'Shopping' },
-    { label: 'Utilities & Bills', value: 'Utilities' },
-    { label: 'Housing & Rent', value: 'Housing' },
-    { label: 'Healthcare', value: 'Healthcare' },
-    { label: 'Entertainment', value: 'Entertainment' },
-    { label: 'Salary / Income', value: 'Salary' },
-    { label: 'Investment', value: 'Investment' },
-    { label: 'Other', value: 'Other' }
-]
+const categoryOptions = computed(() => {
+     // Transform backend categories to select options
+    return categories.value.map(c => ({
+        label: `${c.icon || '🏷️'} ${c.name}`,
+        value: c.name
+    }))
+})
 
 async function fetchData() {
     loading.value = true
     try {
         if (accounts.value.length === 0) {
-           const accRes = await financeApi.getAccounts()
+           const [accRes, catRes] = await Promise.all([
+               financeApi.getAccounts(),
+               financeApi.getCategories()
+           ])
            accounts.value = accRes.data
+           categories.value = catRes.data
         }
         if (!selectedAccount.value && route.query.account_id) {
             selectedAccount.value = route.query.account_id as string
@@ -61,7 +60,8 @@ async function fetchData() {
         const res = await financeApi.getTransactions(selectedAccount.value || undefined)
         transactions.value = res.data
     } catch (e) {
-        console.error("Failed to fetch transactions", e)
+        console.error("Failed to fetch data", e)
+        notify.error("Failed to load data")
     } finally {
         loading.value = false
     }
@@ -74,6 +74,14 @@ function formatDate(dateStr: string) {
 function getAccountName(id: string) {
     const acc = accounts.value.find(a => a.id === id)
     return acc ? acc.name : 'Unknown Account'
+}
+
+
+function getCategoryDisplay(name: string) {
+    if (!name) return '📝 General'
+    const cat = categories.value.find(c => c.name === name)
+    // If found, return icon + name. If not (e.g. legacy or custom), just name.
+    return cat ? `${cat.icon || '🏷️'} ${cat.name}` : `🏷️ ${name}`
 }
 
 function openAddModal() {
@@ -172,7 +180,7 @@ onMounted(() => {
                         <td>{{ formatDate(txn.date) }}</td>
                         <td>{{ txn.description }}</td>
                         <td>{{ getAccountName(txn.account_id) }}</td>
-                        <td><span class="badge">{{ txn.category || 'General' }}</span></td>
+                        <td><span class="badge">{{ getCategoryDisplay(txn.category) }}</span></td>
                         <td class="text-right font-mono" :class="{'credit': txn.amount > 0, 'debit': txn.amount < 0}">
                              {{ txn.amount }}
                         </td>
@@ -229,6 +237,7 @@ onMounted(() => {
                             v-model="form.category" 
                             :options="categoryOptions"
                             placeholder="Select Category"
+                            allow-new
                         />
                     </div>
                    

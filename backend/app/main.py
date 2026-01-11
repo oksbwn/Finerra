@@ -87,6 +87,33 @@ def create_application() -> FastAPI:
     except Exception as e:
          print(f"Detailed Migration Log: 'created_at' in transactions likely exists. {e}")
 
+    # 7. Category Rules Migration
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS category_rules (
+                    id VARCHAR PRIMARY KEY,
+                    tenant_id VARCHAR NOT NULL,
+                    name VARCHAR NOT NULL,
+                    category VARCHAR NOT NULL,
+                    keywords VARCHAR NOT NULL,
+                    priority INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+                )
+            """))
+            print("Detailed Migration Log: 'category_rules' table CREATED successfully.")
+    except Exception as e:
+         print(f"Detailed Migration Log: 'category_rules' table creation failed. {e}")
+
+    # 8. Categories Migration (Ensure icon exists)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE categories ADD COLUMN icon VARCHAR DEFAULT '🏷️'"))
+            print("Detailed Migration Log: 'icon' column in categories ADDED successfully.")
+    except Exception as e:
+         print(f"Detailed Migration Log: 'icon' in categories likely exists. {e}")
+
     Base.metadata.create_all(bind=engine)
 
     return application

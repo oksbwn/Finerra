@@ -53,3 +53,24 @@ class Transaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     account = relationship("Account", back_populates="transactions")
+
+
+class CategoryRule(Base):
+    __tablename__ = "category_rules"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    name = Column(String, nullable=False) # e.g. "Food Apps"
+    category = Column(String, nullable=False) # Target Category e.g. "Food"
+    keywords = Column(String, nullable=False) # JSON List of strings e.g. '["Zomato", "Swiggy"]'
+    priority = Column(Numeric(5,0), default=0) # Higher priority runs first
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Category(Base):
+    __tablename__ = "categories"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    name = Column(String, nullable=False)
+    icon = Column(String, nullable=True) # Emoji or icon code
+    created_at = Column(DateTime, default=datetime.utcnow)

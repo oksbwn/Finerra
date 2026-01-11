@@ -73,3 +73,50 @@ class TransactionRead(TransactionBase):
 
     class Config:
         from_attributes = True
+
+class CategoryRuleBase(BaseModel):
+    name: str
+    category: str
+    keywords: List[str]
+    priority: int = 0
+
+class CategoryRuleCreate(CategoryRuleBase):
+    pass
+
+class CategoryRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    priority: Optional[int] = None
+
+class CategoryRuleRead(CategoryRuleBase):
+    id: UUID
+    tenant_id: UUID
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class RuleSuggestion(BaseModel):
+    name: str
+    category: str
+    keywords: List[str]
+    confidence: int
+
+class CategoryBase(BaseModel):
+    name: str
+    icon: Optional[str] = "🏷️"
+
+class CategoryCreate(CategoryBase):
+    pass
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    icon: Optional[str] = None
+
+class CategoryRead(CategoryBase):
+    id: str
+    tenant_id: str
+    
+    class Config:
+        from_attributes = True

@@ -60,6 +60,25 @@ class FinanceService:
         # Serialize tags if present
         tags_str = json.dumps(transaction.tags) if transaction.tags else None
         
+        # --- Auto-Categorization Logic ---
+        final_category = transaction.category
+        if (not final_category or final_category == "Uncategorized") and transaction.description:
+            # Fetch all rules ordered by priority descending
+            rules = db.query(models.CategoryRule).order_by(models.CategoryRule.priority.desc()).all()
+            
+            desc_lower = transaction.description.lower()
+            for rule in rules:
+                try:
+                    keywords = json.loads(rule.keywords)
+                    # Check if any keyword matches
+                    if any(k.lower() in desc_lower for k in keywords):
+                        final_category = rule.category
+                        print(f"DEBUG: Rule '{rule.name}' matched! Applied category '{final_category}'")
+                        break
+                except Exception as e:
+                    print(f"Error parsing rule keywords: {e}")
+        # ---------------------------------
+        
         # Infer Type from Amount
         # Negative amount = DEBIT (Expense)
         # Positive amount = CREDIT (Income)
@@ -71,7 +90,7 @@ class FinanceService:
             amount=transaction.amount,
             date=transaction.date,
             description=transaction.description,
-            category=transaction.category,
+            category=final_category,
             tags=tags_str,
             external_id=transaction.external_id,
             type=txn_type
@@ -149,3 +168,187 @@ class FinanceService:
             "monthly_spending": monthly_spending,
             "currency": accounts[0].currency if accounts else "INR"
         }
+
+    # --- Rules ---
+    def create_category_rule(db: Session, rule: schemas.CategoryRuleCreate, tenant_id: str) -> models.CategoryRule:
+        db_rule = models.CategoryRule(
+            **rule.model_dump(),
+            tenant_id=tenant_id
+        )
+        # Serialize keywords list to string
+        if isinstance(rule.keywords, list):
+             db_rule.keywords = json.dumps(rule.keywords)
+             
+        db.add(db_rule)
+        db.commit()
+        db.refresh(db_rule)
+        
+        # Manually deserialize keywords for Pydantic response
+        try:
+             db_rule.keywords = json.loads(db_rule.keywords)
+        except:
+             db_rule.keywords = []
+             
+        return db_rule
+
+    def get_category_rules(db: Session, tenant_id: str) -> List[models.CategoryRule]:
+        rules = db.query(models.CategoryRule).filter(models.CategoryRule.tenant_id == tenant_id).order_by(models.CategoryRule.priority.desc()).all()
+        # Parse keywords back to list for schema validation? 
+        # Actually Pydantic 'from_attributes' might struggle with String -> List[str] auto-conversion if models.py has a String column.
+        # We might need a small hack or ensuring the response model handles it.
+        for r in rules:
+             try:
+                 r.keywords = json.loads(r.keywords)
+             except:
+                 r.keywords = []
+        return rules
+
+    def update_category_rule(db: Session, rule_id: str, rule_update: schemas.CategoryRuleUpdate, tenant_id: str) -> Optional[models.CategoryRule]:
+        db_rule = db.query(models.CategoryRule).filter(
+            models.CategoryRule.id == rule_id,
+            models.CategoryRule.tenant_id == tenant_id
+        ).first()
+        
+        if not db_rule:
+            return None
+            
+        update_data = rule_update.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            if key == 'keywords' and value is not None:
+                setattr(db_rule, key, json.dumps(value))
+            else:
+                setattr(db_rule, key, value)
+                
+        db.commit()
+        db.refresh(db_rule)
+        
+        # Deserialize for response
+        try:
+             db_rule.keywords = json.loads(db_rule.keywords)
+        except:
+             db_rule.keywords = []
+             
+        return db_rule
+
+    def delete_category_rule(db: Session, rule_id: str, tenant_id: str) -> bool:
+        db_rule = db.query(models.CategoryRule).filter(
+            models.CategoryRule.id == rule_id,
+            models.CategoryRule.tenant_id == tenant_id
+        ).first()
+        
+        if not db_rule:
+            return False
+            
+        db.delete(db_rule)
+        db.commit()
+        return True
+
+    def get_rule_suggestions(db: Session, tenant_id: str) -> List[dict]:
+        """
+        Analyze transaction history to suggest new rules.
+        """
+        from sqlalchemy import func
+        
+        # 1. Get existing rules to filter out already covered descriptions?
+        # Ideally, we want to find descriptions that are CATEGORIZED but NOT via a rule (manual).
+        # But we don't strictly track 'how' it was categorized (manual vs auto).
+        # Heuristic: Find commonly occurring descriptions with consistent categories.
+        
+        # Group by Description + Category
+        # DuckDB/SQLAlchemy group by
+        results = db.query(
+            models.Transaction.description,
+            models.Transaction.category,
+            func.count(models.Transaction.id).label("count")
+        ).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.category != "Uncategorized",
+            models.Transaction.category != None
+        ).group_by(
+            models.Transaction.description, 
+            models.Transaction.category
+        ).having(
+            func.count(models.Transaction.id) >= 1 # Suggest even if it happened once? Maybe >= 2 is better signal. Using 1 for now to show potential.
+        ).order_by(
+            func.count(models.Transaction.id).desc()
+        ).limit(10).all()
+        
+        suggestions = []
+        existing_rules = db.query(models.CategoryRule).filter(models.CategoryRule.tenant_id == tenant_id).all()
+        
+        # Flatten existing keywords for basic dedup
+        existing_keywords = set()
+        for r in existing_rules:
+            try:
+                kw = json.loads(r.keywords)
+                for k in kw: existing_keywords.add(k.lower())
+            except: pass
+
+        for row in results:
+            desc = row.description
+            cat = row.category
+            count = row.count
+            
+            # Simple keyword extraction: Use the whole description or first word? 
+            # For "Uber Rides", keyword "Uber" is better.
+            # For now, let's suggest the *entire* description as the keyword.
+            if desc.lower() in existing_keywords:
+                continue
+                
+            suggestions.append({
+                "name": f"Auto-tag {desc}",
+                "category": cat,
+                "keywords": [desc], # Suggest full description as exact match keyword
+                "confidence": count # Use count as proxy for confidence
+            })
+            
+        return suggestions
+
+    # --- Category Management ---
+    def get_categories(db: Session, tenant_id: str) -> List[models.Category]:
+        cats = db.query(models.Category).filter(models.Category.tenant_id == tenant_id).all()
+        if not cats:
+            # Seed defaults
+            defaults = [
+                ("Food & Dining", "🍔"), ("Groceries", "🥦"), ("Transport", "🚌"), 
+                ("Shopping", "🛍️"), ("Utilities", "💡"), ("Housing", "🏠"),
+                ("Healthcare", "🏥"), ("Entertainment", "🎬"), ("Salary", "💰"),
+                ("Investment", "📈"), ("Education", "🎓"), ("Other", "📦")
+            ]
+            new_cats = []
+            for name, icon in defaults:
+                c = models.Category(tenant_id=tenant_id, name=name, icon=icon)
+                db.add(c)
+                new_cats.append(c)
+            db.commit()
+            return new_cats
+        return cats
+
+    def create_category(db: Session, category: schemas.CategoryCreate, tenant_id: str) -> models.Category:
+        db_cat = models.Category(
+            **category.model_dump(),
+            tenant_id=tenant_id
+        )
+        db.add(db_cat)
+        db.commit()
+        db.refresh(db_cat)
+        return db_cat
+
+    def update_category(db: Session, category_id: str, update: schemas.CategoryUpdate, tenant_id: str) -> Optional[models.Category]:
+        db_cat = db.query(models.Category).filter(models.Category.id == category_id, models.Category.tenant_id == tenant_id).first()
+        if not db_cat: return None
+        
+        data = update.model_dump(exclude_unset=True)
+        for k, v in data.items():
+            setattr(db_cat, k, v)
+            
+        db.commit()
+        db.refresh(db_cat)
+        return db_cat
+
+    def delete_category(db: Session, category_id: str, tenant_id: str) -> bool:
+        db_cat = db.query(models.Category).filter(models.Category.id == category_id, models.Category.tenant_id == tenant_id).first()
+        if not db_cat: return False
+        db.delete(db_cat)
+        db.commit()
+        return True

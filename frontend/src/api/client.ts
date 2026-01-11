@@ -67,4 +67,14 @@ export const financeApi = {
     getTransactions: (accountId?: string) => apiClient.get('/finance/transactions', { params: { account_id: accountId } }),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),
     getMetrics: () => apiClient.get('/finance/metrics'),
+    getRules: () => apiClient.get('/finance/rules'),
+    getRuleSuggestions: () => apiClient.get('/finance/rules/suggestions'),
+    createRule: (data: any) => apiClient.post('/finance/rules', data),
+    updateRule: (id: string, data: any) => apiClient.put(`/finance/rules/${id}`, data),
+    deleteRule: (id: string) => apiClient.delete(`/finance/rules/${id}`),
+
+    getCategories: () => apiClient.get('/finance/categories'),
+    createCategory: (data: any) => apiClient.post('/finance/categories', data),
+    updateCategory: (id: string, data: any) => apiClient.put(`/finance/categories/${id}`, data),
+    deleteCategory: (id: string) => apiClient.delete(`/finance/categories/${id}`),
 }
