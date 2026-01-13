@@ -34,7 +34,7 @@ class GenericSmsParser(BaseSmsParser):
                 description=f"Debit at {merchant}",
                 type="DEBIT",
                 account_mask=account_mask,
-                merchant=merchant,
+                recipient=merchant,
                 raw_message=content
             )
 
@@ -50,7 +50,7 @@ class GenericSmsParser(BaseSmsParser):
                 description=f"Spent at {merchant}",
                 type="DEBIT",
                 account_mask=account_mask,
-                merchant=merchant,
+                recipient=merchant,
                 raw_message=content
             )
 
@@ -66,7 +66,7 @@ class GenericSmsParser(BaseSmsParser):
                 description=f"Credit from {source}",
                 type="CREDIT",
                 account_mask=account_mask,
-                merchant=source,
+                recipient=source,
                 raw_message=content
             )
             

@@ -74,6 +74,7 @@ class IngestionService:
             amount=final_amount,
             date=parsed.date,
             description=parsed.description,
+            recipient=parsed.recipient,
             category="Uncategorized",
             external_id=parsed.ref_id,
             tags=[]

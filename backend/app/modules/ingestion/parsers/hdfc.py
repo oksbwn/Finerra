@@ -43,7 +43,7 @@ class HdfcParser(BaseSmsParser):
                 description=f"Sent to {payee}",
                 type="DEBIT",
                 account_mask=mask,
-                merchant=payee,
+                recipient=payee,
                 ref_id=ref_id,
                 raw_message=content,
                 # Map 'ref_id' to external_id logic inside service/router if needed

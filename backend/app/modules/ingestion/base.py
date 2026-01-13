@@ -10,7 +10,7 @@ class ParsedTransaction(BaseModel):
     description: str
     type: str # DEBIT or CREDIT
     account_mask: Optional[str] = None # Last 4 digits if available
-    merchant: Optional[str] = None
+    recipient: Optional[str] = None
     category: Optional[str] = None
     ref_id: Optional[str] = None
     raw_message: str
