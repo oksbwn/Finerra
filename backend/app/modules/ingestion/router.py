@@ -1,24 +1,86 @@
+from typing import List, Dict, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
 from backend.app.modules.auth import models as auth_models
 from backend.app.modules.auth.dependencies import get_current_user
-from backend.app.modules.ingestion.registry import SmsParserRegistry
-from backend.app.modules.ingestion.parsers.generic_sms import GenericSmsParser
-from backend.app.modules.ingestion.parsers.hdfc import HdfcParser
+from backend.app.modules.ingestion.registry import SmsParserRegistry, EmailParserRegistry
+from backend.app.modules.ingestion.parsers.hdfc import HdfcSmsParser, HdfcEmailParser
+from backend.app.modules.ingestion.parsers.generic import GenericSmsParser, GenericEmailParser
+from backend.app.modules.ingestion.parsers.icici import IciciSmsParser, IciciEmailParser
+from backend.app.modules.ingestion.parsers.axis import AxisSmsParser, AxisEmailParser
+from backend.app.modules.ingestion.parsers.sbi import SbiSmsParser, SbiEmailParser
+from backend.app.modules.ingestion.parsers.kotak import KotakSmsParser, KotakEmailParser
 
-# Register default parsers
-SmsParserRegistry.register(HdfcParser())
+router = APIRouter(tags=["Ingestion"])
+
+# Register Parsers
+SmsParserRegistry.register(HdfcSmsParser())
 SmsParserRegistry.register(GenericSmsParser())
+SmsParserRegistry.register(IciciSmsParser())
+SmsParserRegistry.register(AxisSmsParser())
+SmsParserRegistry.register(SbiSmsParser())
+SmsParserRegistry.register(KotakSmsParser())
+EmailParserRegistry.register(HdfcEmailParser())
+EmailParserRegistry.register(GenericEmailParser())
+EmailParserRegistry.register(IciciEmailParser())
+EmailParserRegistry.register(AxisEmailParser())
+EmailParserRegistry.register(SbiEmailParser())
+EmailParserRegistry.register(KotakEmailParser())
 
-router = APIRouter()
 
 class SmsPayload(BaseModel):
     sender: str
     message: str
 
+class EmailPayload(BaseModel):
+    subject: str
+    body: str
+
+class EmailSyncPayload(BaseModel):
+    imap_server: str = "imap.gmail.com"
+    email: str
+    password: str # App Password recommended
+    folder: str = "INBOX"
+    unread_only: bool = True
+
 from sqlalchemy.orm import Session
 from backend.app.core.database import get_db
 from backend.app.modules.ingestion.services import IngestionService
+from backend.app.modules.ingestion import models as ingestion_models
+
+class EmailConfigCreate(BaseModel):
+    email: str
+    password: str
+    imap_server: str = "imap.gmail.com"
+    folder: str = "INBOX"
+    auto_sync_enabled: bool = False
+
+class EmailConfigUpdate(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+    imap_server: Optional[str] = None
+    folder: Optional[str] = None
+    auto_sync_enabled: Optional[bool] = None
+    reset_sync_history: Optional[bool] = False
+    last_sync_at: Optional[datetime] = None
+
+class EmailSyncLogRead(BaseModel):
+    id: str
+    started_at: datetime
+    completed_at: Optional[datetime]
+    status: str
+    items_processed: float
+    message: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+class EmailConfigRead(EmailConfigCreate):
+    id: str
+    is_active: bool
+    auto_sync_enabled: bool = False
+    last_sync_at: Optional[datetime] = None
 
 @router.post("/sms")
 def ingest_sms(
@@ -41,6 +103,181 @@ def ingest_sms(
         "parsed_data": parsed,
         "result": result
     }
+
+@router.post("/email")
+def ingest_email(
+    payload: EmailPayload,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Ingest a raw Email, parse it, and SAVE the transaction if account matches.
+    """
+    parsed = EmailParserRegistry.parse(payload.subject, payload.body)
+    
+    if not parsed:
+        raise HTTPException(status_code=422, detail="Could not parse Email content")
+        
+    result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed)
+    
+    return {
+        "status": "processed",
+        "parsed_data": parsed,
+        "result": result
+    }
+
+from backend.app.modules.ingestion.email_sync import EmailSyncService
+
+@router.post("/email/sync")
+def sync_email_inbox(
+    payload: EmailSyncPayload,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Connect to IMAP and scan for transactions.
+    """
+    search_crit = 'UNSEEN' if payload.unread_only else 'ALL'
+    
+    result = EmailSyncService.sync_emails(
+        db=db,
+        tenant_id=str(current_user.tenant_id),
+        imap_server=payload.imap_server,
+        email_user=payload.email,
+        email_pass=payload.password,
+        folder=payload.folder,
+        search_criterion=search_crit
+    )
+    
+    return result
+
+@router.get("/email/configs", response_model=List[EmailConfigRead])
+def list_email_configs(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return db.query(ingestion_models.EmailConfiguration).filter(
+        ingestion_models.EmailConfiguration.tenant_id == str(current_user.tenant_id)
+    ).all()
+
+@router.post("/email/configs", response_model=EmailConfigRead)
+def create_email_config(
+    payload: EmailConfigCreate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    config = ingestion_models.EmailConfiguration(
+        tenant_id=str(current_user.tenant_id),
+        **payload.dict()
+    )
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+@router.put("/email/configs/{config_id}", response_model=EmailConfigRead)
+def update_email_config(
+    config_id: str,
+    payload: EmailConfigUpdate,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    config = db.query(ingestion_models.EmailConfiguration).filter(
+        ingestion_models.EmailConfiguration.id == config_id,
+        ingestion_models.EmailConfiguration.tenant_id == str(current_user.tenant_id)
+    ).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+    
+    # Update fields
+    if payload.email is not None: config.email = payload.email
+    if payload.password is not None: config.password = payload.password
+    if payload.imap_server is not None: config.imap_server = payload.imap_server
+    if payload.folder is not None: config.folder = payload.folder
+
+    if payload.auto_sync_enabled is not None: config.auto_sync_enabled = payload.auto_sync_enabled
+    if payload.reset_sync_history:
+        config.last_sync_at = None
+    if payload.last_sync_at is not None:
+        config.last_sync_at = payload.last_sync_at
+    
+    db.commit()
+    db.refresh(config)
+    return config
+
+@router.delete("/email/configs/{config_id}")
+def delete_email_config(
+    config_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    config = db.query(ingestion_models.EmailConfiguration).filter(
+        ingestion_models.EmailConfiguration.id == config_id,
+        ingestion_models.EmailConfiguration.tenant_id == str(current_user.tenant_id)
+    ).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+    db.delete(config)
+    db.commit()
+    return {"status": "deleted"}
+
+@router.get("/email/configs/{config_id}/logs", response_model=List[EmailSyncLogRead])
+def get_email_sync_logs(
+    config_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Verify ownership
+    config = db.query(ingestion_models.EmailConfiguration).filter(
+        ingestion_models.EmailConfiguration.id == config_id,
+        ingestion_models.EmailConfiguration.tenant_id == str(current_user.tenant_id)
+    ).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+
+    return db.query(ingestion_models.EmailSyncLog).filter(
+        ingestion_models.EmailSyncLog.config_id == config_id
+    ).order_by(ingestion_models.EmailSyncLog.started_at.desc()).limit(10).all()
+
+@router.post("/email/sync/{config_id}")
+def sync_specific_email(
+    config_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    config = db.query(ingestion_models.EmailConfiguration).filter(
+        ingestion_models.EmailConfiguration.id == config_id,
+        ingestion_models.EmailConfiguration.tenant_id == str(current_user.tenant_id)
+    ).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+    
+    # If we have a since_date (Deep Scan OR Rewind), search ALL to catch potentially read emails.
+    # Otherwise (unlikely but safe), fallback to UNSEEN.
+    criterion = 'ALL' if config.last_sync_at is None or config.last_sync_at else 'UNSEEN'
+    # Actually, always use ALL if we have logic to handle duplicates, 
+    # but let's stick to ALL if any date filter is present.
+    criterion = 'ALL' if config.last_sync_at else 'ALL' # Make it simpler: Always try ALL if we have a config
+    # Wait, let's just make it 'ALL' always, since our Deduplication is solid.
+    criterion = 'ALL'
+    
+    result = EmailSyncService.sync_emails(
+        db=db,
+        tenant_id=str(current_user.tenant_id),
+        config_id=config.id,
+        imap_server=config.imap_server,
+        email_user=config.email,
+        email_pass=config.password,
+        folder=config.folder,
+        search_criterion=criterion,
+        since_date=config.last_sync_at
+    )
+    
+    if result.get("status") == "completed":
+        config.last_sync_at = datetime.utcnow()
+        db.commit()
+        
+    return result
 
 # --- Universal Import (CSV/Excel) ---
 from fastapi import UploadFile, File, Form
@@ -140,3 +377,51 @@ def import_csv(
         "imported": success_count,
         "errors": errors
     }
+
+# --- Triage Area ---
+
+class PendingTransactionRead(BaseModel):
+    id: str
+    tenant_id: str
+    account_id: str
+    amount: float
+    date: datetime
+    description: Optional[str] = None
+    recipient: Optional[str] = None
+    category: Optional[str] = None
+    source: str
+    raw_message: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+@router.get("/triage", response_model=List[PendingTransactionRead])
+def list_triage(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return FinanceService.get_pending_transactions(db, str(current_user.tenant_id))
+
+@router.post("/triage/{pending_id}/approve")
+def approve_triage(
+    pending_id: str,
+    category: Optional[str] = Body(None, embed=True),
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    txn = FinanceService.approve_pending_transaction(db, pending_id, str(current_user.tenant_id), category)
+    if not txn:
+        raise HTTPException(status_code=404, detail="Pending transaction not found")
+    return {"status": "approved", "transaction_id": txn.id}
+
+@router.delete("/triage/{pending_id}")
+def reject_triage(
+    pending_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    success = FinanceService.reject_pending_transaction(db, pending_id, str(current_user.tenant_id))
+    if not success:
+        raise HTTPException(status_code=404, detail="Pending transaction not found")
+    return {"status": "rejected"}

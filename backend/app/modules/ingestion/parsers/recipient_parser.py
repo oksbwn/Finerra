@@ -22,6 +22,8 @@ class RecipientParser:
         # Helper to clean a string from common junk
         def clean_name(name: str) -> str:
             if not name: return ""
+            # Remove "VPA", "TO VPA", "VPA-", "VPA/" prefixes
+            name = re.sub(r'^(VPA|TO VPA)[-/ ]+', '', name, flags=re.IGNORECASE)
             # Remove trailing numbers/IDs (e.g. -116522, -1341)
             name = re.sub(r'[- ]\d+$', '', name)
             # Remove titles
@@ -93,11 +95,11 @@ class RecipientParser:
             'UPI', 'IMPS', 'NEFT', 'RTGS', 'POS', 'ATM', 'WDL', 'CASH', 'TRANSFER',
             'FUND', 'FUNDS', 'PAY', 'PAYMENT', 'TO', 'BY', 'FROM', 'THE', 'DEBIT',
             'CREDIT', 'PURCHASE', 'SALE', 'ONLINE', 'ECOM', 'CARD', 'NET', 'BANK',
-            'IB', 'SS', 'DR', 'CR', 'CHEQ' 
+            'IB', 'SS', 'DR', 'CR', 'CHEQ', 'VPA' 
         }
         filtered = [w for w in words if w.upper() not in skip_words and not re.search(r'\d', w)]
         
         if filtered:
-            return " ".join(filtered[:3])[:100]
+            return clean_name(" ".join(filtered[:3]))[:100]
             
         return None

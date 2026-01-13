@@ -14,6 +14,7 @@ class ParsedTransaction(BaseModel):
     category: Optional[str] = None
     ref_id: Optional[str] = None
     raw_message: str
+    source: str = "SMS" # SMS, EMAIL, etc.
 
 class BaseParser(ABC):
     @abstractmethod
@@ -29,5 +30,13 @@ class BaseSmsParser(BaseParser):
     def can_handle(self, sender: str, message: str) -> bool:
         """
         Determine if this parser can handle the given SMS.
+        """
+        pass
+
+class BaseEmailParser(BaseParser):
+    @abstractmethod
+    def can_handle(self, subject: str, body: str) -> bool:
+        """
+        Determine if this parser can handle the given Email.
         """
         pass
