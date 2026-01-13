@@ -17,9 +17,10 @@ const notify = useNotificationStore()
 const transactions = ref<any[]>([])
 const accounts = ref<any[]>([])
 const categories = ref<any[]>([])
+const triageTransactions = ref<any[]>([])
 const loading = ref(true)
 const selectedAccount = ref<string>('')
-const activeTab = ref<'list' | 'analytics'>('list')
+const activeTab = ref<'list' | 'analytics' | 'triage'>('list')
 
 // Date Filter State
 const startDate = ref<string>('')
@@ -140,6 +141,50 @@ async function fetchData() {
     } finally {
         loading.value = false
         selectedIds.value.clear()
+    }
+}
+
+async function fetchTriage() {
+    loading.value = true
+    try {
+        const res = await financeApi.getTriage()
+        triageTransactions.value = res.data
+    } catch (e) {
+        console.error("Failed to fetch triage", e)
+    } finally {
+        loading.value = false
+    }
+}
+
+async function approveTriage(id: string, category?: string) {
+    try {
+        await financeApi.approveTriage(id, category)
+        notify.success("Transaction approved")
+        fetchTriage()
+        fetchData() // Refresh list in case they switch back
+    } catch (e) {
+        notify.error("Approval failed")
+    }
+}
+
+const showDiscardConfirm = ref(false)
+const triageIdToDiscard = ref<string | null>(null)
+
+async function rejectTriage(id: string) {
+    triageIdToDiscard.value = id
+    showDiscardConfirm.value = true
+}
+
+async function confirmDiscard() {
+    if (!triageIdToDiscard.value) return
+    try {
+        await financeApi.rejectTriage(triageIdToDiscard.value)
+        notify.success("Transaction discarded")
+        fetchTriage()
+        showDiscardConfirm.value = false
+        triageIdToDiscard.value = null
+    } catch (e) {
+        notify.error("Failed to discard")
     }
 }
 
@@ -532,8 +577,18 @@ function extractTransactionInfo(description: string) {
     }
 }
 
+function switchTab(tab: 'list' | 'analytics' | 'triage') {
+    activeTab.value = tab
+    if (tab === 'triage') {
+        fetchTriage()
+    } else {
+        fetchData()
+    }
+}
+
 onMounted(() => {
     fetchData()
+    fetchTriage() // Pre-fetch count
 })
 </script>
 
@@ -554,9 +609,16 @@ onMounted(() => {
                     <button 
                         class="tab-btn" 
                         :class="{ active: activeTab === 'analytics' }"
-                        @click="activeTab = 'analytics'"
+                        @click="switchTab('analytics')"
                     >
                         Analytics
+                    </button>
+                    <button 
+                        class="tab-btn" 
+                        :class="{ active: activeTab === 'triage' }"
+                        @click="switchTab('triage')"
+                    >
+                        Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length }}</span>
                     </button>
                 </div>
                 <span class="transaction-count">{{ total }} records</span>
@@ -587,7 +649,7 @@ onMounted(() => {
                     Import
                 </button>
                 
-                <button @click="openAddModal" class="btn-compact btn-primary">
+                <button v-if="activeTab !== 'triage'" @click="openAddModal" class="btn-compact btn-primary">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 5v14M5 12h14"/>
                     </svg>
@@ -599,7 +661,7 @@ onMounted(() => {
         </div>
 
         <!-- Filter Bar -->
-        <div class="filter-bar">
+        <div class="filter-bar" v-if="activeTab !== 'triage'">
             <div class="filter-main">
                 <div class="filter-group">
                     <span class="filter-label">Time Range:</span>
@@ -861,6 +923,61 @@ onMounted(() => {
                     </div>
                 </div>
             </div>
+
+            <!-- Triage View -->
+            <div v-if="activeTab === 'triage'" class="triage-view animate-in">
+                <div class="alert-info-glass mb-4">
+                    <div class="alert-icon">🔒</div>
+                    <div class="alert-text">
+                        <strong>Review Intake</strong>: These transactions were auto-detected but require categorization or confirmation before affecting your balance.
+                    </div>
+                </div>
+
+                <div class="triage-grid">
+                    <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card">
+                        <div class="triage-card-header">
+                            <span class="source-tag" :class="txn.source.toLowerCase()">{{ txn.source }}</span>
+                            <span class="triage-date">{{ formatDate(txn.date).day }} {{ formatDate(txn.date).meta }}</span>
+                        </div>
+                        
+                        <div class="triage-card-body">
+                            <div class="triage-amount-col" :class="txn.amount < 0 ? 'expense' : 'income'">
+                                <div class="amount-val">₹{{ Math.abs(txn.amount).toFixed(2) }}</div>
+                                <div class="amount-type">{{ txn.amount < 0 ? 'Debit' : 'Credit' }}</div>
+                            </div>
+                            <div class="triage-details-col">
+                                <h3 class="triage-title">{{ txn.recipient || txn.description }}</h3>
+                                <div class="triage-meta">
+                                    <span class="meta-item">📍 {{ getAccountName(txn.account_id) }}</span>
+                                    <span class="meta-item" v-if="txn.description">📝 {{ txn.description }}</span>
+                                </div>
+                                <div v-if="txn.raw_message" class="raw-message-preview" :title="txn.raw_message">
+                                    Raw: {{ txn.raw_message.substring(0, 60) }}...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="triage-card-footer">
+                            <button @click="rejectTriage(txn.id)" class="btn-discard">Discard</button>
+                            <div class="approval-form">
+                                <CustomSelect 
+                                    v-model="txn.category" 
+                                    :options="categoryOptions"
+                                    placeholder="Set Category"
+                                    class="triage-select"
+                                />
+                                <button @click="approveTriage(txn.id, txn.category)" class="btn-approve">Approve</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="triageTransactions.length === 0" class="empty-state-triage">
+                    <div class="empty-glow-icon">✨</div>
+                    <h3>Inbox zero!</h3>
+                    <p>No new transactions waiting for review.</p>
+                </div>
+            </div>
         </div>
 
         <!-- Global Styled Modal -->
@@ -948,6 +1065,46 @@ onMounted(() => {
                     <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
                         <button class="btn btn-outline" @click="showSmartPrompt = false">Skip</button>
                         <button class="btn btn-primary" @click="handleSmartCategorize">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div v-if="showDeleteConfirm" class="modal-overlay-global">
+            <div class="modal-global" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">Delete Transactions</h2>
+                    <button class="btn-icon" @click="showDeleteConfirm = false">✕</button>
+                </div>
+                <div style="padding: 1.5rem; text-align: center;">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">🗑️</div>
+                    <p style="color: #4b5563; margin-bottom: 1.5rem;">
+                        Are you sure you want to delete <strong>{{ selectedIds.size }}</strong> selected transactions? This action cannot be undone.
+                    </p>
+                    <div class="modal-footer" style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
+                        <button class="btn btn-outline" @click="showDeleteConfirm = false">Cancel</button>
+                        <button class="btn btn-danger" @click="confirmDelete" style="background: #ef4444; color: white; border: none;">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Triage Discard Confirmation Modal -->
+        <div v-if="showDiscardConfirm" class="modal-overlay-global">
+            <div class="modal-global" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">Discard Transaction</h2>
+                    <button class="btn-icon" @click="showDiscardConfirm = false">✕</button>
+                </div>
+                <div style="padding: 1.5rem; text-align: center;">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">♻️</div>
+                    <p style="color: #4b5563; margin-bottom: 1.5rem;">
+                        Discard this potential transaction? It will be removed from your review list.
+                    </p>
+                    <div class="modal-footer" style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
+                        <button class="btn btn-outline" @click="showDiscardConfirm = false">Keep It</button>
+                        <button class="btn btn-danger" @click="confirmDiscard" style="background: #ef4444; color: white; border: none;">Discard</button>
                     </div>
                 </div>
             </div>
@@ -1961,4 +2118,214 @@ onMounted(() => {
 
 .pattern-bar-fill.weekday { background: #4f46e5; }
 .pattern-bar-fill.weekend { background: #f59e0b; }
+
+/* Triage Area Styles */
+.tab-badge {
+    background: #ef4444;
+    color: white;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    margin-left: 0.3rem;
+    font-weight: 700;
+}
+
+.triage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+.triage-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.25rem;
+    border: 1px solid rgba(255,255,255,0.2);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.triage-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+}
+
+.triage-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.source-tag {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: #e5e7eb;
+    color: #4b5563;
+}
+
+.source-tag.sms { background: #dcfce7; color: #166534; }
+.source-tag.email { background: #dbeafe; color: #1e40af; }
+
+.triage-date {
+    font-size: 0.75rem;
+    color: #9ca3af;
+}
+
+.triage-card-body {
+    display: flex;
+    gap: 1.25rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+.triage-amount-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 100px;
+    padding: 0.75rem;
+    background: rgba(0,0,0,0.03);
+    border-radius: 12px;
+}
+
+.triage-amount-col.expense .amount-val { color: #ef4444; }
+.triage-amount-col.income .amount-val { color: #10b981; }
+
+.amount-val {
+    font-size: 1.125rem;
+    font-weight: 700;
+}
+
+.amount-type {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    opacity: 0.6;
+}
+
+.triage-details-col {
+    flex: 1;
+    min-width: 0; /* Critical for flex child truncation */
+    display: flex;
+    flex-direction: column;
+}
+
+.triage-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0 0 0.5rem 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.triage-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.meta-item {
+    font-size: 0.8125rem;
+    color: #6b7280;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.raw-message-preview {
+    font-family: monospace;
+    font-size: 0.7rem;
+    padding: 0.5rem;
+    background: #f9fafb;
+    border-radius: 6px;
+    color: #9ca3af;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.triage-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 1rem;
+    gap: 1rem;
+}
+
+.approval-form {
+    display: flex;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.triage-select {
+    flex: 1;
+}
+
+.btn-approve {
+    background: #4f46e5;
+    color: white;
+    border: none;
+    padding: 0 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-approve:hover { background: #4338ca; }
+
+.btn-discard {
+    background: transparent;
+    color: #9ca3af;
+    border: 1px solid #e5e7eb;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-discard:hover {
+    color: #ef4444;
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+
+.empty-state-triage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 5rem 2rem;
+    text-align: center;
+}
+
+.empty-glow-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+}
+
+.alert-info-glass {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: rgba(59, 130, 246, 0.05);
+    border: 1px solid rgba(59, 130, 246, 0.1);
+    border-radius: 12px;
+    align-items: center;
+}
+
+.alert-icon { font-size: 1.25rem; }
+.alert-text { font-size: 0.875rem; color: #1e40af; }
 </style>
