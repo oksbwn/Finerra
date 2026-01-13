@@ -26,6 +26,7 @@ class Account(Base):
     owner_name = Column(String, nullable=True) # Display name of owner (e.g. "Dad")
     balance = Column(Numeric(15, 2), default=0.0) # Current Balance
     is_verified = Column(Boolean, default=True, nullable=False) # False = Auto-detected from SMS
+    import_config = Column(String, nullable=True) # JSON config for CSV/Excel mapping
     created_at = Column(DateTime, default=datetime.utcnow)
 
     transactions = relationship("Transaction", back_populates="account")
@@ -50,6 +51,7 @@ class Transaction(Base):
     tags = Column(String, nullable=True) # JSON Array string
     tags = Column(String, nullable=True) # JSON Array string
     external_id = Column(String, nullable=True) # For de-duplication
+    source = Column(String, default="MANUAL", nullable=False) # MANUAL, CSV, EXCEL, etc.
     created_at = Column(DateTime, default=datetime.utcnow)
 
     account = relationship("Account", back_populates="transactions")

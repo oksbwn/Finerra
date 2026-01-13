@@ -87,6 +87,14 @@ def create_application() -> FastAPI:
     except Exception as e:
          print(f"Detailed Migration Log: 'created_at' in transactions likely exists. {e}")
 
+    # 11. Transactions Source Migration
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN source VARCHAR DEFAULT 'MANUAL'"))
+            print("Detailed Migration Log: 'source' column in transactions ADDED successfully.")
+    except Exception as e:
+         print(f"Detailed Migration Log: 'source' in transactions likely exists. {e}")
+
     # 7. Category Rules Migration
     try:
         with engine.begin() as conn:
@@ -130,7 +138,15 @@ def create_application() -> FastAPI:
             """))
             print("Detailed Migration Log: 'budgets' table CREATED successfully.")
     except Exception as e:
-         print(f"Detailed Migration Log: 'budgets' table creation failed. {e}")
+        print(f"Detailed Migration Log: 'budgets' table creation failed. {e}")
+
+    # 10. Accounts Import Config Migration
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE accounts ADD COLUMN import_config VARCHAR"))
+            print("Detailed Migration Log: 'import_config' column ADDED successfully.")
+    except Exception as e:
+         print(f"Detailed Migration Log: 'import_config' likely exists. {e}")
 
     Base.metadata.create_all(bind=engine)
 

@@ -64,7 +64,8 @@ export const financeApi = {
     getAccounts: () => apiClient.get('/finance/accounts'),
     createAccount: (data: AccountCreate) => apiClient.post('/finance/accounts', data),
     updateAccount: (id: string, data: AccountUpdate) => apiClient.put(`/finance/accounts/${id}`, data),
-    getTransactions: (accountId?: string) => apiClient.get('/finance/transactions', { params: { account_id: accountId } }),
+    getTransactions: (accountId?: string, page: number = 1, limit: number = 50) => apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit } }),
+    bulkDeleteTransactions: (ids: string[]) => apiClient.post('/finance/transactions/bulk-delete', { transaction_ids: ids }),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),
     getMetrics: () => apiClient.get('/finance/metrics'),
     getRules: () => apiClient.get('/finance/rules'),
@@ -81,4 +82,13 @@ export const financeApi = {
     getBudgets: () => apiClient.get('/finance/budgets'),
     setBudget: (data: any) => apiClient.post('/finance/budgets', data),
     deleteBudget: (id: string) => apiClient.delete(`/finance/budgets/${id}`),
+
+    // Ingestion
+    analyzeCsv: (formData: FormData) => apiClient.post('/ingestion/csv/analyze', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    parseCsv: (formData: FormData) => apiClient.post('/ingestion/csv/parse', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    importCsv: (data: any) => apiClient.post('/ingestion/csv/import', data),
 }

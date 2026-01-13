@@ -12,6 +12,7 @@ class AccountBase(BaseModel):
     account_mask: Optional[str] = None
     balance: Optional[Decimal] = 0.0
     is_verified: bool = True
+    import_config: Optional[str] = None
 
 class AccountCreate(AccountBase):
     owner_id: Optional[UUID] = None
@@ -25,6 +26,7 @@ class AccountUpdate(BaseModel):
     owner_name: Optional[str] = None
     balance: Optional[Decimal] = None
     is_verified: Optional[bool] = None
+    import_config: Optional[str] = None
 
 from typing import Optional, List, Union
 # ...
@@ -48,6 +50,7 @@ class TransactionBase(BaseModel):
 class TransactionCreate(TransactionBase):
     account_id: UUID
     external_id: Optional[str] = None
+    source: Optional[str] = "MANUAL"
 
 class TransactionUpdate(BaseModel):
     description: Optional[str] = None
@@ -70,9 +73,21 @@ class TransactionRead(TransactionBase):
     id: UUID
     account_id: UUID
     tenant_id: UUID
+    type: Optional[str] = "DEBIT"
+    source: Optional[str] = "MANUAL"
 
     class Config:
         from_attributes = True
+
+class TransactionPagination(BaseModel):
+    items: List[TransactionRead]
+    total: int
+    page: int
+    size: int
+
+class BulkDeleteRequest(BaseModel):
+    transaction_ids: List[str]
+
 
 class CategoryRuleBase(BaseModel):
     name: str

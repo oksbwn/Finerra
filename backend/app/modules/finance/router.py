@@ -64,20 +64,39 @@ def create_transaction(
     """
     return services.FinanceService.create_transaction(db, transaction, str(current_user.tenant_id))
 
-@router.get("/transactions", response_model=List[schemas.TransactionRead])
+@router.get("/transactions", response_model=schemas.TransactionPagination)
 def read_transactions(
     account_id: Optional[str] = None,
-    limit: int = 100,
+    page: int = 1,
+    limit: int = 50,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    List transactions.
+    List transactions with pagination.
     """
+    skip = (page - 1) * limit
+    items = services.FinanceService.get_transactions(db, str(current_user.tenant_id), account_id, skip, limit)
+    total = services.FinanceService.count_transactions(db, str(current_user.tenant_id), account_id)
+    
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "size": limit
+    }
+
+@router.post("/transactions/bulk-delete")
+def bulk_delete_transactions(
+    payload: schemas.BulkDeleteRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
-    List transactions.
+    Delete multiple transactions.
     """
-    return services.FinanceService.get_transactions(db, str(current_user.tenant_id), account_id, limit)
+    count = services.FinanceService.bulk_delete_transactions(db, payload.transaction_ids, str(current_user.tenant_id))
+    return {"message": f"Deleted {count} transactions", "count": count}
 
 @router.put("/transactions/{transaction_id}", response_model=schemas.TransactionRead)
 def update_transaction(

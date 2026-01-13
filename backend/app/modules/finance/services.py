@@ -115,12 +115,38 @@ class FinanceService:
         db: Session, 
         tenant_id: str, 
         account_id: Optional[str] = None, 
-        limit: int = 100
+        skip: int = 0,
+        limit: int = 50
     ) -> List[models.Transaction]:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
         if account_id:
             query = query.filter(models.Transaction.account_id == account_id)
-        return query.order_by(models.Transaction.date.desc()).limit(limit).all()
+        return query.order_by(models.Transaction.date.desc()).offset(skip).limit(limit).all()
+
+    def count_transactions(
+        db: Session, 
+        tenant_id: str, 
+        account_id: Optional[str] = None
+    ) -> int:
+        query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
+        if account_id:
+            query = query.filter(models.Transaction.account_id == account_id)
+        return query.count()
+
+    def bulk_delete_transactions(db: Session, transaction_ids: List[str], tenant_id: str) -> int:
+        if not transaction_ids: return 0
+        try:
+            # Use synchronize_session=False for bulk delete performance
+            query = db.query(models.Transaction).filter(
+                models.Transaction.id.in_(transaction_ids),
+                models.Transaction.tenant_id == tenant_id
+            )
+            count = query.delete(synchronize_session=False)
+            db.commit()
+            return count
+        except Exception as e:
+            db.rollback()
+            raise e
 
     def update_transaction(db: Session, txn_id: str, txn_update: schemas.TransactionUpdate, tenant_id: str) -> Optional[models.Transaction]:
         db_txn = db.query(models.Transaction).filter(
