@@ -1,5 +1,5 @@
 from typing import List, Optional
-from backend.app.modules.ingestion.base import BaseSmsParser, ParsedTransaction
+from backend.app.modules.ingestion.base import BaseSmsParser, BaseEmailParser, ParsedTransaction
 
 class SmsParserRegistry:
     _parsers: List[BaseSmsParser] = []
@@ -18,4 +18,23 @@ class SmsParserRegistry:
             if parser.can_handle(sender, message):
                 print(f"Parser {parser.__class__.__name__} handling message from {sender}")
                 return parser.parse(message)
+        return None
+
+class EmailParserRegistry:
+    _parsers: List[BaseEmailParser] = []
+
+    @classmethod
+    def register(cls, parser: BaseEmailParser):
+        """Register a new parser instance."""
+        cls._parsers.append(parser)
+
+    @classmethod
+    def parse(cls, subject: str, body: str) -> Optional[ParsedTransaction]:
+        """
+        Iterate through registered parsers and return the first successful result.
+        """
+        for parser in cls._parsers:
+            if parser.can_handle(subject, body):
+                print(f"Email Parser {parser.__class__.__name__} handling email: {subject}")
+                return parser.parse(body)
         return None

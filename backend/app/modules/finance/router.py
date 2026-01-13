@@ -34,7 +34,7 @@ def read_accounts(
     """
     List accounts for the tenant.
     """
-    return services.FinanceService.get_accounts(db, str(current_user.tenant_id))
+    return services.FinanceService.get_accounts(db, str(current_user.tenant_id), user_role=current_user.role)
 
 @router.put("/accounts/{account_id}", response_model=schemas.AccountRead)
 def update_account(
@@ -80,10 +80,10 @@ def read_transactions(
     """
     skip = (page - 1) * limit
     items = services.FinanceService.get_transactions(
-        db, str(current_user.tenant_id), account_id, skip, limit, start_date, end_date
+        db, str(current_user.tenant_id), account_id, skip, limit, start_date, end_date, user_role=current_user.role
     )
     total = services.FinanceService.count_transactions(
-        db, str(current_user.tenant_id), account_id, start_date, end_date
+        db, str(current_user.tenant_id), account_id, start_date, end_date, user_role=current_user.role
     )
     
     return {
@@ -146,9 +146,9 @@ def get_metrics(
     db: Session = Depends(get_db)
 ):
     """
-    Get Net Worth and Monthly Spending.
+    Get summary metrics for the dashboard.
     """
-    return services.FinanceService.get_summary_metrics(db, str(current_user.tenant_id))
+    return services.FinanceService.get_summary_metrics(db, str(current_user.tenant_id), user_role=current_user.role)
 
 # --- Rules ---
 @router.post("/rules", response_model=schemas.CategoryRuleRead)

@@ -17,6 +17,7 @@ class AccountBase(BaseModel):
 class AccountCreate(AccountBase):
     owner_id: Optional[UUID] = None
     owner_name: Optional[str] = None
+    tenant_id: Optional[Union[UUID, str]] = None # Allow specifying a tenant
 
 class AccountUpdate(BaseModel):
     name: Optional[str] = None
@@ -24,9 +25,11 @@ class AccountUpdate(BaseModel):
     currency: Optional[str] = None
     account_mask: Optional[str] = None
     owner_name: Optional[str] = None
+    owner_id: Optional[UUID] = None
     balance: Optional[Decimal] = None
     is_verified: Optional[bool] = None
     import_config: Optional[str] = None
+    tenant_id: Optional[Union[UUID, str]] = None
 
 from typing import Optional, List, Union
 # ...

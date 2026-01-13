@@ -173,7 +173,149 @@ def create_application() -> FastAPI:
     except Exception as e:
          print(f"Detailed Migration Log: 'import_config' likely exists. {e}")
 
+    # 14. Email Configurations Table Migration
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS email_configurations (
+                    id VARCHAR PRIMARY KEY,
+                    tenant_id VARCHAR NOT NULL,
+                    email VARCHAR NOT NULL,
+                    password VARCHAR NOT NULL,
+                    imap_server VARCHAR DEFAULT 'imap.gmail.com',
+                    folder VARCHAR DEFAULT 'INBOX',
+                    is_active BOOLEAN DEFAULT TRUE,
+                    last_sync_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+                )
+            """))
+            print("Detailed Migration Log: 'email_configurations' table CREATED successfully.")
+    except Exception as e:
+        print(f"Detailed Migration Log: 'email_configurations' table creation failed. {e}")
+
+    # 15. Pending Transactions Table Migration
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS pending_transactions (
+                    id VARCHAR PRIMARY KEY,
+                    tenant_id VARCHAR NOT NULL,
+                    account_id VARCHAR NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    date TIMESTAMP NOT NULL,
+                    description VARCHAR,
+                    recipient VARCHAR,
+                    category VARCHAR,
+                    source VARCHAR NOT NULL,
+                    raw_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                    FOREIGN KEY (account_id) REFERENCES accounts(id)
+                )
+            """))
+            print("Detailed Migration Log: 'pending_transactions' table CREATED successfully.")
+            
+            # Add full_name and avatar to users
+            try:
+                conn.execute(text("ALTER TABLE users ADD COLUMN full_name VARCHAR"))
+                print("Detailed Migration Log: 'full_name' column ADDED to users.")
+            except: pass
+            
+            try:
+                conn.execute(text("ALTER TABLE users ADD COLUMN avatar VARCHAR"))
+                print("Detailed Migration Log: 'avatar' column ADDED to users.")
+            except: pass
+
+            try:
+                conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'ADULT'"))
+                print("Detailed Migration Log: 'role' column ADDED to users.")
+            except: pass
+
+            try:
+                conn.execute(text("ALTER TABLE accounts ADD COLUMN owner_id VARCHAR"))
+                print("Detailed Migration Log: 'owner_id' column ADDED to accounts.")
+            except: pass
+
+            try:
+                conn.execute(text("ALTER TABLE email_configurations ADD COLUMN auto_sync_enabled BOOLEAN DEFAULT FALSE"))
+                print("Detailed Migration Log: 'auto_sync_enabled' column ADDED to email_configurations.")
+            except: pass
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS email_sync_logs (
+                    id VARCHAR PRIMARY KEY,
+                    config_id VARCHAR NOT NULL,
+                    tenant_id VARCHAR NOT NULL,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    status VARCHAR,
+                    items_processed NUMERIC(10,0) DEFAULT 0,
+                    message TEXT,
+                    FOREIGN KEY (config_id) REFERENCES email_configurations(id),
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+                )
+            """))
+            print("Detailed Migration Log: 'email_sync_logs' table CREATED successfully.")
+
+            try:
+                conn.execute(text("ALTER TABLE email_sync_logs ADD COLUMN tenant_id VARCHAR"))
+                print("Detailed Migration Log: 'tenant_id' column ADDED to email_sync_logs.")
+            except: pass
+
+            try:
+                conn.execute(text("ALTER TABLE pending_transactions ADD COLUMN external_id VARCHAR"))
+                print("Detailed Migration Log: 'external_id' column ADDED to pending_transactions.")
+            except: pass
+
+    except Exception as e:
+        print(f"Detailed Migration Log: Migration error (handled): {e}")
+
     Base.metadata.create_all(bind=engine)
+
+    # --- Background Tasks ---
+    import asyncio
+    from backend.app.modules.ingestion.email_sync import EmailSyncService
+    from backend.app.modules.ingestion import models as ingestion_models
+    from backend.app.modules.ingestion.services import IngestionService # Indirectly needed
+    from backend.app.core.database import SessionLocal
+    
+    @application.on_event("startup")
+    async def schedule_auto_sync():
+        async def run_auto_sync():
+            while True:
+                print("[AutoSync] Checking for scheduled syncs...")
+                try:
+                    # Create a new session for this thread
+                    with SessionLocal() as db:
+                        configs = db.query(ingestion_models.EmailConfiguration).filter(
+                            ingestion_models.EmailConfiguration.is_active == True,
+                            ingestion_models.EmailConfiguration.auto_sync_enabled == True
+                        ).all()
+                        
+                        print(f"[AutoSync] Found {len(configs)} active configs.")
+                        for config in configs:
+                            print(f"[AutoSync] Syncing {config.email}...")
+                            try:
+                                EmailSyncService.sync_emails(
+                                    db=db,
+                                    tenant_id=config.tenant_id,
+                                    config_id=config.id,
+                                    imap_server=config.imap_server,
+                                    email_user=config.email,
+                                    email_pass=config.password,
+                                    folder=config.folder,
+                                    search_criterion='ALL'
+                                )
+                            except Exception as e:
+                                print(f"[AutoSync] Error syncing {config.email}: {e}")
+                except Exception as e:
+                    print(f"[AutoSync] General Loop Error: {e}")
+                
+                # Sleep for 15 minutes (900 seconds)
+                await asyncio.sleep(900)
+
+        asyncio.create_task(run_auto_sync())
 
     return application
 

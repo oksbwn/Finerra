@@ -58,10 +58,29 @@ class IngestionService:
              # For V1, we log/skip
              return {"status": "skipped", "reason": f"No account found and no mask in SMS"}
             
-        # Create Transaction via Finance Service (Handles Deduplication & Balance Updates)
+        # Create Transaction or Move to Triage
         from backend.app.modules.finance.services import FinanceService
         from backend.app.modules.finance import schemas as finance_schemas
+        from backend.app.modules.ingestion import models as ingestion_models
         
+        # --- DEDUPLICATION CHECK ---
+        if parsed.ref_id:
+            # 1. Check if already exists in confirmed transactions
+            existing_txn = db.query(finance_models.Transaction).filter(
+                finance_models.Transaction.tenant_id == tenant_id,
+                finance_models.Transaction.external_id == parsed.ref_id
+            ).first()
+            if existing_txn:
+                return {"status": "skipped", "reason": f"Deduplicated (already exists in confirmed: {existing_txn.id})", "deduplicated": True}
+                
+            # 2. Check if already exists in pending (triage)
+            existing_pending = db.query(ingestion_models.PendingTransaction).filter(
+                ingestion_models.PendingTransaction.tenant_id == tenant_id,
+                ingestion_models.PendingTransaction.external_id == parsed.ref_id
+            ).first()
+            if existing_pending:
+                return {"status": "skipped", "reason": f"Deduplicated (already exists in triage: {existing_pending.id})", "deduplicated": True}
+
         # Determine amount sign
         final_amount = parsed.amount
         if parsed.type == "DEBIT":
@@ -69,20 +88,46 @@ class IngestionService:
         else:
             final_amount = abs(parsed.amount)
             
-        txn_create = finance_schemas.TransactionCreate(
-            account_id=str(account.id),
-            amount=final_amount,
-            date=parsed.date,
-            description=parsed.description,
-            recipient=parsed.recipient,
-            category="Uncategorized",
-            external_id=parsed.ref_id,
-            tags=[]
-        )
+        # 1. Try to auto-categorize
+        category = FinanceService.get_suggested_category(db, tenant_id, parsed.description, parsed.recipient)
         
-        try:
-            db_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
-            return {"status": "success", "transaction_id": db_txn.id, "account": account.name, "deduplicated": db_txn.created_at < parsed.date}
-        except Exception as e:
-            print(f"Error creating transaction: {e}")
-            raise e
+        is_auto_ingest = (category != "Uncategorized")
+        
+        if is_auto_ingest:
+            # High confidence -> Directly to transactions
+            txn_create = finance_schemas.TransactionCreate(
+                account_id=str(account.id),
+                amount=final_amount,
+                date=parsed.date,
+                description=parsed.description,
+                recipient=parsed.recipient,
+                category=category,
+                external_id=parsed.ref_id,
+                source=parsed.source,
+                tags=[]
+            )
+            try:
+                db_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
+                # Note: FinanceService also has it's own deduplication, but we handled it above for extra safety
+                return {"status": "success", "transaction_id": db_txn.id, "account": account.name}
+            except Exception as e:
+                print(f"Error creating transaction: {e}")
+                raise e
+        else:
+            # Low confidence -> Move to Triage
+            pending = ingestion_models.PendingTransaction(
+                tenant_id=tenant_id,
+                account_id=str(account.id),
+                amount=final_amount,
+                date=parsed.date,
+                description=parsed.description,
+                recipient=parsed.recipient,
+                category="Uncategorized",
+                source=parsed.source,
+                raw_message=parsed.raw_message,
+                external_id=parsed.ref_id # Store the ref_id for triage too!
+            )
+            db.add(pending)
+            db.commit()
+            db.refresh(pending)
+            return {"status": "triaged", "pending_id": pending.id, "account": account.name}

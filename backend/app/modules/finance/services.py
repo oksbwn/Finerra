@@ -9,10 +9,11 @@ from datetime import datetime
 class FinanceService:
     # --- Accounts ---
     def create_account(db: Session, account: schemas.AccountCreate, tenant_id: str) -> models.Account:
-        db_account = models.Account(
-            **account.model_dump(),
-            tenant_id=tenant_id
-        )
+        data = account.model_dump()
+        if not data.get('tenant_id'):
+            data['tenant_id'] = tenant_id
+            
+        db_account = models.Account(**data)
         if hasattr(db_account, 'owner_id') and db_account.owner_id:
              db_account.owner_id = str(db_account.owner_id) # Ensure string
 
@@ -21,10 +22,15 @@ class FinanceService:
         db.refresh(db_account)
         return db_account
 
-    def get_accounts(db: Session, tenant_id: str, owner_id: Optional[str] = None) -> List[models.Account]:
+    def get_accounts(db: Session, tenant_id: str, owner_id: Optional[str] = None, user_role: str = "ADULT") -> List[models.Account]:
         query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
         if owner_id:
             query = query.filter((models.Account.owner_id == owner_id) | (models.Account.owner_id == None))
+        
+        # Role-based restriction: Kids can't see Investments or Credit Cards
+        if user_role == "CHILD":
+            query = query.filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+            
         return query.all()
 
     def update_account(db: Session, account_id: str, account_update: schemas.AccountUpdate, tenant_id: str) -> Optional[models.Account]:
@@ -38,6 +44,9 @@ class FinanceService:
             
         update_data = account_update.model_dump(exclude_unset=True)
         for key, value in update_data.items():
+            # Special handling for UUID/string mismatch if any
+            if key in ['tenant_id', 'owner_id'] and value:
+                value = str(value)
             setattr(db_account, key, value)
             
         db.add(db_account)
@@ -49,13 +58,14 @@ class FinanceService:
     def create_transaction(db: Session, transaction: schemas.TransactionCreate, tenant_id: str) -> models.Transaction:
         # Deduplication Check: external_id
         if transaction.external_id:
+            # Universal Deduplication: Check across ALL accounts for this tenant
             existing = db.query(models.Transaction).filter(
-                models.Transaction.account_id == str(transaction.account_id),
-                models.Transaction.external_id == transaction.external_id,
-                models.Transaction.tenant_id == tenant_id
+                models.Transaction.tenant_id == tenant_id,
+                models.Transaction.external_id == transaction.external_id
             ).first()
+            
             if existing:
-                # Idempotency: Return existing transaction instead of creating duplicate
+                # Idempotency: Return existing transaction
                 return existing
 
         # Serialize tags if present
@@ -122,9 +132,16 @@ class FinanceService:
         skip: int = 0,
         limit: int = 50,
         start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        end_date: Optional[datetime] = None,
+        user_role: str = "ADULT"
     ) -> List[models.Transaction]:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
+        
+        # Role-based restriction for Kids
+        if user_role == "CHILD":
+            query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                         .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+
         if account_id:
             query = query.filter(models.Transaction.account_id == account_id)
         if start_date:
@@ -139,9 +156,16 @@ class FinanceService:
         tenant_id: str, 
         account_id: Optional[str] = None,
         start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        end_date: Optional[datetime] = None,
+        user_role: str = "ADULT"
     ) -> int:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
+
+        # Role-based restriction for Kids
+        if user_role == "CHILD":
+            query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                         .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+
         if account_id:
             query = query.filter(models.Transaction.account_id == account_id)
         if start_date:
@@ -186,26 +210,102 @@ class FinanceService:
         db.refresh(db_txn)
         return db_txn
 
+    @staticmethod
+    def get_suggested_category(db: Session, tenant_id: str, description: Optional[str], recipient: Optional[str]) -> str:
+        if not description and not recipient:
+            return "Uncategorized"
+            
+        rules = db.query(models.CategoryRule).filter(models.CategoryRule.tenant_id == tenant_id).order_by(models.CategoryRule.priority.desc()).all()
+        
+        desc_lower = (description or "").lower()
+        recipient_lower = (recipient or "").lower()
+        
+        for rule in rules:
+            try:
+                keywords = json.loads(rule.keywords)
+                if any(k.lower() in desc_lower or k.lower() in recipient_lower for k in keywords):
+                    return rule.category
+            except:
+                continue
+        return "Uncategorized"
+
+    # --- Triage Functions ---
+    @staticmethod
+    def get_pending_transactions(db: Session, tenant_id: str):
+        from backend.app.modules.ingestion import models as ingestion_models
+        return db.query(ingestion_models.PendingTransaction).filter(
+            ingestion_models.PendingTransaction.tenant_id == tenant_id
+        ).order_by(ingestion_models.PendingTransaction.created_at.desc()).all()
+
+    @staticmethod
+    def approve_pending_transaction(db: Session, pending_id: str, tenant_id: str, category_override: Optional[str] = None):
+        from backend.app.modules.ingestion import models as ingestion_models
+        pending = db.query(ingestion_models.PendingTransaction).filter(
+            ingestion_models.PendingTransaction.id == pending_id,
+            ingestion_models.PendingTransaction.tenant_id == tenant_id
+        ).first()
+        if not pending: return None
+        
+        # Convert to real transaction
+        txn_create = schemas.TransactionCreate(
+            account_id=pending.account_id,
+            amount=pending.amount,
+            date=pending.date,
+            description=pending.description,
+            recipient=pending.recipient,
+            category=category_override or pending.category or "Uncategorized",
+            external_id=None,
+            source=pending.source,
+            tags=[]
+        )
+        
+        # We reuse create_transaction
+        real_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
+        
+        # Delete pending
+        db.delete(pending)
+        db.commit()
+        return real_txn
+
+    @staticmethod
+    def reject_pending_transaction(db: Session, pending_id: str, tenant_id: str):
+        from backend.app.modules.ingestion import models as ingestion_models
+        pending = db.query(ingestion_models.PendingTransaction).filter(
+            ingestion_models.PendingTransaction.id == pending_id,
+            ingestion_models.PendingTransaction.tenant_id == tenant_id
+        ).first()
+        if not pending: return False
+        db.delete(pending)
+        db.commit()
+        return True
+
     # --- Metrics ---
-    def get_summary_metrics(db: Session, tenant_id: str):
+    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT"):
         from datetime import datetime
         
-        # Net Worth: Sum of all account balances
-        accounts = db.query(models.Account).filter(models.Account.tenant_id == tenant_id).all()
+        # Net Worth: Sum of all account balances (filtered by role)
+        accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
+        if user_role == "CHILD":
+            accounts_query = accounts_query.filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+        
+        accounts = accounts_query.all()
         net_worth = sum(acc.balance or 0 for acc in accounts)
         
-        # Monthly Spending: Sum of negative transactions in current month
-        # We calculate the magnitude (absolute value) of spending
+        # Monthly Spending: Sum of negative transactions in current month (filtered by role)
         now = datetime.utcnow()
         start_of_month = datetime(now.year, now.month, 1)
         
-        txns = db.query(models.Transaction).filter(
+        txns_query = db.query(models.Transaction).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_of_month,
             models.Transaction.amount < 0 
-        ).all()
+        )
         
-        # Sum is negative (e.g. -500), so we negate it to get positive spending (500)
+        if user_role == "CHILD":
+            txns_query = txns_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                                   .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+        
+        txns = txns_query.all()
         monthly_spending = -sum(txn.amount for txn in txns)
         
         return {

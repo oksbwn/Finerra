@@ -28,6 +28,8 @@ class User(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    full_name = Column(String, nullable=True)
+    avatar = Column(String, nullable=True) # Emoji or color or URL
     role = Column(SqlEnum(UserRole), default=UserRole.ADULT, nullable=False)
     # Storing scopes as minimal JSON string or use a separate table if needed.
     # For DuckDB/SQLite, simple JSON string is often easiest if no native JSON type.

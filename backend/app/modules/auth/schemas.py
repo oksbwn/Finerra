@@ -17,6 +17,8 @@ class TenantRead(TenantBase):
 
 class UserBase(BaseModel):
     email: EmailStr
+    full_name: Optional[str] = None
+    avatar: Optional[str] = None
     role: UserRole = UserRole.ADULT
 
 class UserCreate(UserBase):
@@ -28,6 +30,12 @@ class UserRead(UserBase):
     
     class Config:
         from_attributes = True
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    avatar: Optional[str] = None
+    role: Optional[UserRole] = None
+    password: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str

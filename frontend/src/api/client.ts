@@ -94,4 +94,27 @@ export const financeApi = {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
     importCsv: (data: any) => apiClient.post('/ingestion/csv/import', data),
+
+    // Email Automations
+    getEmailConfigs: () => apiClient.get('/ingestion/email/configs'),
+    createEmailConfig: (data: any) => apiClient.post('/ingestion/email/configs', data),
+    deleteEmailConfig: (id: string) => apiClient.delete(`/ingestion/email/configs/${id}`),
+    updateEmailConfig: (id: string, data: any) => apiClient.put(`/ingestion/email/configs/${id}`, data),
+    getEmailSyncLogs: (id: string) => apiClient.get(`/ingestion/email/configs/${id}/logs`),
+    syncEmailConfig: (id: string) => apiClient.post(`/ingestion/email/sync/${id}`),
+
+    // Tenants / Management
+    getTenants: () => apiClient.get('/auth/tenants'),
+    updateTenant: (id: string, data: any) => apiClient.put(`/auth/tenants/${id}`, data),
+
+    // Triage
+    getTriage: () => apiClient.get('/ingestion/triage'),
+    approveTriage: (id: string, category?: string) => apiClient.post(`/ingestion/triage/${id}/approve`, { category }),
+    rejectTriage: (id: string) => apiClient.delete(`/ingestion/triage/${id}`),
+
+    // User Management
+    getMe: () => apiClient.get<any>('/auth/me'),
+    getUsers: () => apiClient.get<any[]>('/auth/users'),
+    createUser: (data: any) => apiClient.post('/auth/users', data),
+    updateUser: (id: string, data: any) => apiClient.put(`/auth/users/${id}`, data),
 }
