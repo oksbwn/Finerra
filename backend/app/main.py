@@ -95,6 +95,31 @@ def create_application() -> FastAPI:
     except Exception as e:
          print(f"Detailed Migration Log: 'source' in transactions likely exists. {e}")
 
+    # 12. Transactions Recipient Migration
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN recipient VARCHAR"))
+            print("Detailed Migration Log: 'recipient' column in transactions ADDED successfully.")
+    except Exception as e:
+         print(f"Detailed Migration Log: 'recipient' in transactions likely exists. {e}")
+
+    # 13. Backfill Recipient Data (One-time)
+    try:
+        from backend.app.modules.ingestion.parsers.recipient_parser import RecipientParser
+        from sqlalchemy.orm import Session
+        with Session(engine) as session:
+            # Find all transactions with missing recipient
+            from backend.app.modules.finance.models import Transaction
+            txns = session.query(Transaction).filter((Transaction.recipient == None) | (Transaction.recipient == "")).all()
+            if txns:
+                print(f"Detailed Migration Log: Backfilling {len(txns)} recipients using modular RecipientParser...")
+                for txn in txns:
+                    txn.recipient = RecipientParser.extract(txn.description)
+                session.commit()
+                print("Detailed Migration Log: Backfill completed successfully.")
+    except Exception as e:
+        print(f"Detailed Migration Log: Recipient backfill failed. {e}")
+
     # 7. Category Rules Migration
     try:
         with engine.begin() as conn:

@@ -19,15 +19,42 @@ const accounts = ref<any[]>([])
 const categories = ref<any[]>([])
 const loading = ref(true)
 const selectedAccount = ref<string>('')
+const activeTab = ref<'list' | 'analytics'>('list')
+
+// Date Filter State
+const startDate = ref<string>('')
+const endDate = ref<string>('')
+const selectedTimeRange = ref<string>('all')
+
+const timeRangeOptions = [
+    { label: 'All Time', value: 'all' },
+    { label: 'Today', value: 'today' },
+    { label: 'This Week', value: 'this-week' },
+    { label: 'This Month', value: 'this-month' },
+    { label: 'Last Month', value: 'last-month' },
+    { label: 'Custom Range', value: 'custom' }
+]
 
 // Modal State
 const showModal = ref(false)
 const isEditing = ref(false)
 const editingTxnId = ref<string | null>(null)
+const originalCategory = ref<string | null>(null)
+
+// Smart Categorization Modal
+const showSmartPrompt = ref(false)
+const smartPromptData = ref({
+    txnId: '',
+    category: '',
+    pattern: '',
+    count: 0,
+    createRule: true,
+    applyToSimilar: true
+})
 
 // Pagination State
 const page = ref(1)
-const pageSize = ref(10) // Small default for testing
+const pageSize = ref(50)
 const total = ref(0)
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value))
 
@@ -61,39 +88,190 @@ const categoryOptions = computed(() => {
 })
 
 async function fetchData() {
+    console.log('[Transactions] fetchData called, loading=true')
     loading.value = true
     try {
         if (accounts.value.length === 0) {
+           console.log('[Transactions] Fetching accounts and categories...')
            const [accRes, catRes] = await Promise.all([
                financeApi.getAccounts(),
                financeApi.getCategories()
            ])
            accounts.value = accRes.data
            categories.value = catRes.data
+           console.log('[Transactions] Loaded', accounts.value.length, 'accounts and', categories.value.length, 'categories')
         }
         if (!selectedAccount.value && route.query.account_id) {
             selectedAccount.value = route.query.account_id as string
         }
         
-        // Pass page/limit
-        const res = await financeApi.getTransactions(selectedAccount.value || undefined, page.value, pageSize.value)
+        let start = startDate.value
+        let end = endDate.value
+
+        // Helper to format date for API (YYYY-MM-DD or ISO)
+        // If they are coming from the date inputs, they are already YYYY-MM-DD
         
-        // Handle paginated response
+        console.log('[Transactions] Fetching transactions', {
+            page: page.value,
+            account: selectedAccount.value || 'all',
+            start,
+            end
+        })
+
+        const res = await financeApi.getTransactions(
+            selectedAccount.value || undefined, 
+            page.value, 
+            pageSize.value,
+            start || undefined,
+            end || undefined
+        )
+        
+        console.log('[Transactions] API response:', res.data)
         transactions.value = res.data.items
         total.value = res.data.total
-        // Keep page within bounds if total reduced
+        
         if (page.value > Math.ceil(total.value / pageSize.value) && page.value > 1) {
             page.value = 1
             fetchData() 
         }
     } catch (e) {
-        console.error("Failed to fetch data", e)
+        console.error("[Transactions] Failed to fetch data", e)
         notify.error("Failed to load data")
     } finally {
         loading.value = false
-        selectedIds.value.clear() // Clear selection on refresh
+        selectedIds.value.clear()
     }
 }
+
+function handleTimeRangeChange(val: string) {
+    const now = new Date()
+    const start = new Date()
+    const end = new Date()
+    
+    // Reset to All Time by default
+    startDate.value = ''
+    endDate.value = ''
+
+    if (val === 'today') {
+        start.setHours(0, 0, 0, 0)
+        end.setHours(23, 59, 59, 999)
+        startDate.value = start.toISOString()
+        endDate.value = end.toISOString()
+    } else if (val === 'this-week') {
+        const day = now.getDay()
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1) // adjust when day is sunday
+        start.setDate(diff)
+        start.setHours(0, 0, 0, 0)
+        startDate.value = start.toISOString()
+    } else if (val === 'this-month') {
+        start.setDate(1)
+        start.setHours(0, 0, 0, 0)
+        startDate.value = start.toISOString()
+    } else if (val === 'last-month') {
+        start.setMonth(start.getMonth() - 1)
+        start.setDate(1)
+        start.setHours(0, 0, 0, 0)
+        
+        end.setMonth(end.getMonth())
+        end.setDate(0) // Last day of previous month
+        end.setHours(23, 59, 59, 999)
+        
+        startDate.value = start.toISOString()
+        endDate.value = end.toISOString()
+    } else if (val === 'custom') {
+        // Keep existing or empty
+        return
+    }
+
+    page.value = 1
+    fetchData()
+}
+
+// --- Analytics Computations ---
+const analyticsData = computed(() => {
+    const data = transactions.value || []
+    let income = 0
+    let expense = 0
+    const catMap: Record<string, number> = {}
+    const dateMap: Record<string, number> = {}
+    const merchantMap: Record<string, number> = {}
+    const accountMap: Record<string, number> = {}
+    let weekendSpend = 0
+    let weekdaySpend = 0
+
+    // We use all transactions fetched (which is up to pageSize)
+    // For proper analytics, we might want to fetch all within range,
+    // but for now we analyze the current view's data as requested ("analytics for the grid data")
+    data.forEach(t => {
+        const amt = Number(t.amount)
+        const isExpense = amt < 0
+        const absAmt = Math.abs(amt)
+
+        if (!isExpense) income += absAmt
+        else {
+            expense += absAmt
+            // Category Breakdown
+            const cat = t.category || 'Uncategorized'
+            catMap[cat] = (catMap[cat] || 0) + absAmt
+
+            // Top Merchants
+            const merchant = t.recipient || 'Unknown Merchant'
+            merchantMap[merchant] = (merchantMap[merchant] || 0) + absAmt
+
+            // Account Distribution
+            const accName = getAccountName(t.account_id)
+            accountMap[accName] = (accountMap[accName] || 0) + absAmt
+
+            // Weekend vs Weekday
+            if (t.date) {
+                const day = new Date(t.date).getDay()
+                const isWeekend = day === 0 || day === 6 // Sun or Sat
+                if (isWeekend) weekendSpend += absAmt
+                else weekdaySpend += absAmt
+            }
+        }
+
+        const dateKey = t.date ? t.date.split('T')[0] : 'Unknown'
+        if (isExpense) {
+            dateMap[dateKey] = (dateMap[dateKey] || 0) + absAmt
+        }
+    })
+
+    const sortedCategories = Object.entries(catMap)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, value]) => ({ name, value }))
+
+    const sortedMerchants = Object.entries(merchantMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, value]) => ({ name, value }))
+
+    const sortedAccounts = Object.entries(accountMap)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, value]) => ({ name, value }))
+
+    const sortedTrends = Object.entries(dateMap)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(-14)
+        .map(([date, value]) => ({ date, value }))
+
+    return {
+        income,
+        expense,
+        net: income - expense,
+        categories: sortedCategories,
+        merchants: sortedMerchants,
+        accounts: sortedAccounts,
+        trends: sortedTrends,
+        patterns: {
+            weekend: weekendSpend,
+            weekday: weekdaySpend,
+            weekendPercent: expense > 0 ? (weekendSpend / expense * 100) : 0,
+            weekdayPercent: expense > 0 ? (weekdaySpend / expense * 100) : 0
+        },
+        count: data.length
+    }
+})
 
 function changePage(newPage: number) {
     if (newPage < 1 || newPage > totalPages.value) return
@@ -139,7 +317,34 @@ async function confirmDelete() {
 }
 
 function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString() + ' ' + new Date(dateStr).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+    if (!dateStr) return { day: 'N/A', meta: '' }
+    
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) {
+        // Try fallback parsing if it's a known non-ISO format
+        return { day: '?', meta: dateStr.split('T')[0] || dateStr }
+    }
+    
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    
+    const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    
+    // Check if today or yesterday
+    if (d.toDateString() === today.toDateString()) {
+        return { day: 'Today', meta: time }
+    }
+    if (d.toDateString() === yesterday.toDateString()) {
+        return { day: 'Yesterday', meta: time }
+    }
+    
+    // Regular date - show day number with time
+    const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return {
+        day: monthDay,
+        meta: time
+    }
 }
 
 function getAccountName(id: string) {
@@ -149,21 +354,19 @@ function getAccountName(id: string) {
 
 
 function getCategoryDisplay(name: string) {
-    if (!name) return '📝 General'
+    if (!name || name === 'Uncategorized') return { icon: '🏷️', text: 'Uncategorized' }
     const cat = categories.value.find(c => c.name === name)
-    // If found, return icon + name. If not (e.g. legacy or custom), just name.
-    return cat ? `${cat.icon || '🏷️'} ${cat.name}` : `🏷️ ${name}`
+    if (cat && cat.icon) {
+        return { icon: cat.icon, text: cat.name }
+    }
+    // Fallback for categories without icon
+    return { icon: '🏷️', text: name }
 }
 
 function getSourceIcon(source: string) {
-    switch ((source || '').toUpperCase()) {
-        case 'CSV': return '📄'
-        case 'EXCEL': return '📊'
-        case 'SMS': return '📱'
-        case 'EMAIL': return '📧'
-        case 'MANUAL': return '👤'
-        default: return '👤'
-    }
+    if (source === 'CSV' || source === 'EXCEL') return '📁'
+    if (source === 'SMS') return '💬'
+    return '📝'
 }
 
 function openAddModal() {
@@ -180,6 +383,7 @@ function openAddModal() {
 function openEditModal(txn: any) {
     isEditing.value = true
     editingTxnId.value = txn.id
+    originalCategory.value = txn.category
     form.value = {
         description: txn.description,
         category: txn.category,
@@ -195,7 +399,7 @@ async function handleSubmit() {
         const payload = {
             description: form.value.description,
             category: form.value.category,
-            amount: Number(form.value.amount), // Ensure number
+            amount: Number(form.value.amount),
             date: new Date(form.value.date).toISOString(),
             account_id: form.value.account_id
         }
@@ -203,10 +407,33 @@ async function handleSubmit() {
         if (isEditing.value && editingTxnId.value) {
             await financeApi.updateTransaction(editingTxnId.value, payload)
             notify.success("Transaction updated")
+            
+            // --- Smart Categorization Detection ---
+            if (form.value.category !== originalCategory.value && form.value.category) {
+                // Find similar transactions to see if we should prompt
+                const txn = transactions.value.find(t => t.id === editingTxnId.value)
+                if (txn) {
+                    const pattern = txn.recipient || txn.description
+                    const similarCount = transactions.value.filter(t => 
+                        t.id !== txn.id && 
+                        (t.category === 'Uncategorized' || !t.category) &&
+                        (txn.recipient ? t.recipient === txn.recipient : t.description === txn.description)
+                    ).length
+
+                    if (similarCount > 0 || txn.recipient) {
+                        smartPromptData.value = {
+                            txnId: editingTxnId.value,
+                            category: form.value.category,
+                            pattern: pattern,
+                            count: similarCount,
+                            createRule: true,
+                            applyToSimilar: similarCount > 0
+                        }
+                        showSmartPrompt.value = true
+                    }
+                }
+            }
         } else {
-            // New Transaction
-            // Note: client.ts might need update if createTransaction doesn't support all fields, checking...
-            // Assuming createTransaction takes TransactionCreate which has these fields
             await financeApi.createTransaction(payload)
             notify.success("Transaction added")
         }
@@ -218,6 +445,93 @@ async function handleSubmit() {
     }
 }
 
+async function handleSmartCategorize() {
+    try {
+        loading.value = true
+        const res = await financeApi.smartCategorize({
+            transaction_id: smartPromptData.value.txnId,
+            category: smartPromptData.value.category,
+            create_rule: smartPromptData.value.createRule,
+            apply_to_similar: smartPromptData.value.applyToSimilar
+        })
+        
+        if (res.data.success) {
+            notify.success(`Success! Updated ${res.data.affected} transactions.`)
+            if (res.data.rule_created) {
+                notify.success(`Rule saved for "${res.data.pattern}"`)
+            }
+        }
+        showSmartPrompt.value = false
+        fetchData()
+    } catch (e) {
+        notify.error("Smart categorization failed")
+    } finally {
+        loading.value = false
+    }
+}
+
+function extractTransactionInfo(description: string) {
+    if (!description) return { primary: 'Unknown', secondary: null }
+    
+    // Common patterns
+    const upiPattern = /UPI\/(.*?)\/(.+?)(?:\/|$)/i
+    const impsPattern = /IMPS\/(.*?)\/(.+?)(?:\/|$)/i
+    const neftPattern = /NEFT\/(.*?)\/(.+?)(?:\/|$)/i
+    const atmPattern = /ATM\s+(WDL|CASH)\s*-?\s*(.+?)(?:\s|$)/i
+    const posPattern = /POS\s+(.+?)(?:\s|$)/i
+    
+    // Try UPI
+    let match = description.match(upiPattern)
+    if (match) {
+        return { 
+            primary: match[2].trim().substring(0, 25), 
+            secondary: 'UPI'
+        }
+    }
+    
+    // Try IMPS
+    match = description.match(impsPattern)
+    if (match) {
+        return { 
+            primary: match[2].trim().substring(0, 25), 
+            secondary: 'IMPS'
+        }
+    }
+    
+    // Try NEFT
+    match = description.match(neftPattern)
+    if (match) {
+        return { 
+            primary: match[2].trim().substring(0, 25), 
+            secondary: 'NEFT'
+        }
+    }
+    
+    // Try ATM
+    match = description.match(atmPattern)
+    if (match) {
+        return { 
+            primary: match[2].trim().substring(0, 25), 
+            secondary: 'ATM'
+        }
+    }
+    
+    // Try POS
+    match = description.match(posPattern)
+    if (match) {
+        return { 
+            primary: match[1].trim().substring(0, 25), 
+            secondary: 'POS'
+        }
+    }
+    
+    // Fallback: just truncate
+    return { 
+        primary: description.substring(0, 30) + (description.length > 30 ? '...' : ''), 
+        secondary: null 
+    }
+}
+
 onMounted(() => {
     fetchData()
 })
@@ -225,84 +539,326 @@ onMounted(() => {
 
 <template>
     <MainLayout>
-        <div class="header-actions">
-            <h1>Transactions</h1>
+        <!-- Compact Header -->
+        <div class="page-header">
+            <div class="header-left">
+                <h1 class="page-title">Transactions</h1>
+                <div class="header-tabs">
+                    <button 
+                        class="tab-btn" 
+                        :class="{ active: activeTab === 'list' }"
+                        @click="activeTab = 'list'"
+                    >
+                        List
+                    </button>
+                    <button 
+                        class="tab-btn" 
+                        :class="{ active: activeTab === 'analytics' }"
+                        @click="activeTab = 'analytics'"
+                    >
+                        Analytics
+                    </button>
+                </div>
+                <span class="transaction-count">{{ total }} records</span>
+            </div>
             
-            <div class="actions-row">
+            <div class="header-actions">
                 <CustomSelect 
                     v-model="selectedAccount" 
                     :options="[{ label: 'All Accounts', value: '' }, ...accountOptions]"
                     placeholder="All Accounts"
                     @update:modelValue="page=1; fetchData()"
-                    style="min-width: 250px;"
+                    class="account-select"
                 />
                 
-                <button v-if="selectedIds.size > 0" @click="deleteSelected" class="btn btn-danger" style="margin-left: 1rem">
-                    <span style="margin-right: 0.5rem">🗑️</span> Delete ({{ selectedIds.size }})
+                <button @click="deleteSelected" :disabled="selectedIds.size === 0" class="btn-compact btn-danger">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    </svg>
+                    Delete{{ selectedIds.size > 0 ? ` (${selectedIds.size})` : '' }}
                 </button>
 
-                <button @click="showImportModal = true" class="btn btn-outline" style="margin-left: 1rem">
-                    <span style="font-size: 1.2rem; margin-right: 0.5rem">📥</span> Import
+                <div class="header-divider"></div>
+
+                <button @click="showImportModal = true" class="btn-compact btn-secondary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                    </svg>
+                    Import
                 </button>
                 
-                <button @click="openAddModal" class="btn btn-primary" style="margin-left: 1rem">
-                    <span style="font-size: 1.2rem; margin-right: 0.5rem">+</span> Add
+                <button @click="openAddModal" class="btn-compact btn-primary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                    Add
                 </button>
 
                 <ImportModal :isOpen="showImportModal" @close="showImportModal = false" @import-success="fetchData" />
             </div>
         </div>
 
-        <div v-if="loading" class="loading">Loading transactions...</div>
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+            <div class="filter-main">
+                <div class="filter-group">
+                    <span class="filter-label">Time Range:</span>
+                    <div class="range-pill-group">
+                        <button 
+                            v-for="opt in timeRangeOptions" 
+                            :key="opt.value"
+                            class="range-pill"
+                            :class="{ active: selectedTimeRange === opt.value }"
+                            @click="selectedTimeRange = opt.value; handleTimeRangeChange(opt.value)"
+                        >
+                            {{ opt.label }}
+                        </button>
+                    </div>
+                </div>
 
-        <div v-else class="table-container">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th style="width: 40px"><input type="checkbox" :checked="allSelected" @change="toggleSelectAll" :disabled="transactions.length === 0"></th>
-                        <th style="width: 40px"></th>
-                        <th>Date</th>
-                        <th>Description</th>
-                        <th>Account</th>
-                        <th>Category</th>
-                        <th class="text-right">Amount</th>
-                        <th class="text-center">Edit</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="txn in transactions" :key="txn.id" :class="{ 'selected-row': selectedIds.has(txn.id) }">
-                        <td><input type="checkbox" :checked="selectedIds.has(txn.id)" @change="toggleSelection(txn.id)"></td>
-                        <td class="text-center" :title="txn.source">{{ getSourceIcon(txn.source) }}</td>
-                        <td>{{ formatDate(txn.date) }}</td>
-                        <td>{{ txn.description }}</td>
-                        <td>{{ getAccountName(txn.account_id) }}</td>
-                        <td><span class="badge">{{ getCategoryDisplay(txn.category) }}</span></td>
-                        <td class="text-right font-mono" :class="{'credit': txn.amount > 0, 'debit': txn.amount < 0}">
-                             {{ txn.amount }}
-                        </td>
-                        <td class="text-center">
-                            <button @click="openEditModal(txn)" class="btn-icon">✏️</button>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-            
-            <div v-if="transactions.length === 0" class="empty-state">
-                <p>No transactions found.</p>
+                <div class="filter-divider" v-if="selectedTimeRange === 'custom'"></div>
+
+                <div class="filter-group animate-in" v-if="selectedTimeRange === 'custom'">
+                    <input type="date" v-model="startDate" class="date-input" @change="page=1; fetchData()" />
+                    <span class="filter-separator">to</span>
+                    <input type="date" v-model="endDate" class="date-input" @change="page=1; fetchData()" />
+                </div>
             </div>
-            
-            <!-- Pagination Controls -->
-            <div class="pagination-footer" v-if="total > 0">
-                <span class="page-info">
-                    Showing <strong>{{ (page - 1) * pageSize + 1 }}-{{ Math.min(page * pageSize, total) }}</strong> of <strong>{{ total }}</strong>
-                </span>
-                <div class="pagination-actions">
-                    <button class="btn btn-outline btn-sm" :disabled="page === 1" @click="changePage(page - 1)">
-                        ← Previous
-                    </button>
-                    <button class="btn btn-outline btn-sm" :disabled="page >= totalPages" @click="changePage(page + 1)">
-                        Next →
-                    </button>
+
+            <button v-if="startDate || endDate" class="btn-link" @click="selectedTimeRange='all'; handleTimeRangeChange('all')">
+                Reset
+            </button>
+        </div>
+
+        <div v-if="loading" class="loading-state">
+            <div class="spinner"></div>
+            Loading transactions...
+        </div>
+
+        <div v-else class="content-container animate-in">
+            <!-- List View -->
+            <div v-if="activeTab === 'list'" class="content-card">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th class="col-checkbox">
+                                <input type="checkbox" :checked="allSelected" @change="toggleSelectAll" :disabled="transactions.length === 0">
+                            </th>
+                            <th class="col-date">Date</th>
+                            <th class="col-recipient">Recipient / Source</th>
+                            <th class="col-description">Description</th>
+                            <th class="col-amount">Amount</th>
+                            <th class="col-actions"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="txn in transactions" :key="txn.id" :class="{ 'row-selected': selectedIds.has(txn.id) }">
+                            <td class="col-checkbox">
+                                <input type="checkbox" :checked="selectedIds.has(txn.id)" @change="toggleSelection(txn.id)">
+                            </td>
+                            <td class="col-date">
+                                <div class="date-cell">
+                                    <div class="date-day">{{ formatDate(txn.date).day }}</div>
+                                    <div class="date-meta">{{ formatDate(txn.date).meta }}</div>
+                                </div>
+                            </td>
+                            <td class="col-recipient">
+                                <div class="txn-recipient">
+                                    <div class="txn-primary">{{ txn.recipient || txn.description }}</div>
+                                </div>
+                            </td>
+                            <td class="col-description">
+                                <div class="txn-description">
+                                    <div class="txn-description-text">{{ txn.description }}</div>
+                                    <div class="txn-meta-row">
+                                        <span class="account-badge">{{ getAccountName(txn.account_id) }}</span>
+                                        <span class="txn-secondary" v-if="txn.source">{{ txn.source }}</span>
+                                        <span class="category-pill">
+                                            <span class="category-icon">{{ getCategoryDisplay(txn.category).icon }}</span>
+                                            {{ getCategoryDisplay(txn.category).text }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="col-amount">
+                                <div class="amount-cell" :class="{'is-income': Number(txn.amount) > 0, 'is-expense': Number(txn.amount) < 0}">
+                                    <span class="amount-icon">{{ Number(txn.amount) > 0 ? '↑' : '↓' }}</span>
+                                    <span class="amount-value">{{ Math.abs(Number(txn.amount)).toFixed(2) }}</span>
+                                </div>
+                            </td>
+                            <td class="col-actions">
+                                <button class="icon-btn" @click="openEditModal(txn)" title="Edit">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                </button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <div v-if="transactions.length === 0" class="empty-state">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <path d="M3 9h18M9 21V9"/>
+                    </svg>
+                    <p>No transactions found</p>
+                </div>
+                
+                <!-- Compact Pagination -->
+                <div class="pagination-bar" v-if="total > 0">
+                    <span class="page-info">
+                        {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} of {{ total }}
+                    </span>
+                    <div class="pagination-controls">
+                        <button class="page-btn" :disabled="page === 1" @click="changePage(page - 1)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M15 18l-6-6 6-6"/>
+                            </svg>
+                        </button>
+                        <button class="page-btn" :disabled="page >= totalPages" @click="changePage(page + 1)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics View -->
+            <div v-if="activeTab === 'analytics'" class="analytics-dashboard">
+                <!-- Summary Cards -->
+                <div class="summary-grid">
+                    <div class="summary-card income">
+                        <div class="card-icon">⚡</div>
+                        <div class="card-content">
+                            <span class="card-label">Total Income</span>
+                            <span class="card-value">₹{{ analyticsData.income.toFixed(2) }}</span>
+                        </div>
+                    </div>
+                    <div class="summary-card expense">
+                        <div class="card-icon">🔥</div>
+                        <div class="card-content">
+                            <span class="card-label">Total Expenses</span>
+                            <span class="card-value">₹{{ analyticsData.expense.toFixed(2) }}</span>
+                        </div>
+                    </div>
+                    <div class="summary-card net" :class="{ 'is-negative': analyticsData.net < 0 }">
+                        <div class="card-icon">{{ analyticsData.net >= 0 ? '💰' : '📉' }}</div>
+                        <div class="card-content">
+                            <span class="card-label">Net Savings</span>
+                            <span class="card-value">₹{{ analyticsData.net.toFixed(2) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analytics-main-grid">
+                    <!-- Category Breakdown -->
+                    <div class="analytics-card">
+                        <h3 class="card-title">Category Breakdown</h3>
+                        <div class="category-list">
+                            <div v-for="cat in analyticsData.categories" :key="cat.name" class="category-item">
+                                <div class="category-info">
+                                    <span class="cat-name">{{ cat.name }}</span>
+                                    <span class="cat-value">₹{{ cat.value.toFixed(2) }}</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div 
+                                        class="progress-bar-fill" 
+                                        :style="{ width: `${(cat.value / analyticsData.expense * 100) || 0}%` }"
+                                    ></div>
+                                </div>
+                            </div>
+                            <div v-if="analyticsData.categories.length === 0" class="empty-small">
+                                No spending data available
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Daily Trend -->
+                    <div class="analytics-card">
+                        <h3 class="card-title">Daily Spending Trend</h3>
+                        <div class="trend-chart-container">
+                            <div class="trend-bars">
+                                <div 
+                                    v-for="day in analyticsData.trends" 
+                                    :key="day.date" 
+                                    class="trend-bar-wrapper"
+                                    :title="`${day.date}: ₹${day.value.toFixed(2)}`"
+                                >
+                                    <div 
+                                        class="trend-bar" 
+                                        :style="{ height: `${(day.value / Math.max(...analyticsData.trends.map(d => d.value), 1) * 100)}%` }"
+                                    ></div>
+                                    <span class="trend-date">{{ day.date.slice(8) }}</span>
+                                </div>
+                            </div>
+                            <div v-if="analyticsData.trends.length === 0" class="empty-small">
+                                Not enough data for trend
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Merchants -->
+                    <div class="analytics-card">
+                        <h3 class="card-title">Top Merchants</h3>
+                        <div class="merchant-list">
+                            <div v-for="m in analyticsData.merchants" :key="m.name" class="merchant-item">
+                                <span class="m-name">{{ m.name }}</span>
+                                <span class="m-value">₹{{ m.value.toFixed(2) }}</span>
+                            </div>
+                            <div v-if="analyticsData.merchants.length === 0" class="empty-small">
+                                No merchant data
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Spending Insights -->
+                    <div class="analytics-card">
+                        <h3 class="card-title">Spending Insights</h3>
+                        <div class="insights-content">
+                            <div class="insight-section">
+                                <h4 class="insight-subtitle">Account Distribution</h4>
+                                <div class="account-list">
+                                    <div v-for="acc in analyticsData.accounts" :key="acc.name" class="account-item">
+                                        <div class="acc-info">
+                                            <span>{{ acc.name }}</span>
+                                            <span>₹{{ acc.value.toFixed(2) }}</span>
+                                        </div>
+                                        <div class="mini-bar-bg">
+                                            <div class="mini-bar-fill" :style="{ width: `${(acc.value / analyticsData.expense * 100) || 0}%` }"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="insight-divider"></div>
+
+                            <div class="insight-section">
+                                <h4 class="insight-subtitle">Weekend vs Weekday</h4>
+                                <div class="pattern-bars">
+                                    <div class="pattern-item">
+                                        <div class="pattern-label">
+                                            <span>Weekdays</span>
+                                            <span>{{ analyticsData.patterns.weekdayPercent.toFixed(0) }}%</span>
+                                        </div>
+                                        <div class="pattern-bar-bg">
+                                            <div class="pattern-bar-fill weekday" :style="{ width: `${analyticsData.patterns.weekdayPercent}%` }"></div>
+                                        </div>
+                                    </div>
+                                    <div class="pattern-item">
+                                        <div class="pattern-label">
+                                            <span>Weekends</span>
+                                            <span>{{ analyticsData.patterns.weekendPercent.toFixed(0) }}%</span>
+                                        </div>
+                                        <div class="pattern-bar-bg">
+                                            <div class="pattern-bar-fill weekend" :style="{ width: `${analyticsData.patterns.weekendPercent}%` }"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -365,20 +921,33 @@ onMounted(() => {
         </div>
 
 
-        <!-- Delete Confirmation Modal -->
-        <div v-if="showDeleteConfirm" class="modal-overlay-global">
-            <div class="modal-global" style="max-width: 400px;">
+        <!-- Smart Categorization Prompt -->
+        <div v-if="showSmartPrompt" class="modal-overlay-global">
+            <div class="modal-global" style="max-width: 450px;">
                 <div class="modal-header">
-                    <h2 class="modal-title">Delete Transactions?</h2>
-                    <button class="btn-icon" @click="showDeleteConfirm = false">✕</button>
+                    <h2 class="modal-title">Smart Categorization 🧠</h2>
+                    <button class="btn-icon" @click="showSmartPrompt = false">✕</button>
                 </div>
                 <div style="padding: 1.5rem;">
-                    <p style="margin-bottom: 1.5rem; color: var(--color-text-muted);">
-                        Are you sure you want to delete <strong>{{ selectedIds.size }}</strong> transactions? This action cannot be undone.
+                    <p style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                        You categorized <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{ smartPromptData.category }}</strong>.
                     </p>
-                    <div class="modal-footer" style="padding: 0; border: none; background: transparent;">
-                        <button class="btn btn-outline" @click="showDeleteConfirm = false">Cancel</button>
-                        <button class="btn btn-danger" @click="confirmDelete">Delete</button>
+                    
+                    <div class="smart-options">
+                        <label class="smart-option-item" v-if="smartPromptData.count > 0">
+                            <input type="checkbox" v-model="smartPromptData.applyToSimilar" class="checkbox-input">
+                            <span>Apply to <strong>{{ smartPromptData.count }}</strong> similar uncategorized transactions</span>
+                        </label>
+                        
+                        <label class="smart-option-item">
+                            <input type="checkbox" v-model="smartPromptData.createRule" class="checkbox-input">
+                            <span>Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{ smartPromptData.category }}</strong> in future</span>
+                        </label>
+                    </div>
+
+                    <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
+                        <button class="btn btn-outline" @click="showSmartPrompt = false">Skip</button>
+                        <button class="btn btn-primary" @click="handleSmartCategorize">Confirm</button>
                     </div>
                 </div>
             </div>
@@ -387,178 +956,1009 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Professional UI Overhaul */
-.header-actions {
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;
-    background: linear-gradient(to right, rgba(255,255,255,0.8), rgba(255,255,255,0.5));
-    backdrop-filter: blur(8px);
-    padding: 1.5rem 2rem;
-    border-radius: 1.5rem;
-    border: 1px solid rgba(255,255,255,0.4);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+/* Modern Compact Design System */
+
+/* Page Header */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e5e7eb;
 }
-.header-actions h1 {
-    font-size: 1.75rem; font-weight: 700; color: var(--color-text-main); letter-spacing: -0.02em;
+
+.header-left {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+
+.page-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #111827;
     margin: 0;
 }
-.actions-row { display: flex; align-items: center; gap: 1rem; }
 
-.table-container {
-    background: #fff;
-    border-radius: 1.5rem;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.04);
-    overflow: hidden; /* For border radius */
-    border: 1px solid rgba(0,0,0,0.04);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+.transaction-count {
+    font-size: 0.875rem;
+    color: #6b7280;
+    font-weight: 400;
 }
 
-.data-table { 
-    width: 100%; border-collapse: separate; border-spacing: 0; 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
-.data-table th, .data-table td {
-    padding: 1.25rem 1.5rem; 
-    border-bottom: 1px solid #f3f4f6;
-    transition: background-color 0.15s ease;
+
+.account-select {
+    min-width: 200px;
 }
-.data-table th {
-    background: #f9fafb;
-    font-weight: 600; font-size: 0.8rem; 
-    color: #6b7280; 
-    text-transform: uppercase; letter-spacing: 0.05em;
-    border-bottom: 2px solid #e5e7eb;
+
+.account-select :deep(.select-trigger) {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+}
+
+/* Compact Buttons - match dropdown */
+.btn-compact {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
     white-space: nowrap;
 }
-.data-table tbody tr {
-    transition: all 0.2s ease;
+
+.btn-compact svg {
+    flex-shrink: 0;
 }
-.data-table tbody tr:hover {
-    background-color: #f9fafb;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    position: relative; z-index: 1;
+
+.btn-compact:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
-.data-table tbody tr:last-child td {
+
+.btn-primary {
+    background: #4f46e5;
+    color: white;
+    border-color: #4f46e5;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #4338ca;
+    border-color: #4338ca;
+}
+
+.btn-secondary {
+    background: white;
+    color: #374151;
+    border-color: #d1d5db;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+.btn-danger {
+    background: white;
+    color: #dc2626;
+    border-color: #fecaca;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #fef2f2;
+    border-color: #fca5a5;
+}
+
+/* Loading State */
+.loading-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 4rem 2rem;
+    color: #6b7280;
+    font-size: 0.875rem;
+}
+
+.spinner {
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid #e5e7eb;
+    border-top-color: #4f46e5;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Content Card */
+.table-container {
+    background: white;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    overflow-x: auto;
+    border: 1px solid #e5e7eb;
+    margin-bottom: 1.5rem;
+    position: relative;
+}
+
+/* Modern Table */
+.modern-table {
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    table-layout: fixed;
+}
+
+.modern-table thead th {
+    background: #f9fafb;
+    padding: 0.625rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid #e5e7eb;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.modern-table tbody td {
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+    color: #374151;
+    vertical-align: middle;
+}
+
+.modern-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-.text-right { text-align: right; }
-.text-center { text-align: center; }
-.font-mono { 
-    font-family: 'SF Mono', 'Roboto Mono', Menlo, monospace; 
-    font-size: 1rem; font-weight: 500; 
+/* Zebra striping */
+.modern-table tbody tr:nth-child(even) {
+    background: #fafafa;
 }
 
-/* Financial Colors */
-.credit { color: #10b981; font-weight: 600; }
-.debit { color: #1f2937; font-weight: 500; }
+.modern-table tbody tr:hover {
+    background: #f3f4f6;
+}
 
-/* Badges */
-.badge {
-    background: #f3f4f6; 
+.modern-table tbody tr.row-selected {
+    background: #eff6ff;
+}
+
+.modern-table tbody tr.row-selected:hover {
+    background: #dbeafe;
+}
+
+/* Column Sizing */
+.col-checkbox { 
+    width: 40px; 
+    text-align: center;
+    padding-left: 1rem !important;
+}
+.col-icon { 
+    width: 36px; 
+    text-align: center;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+}
+.col-date { 
+    width: 110px;
+    min-width: 110px;
+    font-variant-numeric: tabular-nums;
+}
+.col-recipient {
+    width: 250px;
+    min-width: 200px;
+    font-weight: 500;
+}
+.col-description { 
+    width: auto;
+    min-width: 300px;
+    color: #4b5563;
+}
+.col-amount { 
+    width: 120px;
+    text-align: right;
+    padding-right: 1.5rem !important;
+}
+.col-actions { 
+    width: 50px; 
+    text-align: center;
+    padding-right: 1rem !important;
+}
+
+/* Table Elements */
+.source-icon {
+    font-size: 1.125rem;
+    opacity: 0.7;
+}
+
+/* Date Cell */
+.date-cell {
+    line-height: 1.3;
+}
+
+.date-day {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.date-meta {
+    font-size: 0.65rem;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+/* Transaction Description */
+.txn-description {
+    line-height: 1.4;
+}
+
+.txn-primary {
+    color: #111827;
+    font-weight: 600;
+    font-size: 0.875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 0rem;
+}
+
+.txn-description-text {
+    font-size: 0.75rem;
+    color: #6b7280;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 0.125rem;
+}
+
+.txn-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+}
+
+.account-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    background: #eff6ff;
+    color: #1e40af;
+    border-radius: 9999px;
+    font-size: 0.65rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.txn-secondary {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    background: #fef3c7;
+    color: #92400e;
+    border-radius: 9999px;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    font-weight: 500;
+    letter-spacing: 0.025em;
+    white-space: nowrap;
+}
+
+/* Category Pill */
+.category-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.125rem 0.5rem;
+    background: #f3f4f6;
+    color: #4b5563;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.category-icon {
+    font-size: 0.875rem;
+}
+
+/* Amount Cell with Icon */
+.amount-cell {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.375rem;
+}
+
+.amount-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.amount-cell.is-income .amount-icon {
+    background: #d1fae5;
+    color: #059669;
+}
+
+.amount-cell.is-expense .amount-icon {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.amount-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.amount-cell.is-income .amount-value {
+    color: #059669;
+}
+
+.amount-cell.is-expense .amount-value {
     color: #374151;
-    padding: 0.35rem 0.85rem; 
-    border-radius: 9999px; 
-    font-size: 0.8rem; font-weight: 600; 
-    border: 1px solid #e5e7eb;
-    display: inline-flex; align-items: center; gap: 0.35rem;
-    transition: all 0.2s;
-}
-.badge:hover {
-    background: #e5e7eb;
-    transform: scale(1.05);
 }
 
-.empty-state { 
-    padding: 4rem 2rem; text-align: center; 
-    color: #9ca3af; font-size: 1.1rem; 
-    display: flex; flex-direction: column; align-items: center; gap: 1rem;
+/* Remove old amount styling */
+.amount-positive {
+    color: #059669;
+    font-weight: 600;
 }
 
-/* Form Styles */
-.form-layout-row { display: flex; gap: 1.5rem; }
-.half { flex: 1; }
-.form-input {
-    width: 100%; padding: 0.75rem 1rem;
-    border: 1px solid #e5e7eb; border-radius: 0.75rem;
-    font-size: 1rem; transition: all 0.2s;
+.amount-negative {
+    color: #374151;
+    font-weight: 500;
+}
+
+/* Filter Bar */
+.filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 0.625rem 1rem;
     background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    margin-bottom: 1.25rem;
 }
-.form-input:focus {
-    border-color: #6366f1; background: #fff;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+
+.filter-main {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.filter-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.range-pill-group {
+    display: flex;
+    gap: 0.375rem;
+    background: #f3f4f6;
+    padding: 2px;
+    border-radius: 0.5rem;
+    height: 36px;
+    box-sizing: border-box;
+    align-items: center;
+}
+
+.range-pill {
+    padding: 0 0.75rem;
+    height: 32px;
+    border: none;
+    background: transparent;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #4b5563;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+}
+
+.range-pill:hover:not(.active) {
+    color: #111827;
+    background: #e5e7eb;
+}
+
+.range-pill.active {
+    background: white;
+    color: #4f46e5;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.filter-divider {
+    width: 1px;
+    height: 1.5rem;
+    background: #e5e7eb;
+}
+
+.date-input {
+    height: 36px;
+    padding: 0 0.625rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    color: #374151;
+    background: white;
     outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
 }
-/* Button Styles */
-/* Button Styles - Clean & Minimal */
+
+.date-input:focus {
+    border-color: #4f46e5;
+}
+
+.filter-separator {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    font-weight: 500;
+}
+
+.animate-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.header-divider {
+    width: 1px;
+    height: 1.5rem;
+    background: #e5e7eb;
+    margin: 0 0.5rem;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: #4f46e5;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    transition: background 0.2s;
+}
+
+.btn-link:hover {
+    background: #eff6ff;
+}
+
+/* Icon Button */
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0.375rem;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.icon-btn:hover {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+/* Empty State */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+    color: #9ca3af;
+    gap: 0.75rem;
+}
+
+.empty-state svg {
+    opacity: 0.5;
+}
+
+.empty-state p {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+/* Pagination Bar */
+.pagination-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid #e5e7eb;
+    background: #fafafa;
+}
+
+.page-info {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.pagination-controls {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+    background: #f9fafb;
+    border-color: #d1d5db;
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Modal Button Overrides for Existing Modals */
 .btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 0.6rem 1.2rem; border-radius: 0.5rem;
-    font-weight: 500; font-size: 0.9rem; cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    font-size: 0.875rem;
+    cursor: pointer;
     transition: all 0.15s ease;
     border: 1px solid transparent;
 }
-.btn:active { transform: translateY(1px); }
 
-.btn-primary {
-    background-color: #4f46e5; color: white;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+.btn-outline {
+    background: white;
+    color: #374151;
+    border-color: #d1d5db;
 }
-.btn-primary:hover {
-    background-color: #4338ca;
+
+.btn-outline:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+/* Form Styles */
+.form-layout-row { 
+    display: flex; 
+    gap: 1.5rem; 
+}
+
+.half { 
+    flex: 1; 
+}
+
+.form-input {
+    width: 100%; 
+    padding: 0.625rem 0.875rem;
+    border: 1px solid #d1d5db; 
+    border-radius: 0.375rem;
+    font-size: 0.875rem; 
+    transition: all 0.15s;
+    background: white;
+}
+
+.form-input:focus {
+    border-color: #4f46e5; 
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+.icon-spacer { 
+    margin-right: 0.5rem; 
+}
+
+/* Smart Options */
+.smart-options {
+    background: #f9fafb;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    border: 1px solid #e5e7eb;
+}
+
+.smart-option-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: #374151;
+}
+
+.checkbox-input {
+    margin-top: 0.125rem;
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+}
+/* Tabs Styling */
+.header-tabs {
+    display: flex;
+    gap: 0.25rem;
+    background: #f3f4f6;
+    padding: 0.25rem;
+    border-radius: 0.5rem;
+    margin: 0 1rem;
+}
+
+.tab-btn {
+    padding: 0.375rem 1rem;
+    border: none;
+    background: transparent;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover:not(.active) {
+    color: #111827;
+}
+
+.tab-btn.active {
+    background: white;
+    color: #4f46e5;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Analytics Dashboard */
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.summary-card {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    background: white;
+    border-radius: 1rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s;
+}
+
+.summary-card:hover {
+    transform: translateY(-2px);
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
-.btn-outline {
-    background-color: white; color: #374151;
-    border-color: #d1d5db;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-.btn-outline:hover {
-    background-color: #f9fafb;
-    border-color: #9ca3af; color: #111827;
-}
-
-.btn-danger { 
-    background-color: #fff; color: #dc2626; 
-    border-color: #fecaca;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-.btn-danger:hover { 
-    background-color: #fef2f2; border-color: #fca5a5; color: #b91c1c; 
+.card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.75rem;
+    font-size: 1.5rem;
 }
 
-.btn-icon {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 2rem; height: 2rem; padding: 0;
-    border-radius: 0.375rem; color: #6b7280;
-    transition: color 0.15s, background-color 0.15s;
-}
-.btn-icon:hover { 
-    background-color: #f3f4f6; color: #111827; 
+.income .card-icon { background: #ecfdf5; }
+.expense .card-icon { background: #fef2f2; }
+.net .card-icon { background: #eff6ff; }
+.net.is-negative .card-icon { background: #fff7ed; }
+
+.card-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
 }
 
-.btn-sm {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.85rem;
+.card-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #111827;
 }
 
-/* Pagination */
-.pagination-footer {
-    display: flex; justify-content: space-between; align-items: center; 
-    padding: 1rem 1.5rem; 
-    border-top: 1px solid #f3f4f6;
-    background-color: #fff;
-    border-bottom-left-radius: 1.5rem;
-    border-bottom-right-radius: 1.5rem;
-}
-.page-info { 
-    color: #6b7280; font-size: 0.875rem; 
-}
-.page-info strong { color: #111827; font-weight: 600; }
-.pagination-actions { display: flex; gap: 0.5rem; }
+.income .card-value { color: #059669; }
+.expense .card-value { color: #dc2626; }
+.net.is-negative .card-value { color: #d97706; }
 
-/* Anim */
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-.table-container { animation: fadeIn 0.4s ease-out; }
-.header-actions { animation: fadeIn 0.4s ease-out; }
+.analytics-main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+
+.analytics-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 1.5rem;
+}
+
+/* Category List */
+.category-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.category-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.cat-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.cat-value {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.progress-bar-bg {
+    height: 0.5rem;
+    background: #f3f4f6;
+    border-radius: 9999px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4f46e5, #818cf8);
+    border-radius: 9999px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Trend Chart */
+.trend-chart-container {
+    height: 200px;
+    display: flex;
+    align-items: flex-end;
+    padding-top: 1rem;
+}
+
+.trend-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    width: 100%;
+    height: 100%;
+}
+
+.trend-bar-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    height: 100%;
+    justify-content: flex-end;
+}
+
+.trend-bar {
+    width: 100%;
+    background: #e0e7ff;
+    border-radius: 0.25rem 0.25rem 0 0;
+    min-height: 2px;
+    transition: all 0.3s;
+    cursor: help;
+}
+
+.trend-bar:hover {
+    background: #4f46e5;
+}
+
+.trend-date {
+    font-size: 0.65rem;
+    color: #9ca3af;
+    font-weight: 500;
+}
+
+.empty-small {
+    padding: 3rem;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 0.875rem;
+}
+
+@media (max-width: 1024px) {
+    .analytics-main-grid {
+        grid-template-columns: 1fr;
+    }
+}
+/* Merchant List */
+.merchant-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+}
+
+.merchant-item {
+    display: flex;
+    justify-content: space-between;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.merchant-item:last-child {
+    border-bottom: none;
+}
+
+.m-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+}
+
+.m-value {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+/* Spending Insights */
+.insights-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.insight-subtitle {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+}
+
+.account-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.account-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.acc-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.mini-bar-bg {
+    height: 4px;
+    background: #f3f4f6;
+    border-radius: 2px;
+}
+
+.mini-bar-fill {
+    height: 100%;
+    background: #4f46e5;
+    border-radius: 2px;
+}
+
+.insight-divider {
+    height: 1px;
+    background: #e5e7eb;
+}
+
+.pattern-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.pattern-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.pattern-bar-bg {
+    height: 8px;
+    background: #f3f4f6;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.pattern-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.8s ease;
+}
+
+.pattern-bar-fill.weekday { background: #4f46e5; }
+.pattern-bar-fill.weekend { background: #f59e0b; }
 </style>

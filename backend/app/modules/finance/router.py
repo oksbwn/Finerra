@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.app.core.database import get_db
@@ -69,15 +70,21 @@ def read_transactions(
     account_id: Optional[str] = None,
     page: int = 1,
     limit: int = 50,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    List transactions with pagination.
+    List transactions with pagination and optional date filtering.
     """
     skip = (page - 1) * limit
-    items = services.FinanceService.get_transactions(db, str(current_user.tenant_id), account_id, skip, limit)
-    total = services.FinanceService.count_transactions(db, str(current_user.tenant_id), account_id)
+    items = services.FinanceService.get_transactions(
+        db, str(current_user.tenant_id), account_id, skip, limit, start_date, end_date
+    )
+    total = services.FinanceService.count_transactions(
+        db, str(current_user.tenant_id), account_id, start_date, end_date
+    )
     
     return {
         "items": items,
@@ -114,6 +121,24 @@ def update_transaction(
     if not db_txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return db_txn
+
+@router.post("/transactions/smart-categorize")
+def smart_categorize_transaction(
+    payload: schemas.SmartCategorizeRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Categorize a transaction and optionally create a rule + update similar.
+    """
+    return services.FinanceService.batch_update_category_and_create_rule(
+        db, 
+        payload.transaction_id, 
+        payload.category, 
+        str(current_user.tenant_id),
+        create_rule=payload.create_rule,
+        apply_to_similar=payload.apply_to_similar
+    )
 
 @router.get("/metrics")
 def get_metrics(

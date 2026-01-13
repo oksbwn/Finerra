@@ -63,18 +63,20 @@ class FinanceService:
         
         # --- Auto-Categorization Logic ---
         final_category = transaction.category
-        if (not final_category or final_category == "Uncategorized") and transaction.description:
+        if (not final_category or final_category == "Uncategorized") and (transaction.description or transaction.recipient):
             # Fetch all rules ordered by priority descending
-            rules = db.query(models.CategoryRule).order_by(models.CategoryRule.priority.desc()).all()
+            rules = db.query(models.CategoryRule).filter(models.CategoryRule.tenant_id == tenant_id).order_by(models.CategoryRule.priority.desc()).all()
             
-            desc_lower = transaction.description.lower()
+            desc_lower = (transaction.description or "").lower()
+            recipient_lower = (transaction.recipient or "").lower()
+            
             for rule in rules:
                 try:
                     keywords = json.loads(rule.keywords)
-                    # Check if any keyword matches
-                    if any(k.lower() in desc_lower for k in keywords):
+                    # Check if any keyword matches description OR recipient
+                    if any(k.lower() in desc_lower or k.lower() in recipient_lower for k in keywords):
                         final_category = rule.category
-                        print(f"DEBUG: Rule '{rule.name}' matched! Applied category '{final_category}'")
+                        print(f"✓ Auto-categorized: Rule '{rule.name}' matched! Applied category '{final_category}'")
                         break
                 except Exception as e:
                     print(f"Error parsing rule keywords: {e}")
@@ -91,10 +93,12 @@ class FinanceService:
             amount=transaction.amount,
             date=transaction.date,
             description=transaction.description,
+            recipient=transaction.recipient,
             category=final_category,
             tags=tags_str,
             external_id=transaction.external_id,
-            type=txn_type
+            type=txn_type,
+            source=transaction.source if hasattr(transaction, 'source') else "MANUAL"
         )
         
         # Update Account Balance
@@ -116,21 +120,35 @@ class FinanceService:
         tenant_id: str, 
         account_id: Optional[str] = None, 
         skip: int = 0,
-        limit: int = 50
+        limit: int = 50,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
     ) -> List[models.Transaction]:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
         if account_id:
             query = query.filter(models.Transaction.account_id == account_id)
+        if start_date:
+            query = query.filter(models.Transaction.date >= start_date)
+        if end_date:
+            query = query.filter(models.Transaction.date <= end_date)
+            
         return query.order_by(models.Transaction.date.desc()).offset(skip).limit(limit).all()
 
     def count_transactions(
         db: Session, 
         tenant_id: str, 
-        account_id: Optional[str] = None
+        account_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
     ) -> int:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
         if account_id:
             query = query.filter(models.Transaction.account_id == account_id)
+        if start_date:
+            query = query.filter(models.Transaction.date >= start_date)
+        if end_date:
+            query = query.filter(models.Transaction.date <= end_date)
+            
         return query.count()
 
     def bulk_delete_transactions(db: Session, transaction_ids: List[str], tenant_id: str) -> int:
@@ -461,3 +479,86 @@ class FinanceService:
         db.delete(b)
         db.commit()
         return True
+
+    # --- Smart Categorization ---
+    def batch_update_category_and_create_rule(
+        db: Session, 
+        txn_id: str, 
+        category: str, 
+        tenant_id: str,
+        create_rule: bool = False,
+        apply_to_similar: bool = False
+    ) -> dict:
+        """
+        1. Updates a specific transaction's category.
+        2. Optionally creates a persistent CategoryRule.
+        3. Optionally updates all other similar Uncategorized transactions.
+        """
+        # 1. Update the original transaction
+        db_txn = db.query(models.Transaction).filter(
+            models.Transaction.id == txn_id,
+            models.Transaction.tenant_id == tenant_id
+        ).first()
+        
+        if not db_txn:
+            return {"success": False, "message": "Transaction not found"}
+            
+        old_category = db_txn.category
+        db_txn.category = category
+        db.add(db_txn)
+        
+        affected_count = 1
+        rule_created = False
+        
+        # Determine the "Pattern" to match (Priority: Recipient > Description)
+        pattern = db_txn.recipient or db_txn.description
+        if not pattern:
+            db.commit()
+            return {"success": True, "affected": infected_count, "rule_created": False}
+
+        # 2. Create Persistent Rule if requested
+        if create_rule:
+            # Check if a rule already exists for this pattern
+            existing_rule = db.query(models.CategoryRule).filter(
+                models.CategoryRule.tenant_id == tenant_id,
+                models.CategoryRule.name == f"Auto: {pattern}"
+            ).first()
+            
+            if not existing_rule:
+                new_rule = models.CategoryRule(
+                    tenant_id=tenant_id,
+                    name=f"Auto: {pattern}",
+                    category=category,
+                    keywords=json.dumps([pattern]),
+                    priority=1
+                )
+                db.add(new_rule)
+                rule_created = True
+
+        # 3. Apply to Similar Uncategorized Transactions
+        if apply_to_similar:
+            # Find all transactions with the same recipient or description that are STILL Uncategorized
+            query = db.query(models.Transaction).filter(
+                models.Transaction.tenant_id == tenant_id,
+                models.Transaction.id != txn_id, # Don't re-update self
+                (models.Transaction.category == "Uncategorized") | (models.Transaction.category == None)
+            )
+            
+            if db_txn.recipient:
+                query = query.filter(models.Transaction.recipient == db_txn.recipient)
+            else:
+                query = query.filter(models.Transaction.description == db_txn.description)
+                
+            similar_txns = query.all()
+            for st in similar_txns:
+                st.category = category
+                db.add(st)
+                affected_count += 1
+
+        db.commit()
+        return {
+            "success": True, 
+            "affected": affected_count, 
+            "rule_created": rule_created,
+            "pattern": pattern
+        }

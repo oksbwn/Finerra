@@ -47,8 +47,8 @@ class Transaction(Base):
     amount = Column(Numeric(15, 2), nullable=False) # Precision for currency
     date = Column(DateTime, nullable=False)
     description = Column(String, nullable=True)
+    recipient = Column(String, nullable=True) # Extracted merchant/payee name
     category = Column(String, nullable=True) # Keeping simple string for now, could be FK later
-    tags = Column(String, nullable=True) # JSON Array string
     tags = Column(String, nullable=True) # JSON Array string
     external_id = Column(String, nullable=True) # For de-duplication
     source = Column(String, default="MANUAL", nullable=False) # MANUAL, CSV, EXCEL, etc.

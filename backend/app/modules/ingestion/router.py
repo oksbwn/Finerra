@@ -91,6 +91,7 @@ async def parse_file(
 class ImportItem(BaseModel):
     date: str
     description: str
+    recipient: Optional[str] = None
     amount: float
     type: str # DEBIT/CREDIT
     external_id: Optional[str] = None
@@ -123,6 +124,7 @@ def import_csv(
                  amount=txn.amount,  # Use parsed amount as-is
                  date=datetime.fromisoformat(txn.date),
                  description=txn.description,
+                 recipient=txn.recipient,  # Extracted merchant/payee
                  category="Uncategorized",
                  tags=[],
                  source=payload.source,

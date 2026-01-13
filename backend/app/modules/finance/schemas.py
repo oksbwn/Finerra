@@ -44,6 +44,7 @@ class TransactionBase(BaseModel):
     amount: Decimal
     date: datetime
     description: Optional[str] = None
+    recipient: Optional[str] = None
     category: Optional[str] = None
     tags: Optional[List[str]] = None
 
@@ -161,3 +162,9 @@ class BudgetProgress(BudgetRead):
     spent: Decimal
     remaining: Decimal
     percentage: float
+
+class SmartCategorizeRequest(BaseModel):
+    transaction_id: str
+    category: str
+    create_rule: bool = False
+    apply_to_similar: bool = False

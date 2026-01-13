@@ -64,9 +64,12 @@ export const financeApi = {
     getAccounts: () => apiClient.get('/finance/accounts'),
     createAccount: (data: AccountCreate) => apiClient.post('/finance/accounts', data),
     updateAccount: (id: string, data: AccountUpdate) => apiClient.put(`/finance/accounts/${id}`, data),
-    getTransactions: (accountId?: string, page: number = 1, limit: number = 50) => apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit } }),
-    bulkDeleteTransactions: (ids: string[]) => apiClient.post('/finance/transactions/bulk-delete', { transaction_ids: ids }),
+    getTransactions: (accountId?: string, page: number = 1, limit: number = 50, startDate?: string, endDate?: string) =>
+        apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate } }),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),
+    smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean }) =>
+        apiClient.post('/finance/transactions/smart-categorize', data),
+    bulkDeleteTransactions: (ids: string[]) => apiClient.post('/finance/transactions/bulk-delete', { transaction_ids: ids }),
     getMetrics: () => apiClient.get('/finance/metrics'),
     getRules: () => apiClient.get('/finance/rules'),
     getRuleSuggestions: () => apiClient.get('/finance/rules/suggestions'),

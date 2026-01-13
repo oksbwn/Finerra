@@ -451,6 +451,7 @@ function close() {
                                     <tr>
                                         <th><input type="checkbox" checked @click="selectedTxns.size < parsedTxns.length ? selectedTxns = new Set(parsedTxns.map((_, i) => i)) : selectedTxns.clear()" /></th>
                                         <th>Date</th>
+                                        <th>Recipient / Source</th>
                                         <th>Description</th>
                                         <th>Amount</th>
                                         <th>Type</th>
@@ -461,6 +462,7 @@ function close() {
                                     <tr v-for="(txn, idx) in parsedTxns" :key="idx" :class="{ 'disabled': !selectedTxns.has(idx) }">
                                         <td><input type="checkbox" :checked="selectedTxns.has(idx)" @change="toggleSelection(idx)" /></td>
                                         <td>{{ txn.date }}</td>
+                                        <td><strong>{{ txn.recipient || '-' }}</strong></td>
                                         <td>{{ txn.description }}</td>
                                         <td :class="txn.type">{{ txn.amount }}</td>
                                         <td><span class="badge">{{ txn.type }}</span></td>

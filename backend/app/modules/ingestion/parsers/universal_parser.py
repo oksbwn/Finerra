@@ -1,8 +1,10 @@
-
 import pandas as pd
 import io
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+from decimal import Decimal
+import os
+from backend.app.modules.ingestion.parsers.recipient_parser import RecipientParser
 
 class UniversalParser:
     @staticmethod
@@ -177,7 +179,10 @@ class UniversalParser:
                         skipped_rows.append(f"Row {idx+1}: Amount is zero or failed to parse")
                         continue
                     
-                    # 4. Reference (External ID)
+                    #  4. Extract Recipient from description
+                    recipient = RecipientParser.extract(desc)
+                    
+                    # 5. Reference (External ID)
                     external_id = None
                     ref_col = mapping.get('reference') or mapping.get('ref')
                     if ref_col:
@@ -189,6 +194,7 @@ class UniversalParser:
                     parsed_rows.append({
                         "date": date_obj.isoformat(),
                         "description": desc,
+                        "recipient": recipient,
                         "amount": amount,
                         "type": txn_type,
                         "external_id": external_id,
@@ -223,26 +229,47 @@ class UniversalParser:
             
         date_str = str(val).strip()
         
+        # Priority formats (Day-first common in India)
         formats = [
-            "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", 
-            "%d-%b-%Y", "%d %b %Y", "%Y/%m/%d"
+            "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d %b %Y",
+            "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y"
         ]
+        
+        # Try exact formats first
         for fmt in formats:
             try:
+                # Handle cases with time (e.g. 13-01-2026 14:30)
+                if ' ' in date_str and ':' in date_str:
+                    return datetime.strptime(date_str, f"{fmt} %H:%M:%S")
                 return datetime.strptime(date_str, fmt)
             except ValueError:
-                continue
-        # Try pandas to_datetime as fallback (very powerful)
+                try:
+                    if ' ' in date_str and ':' in date_str:
+                        return datetime.strptime(date_str, f"{fmt} %H:%M")
+                except ValueError:
+                    continue
+                    
+        # Try pandas to_datetime as fallback with dayfirst=True
         try:
-             dt = pd.to_datetime(date_str)
+             dt = pd.to_datetime(date_str, dayfirst=True, errors='coerce')
              if pd.isna(dt): return None
              return dt.to_pydatetime()
         except:
              return None
 
     @staticmethod
-    def _parse_amount(val: Any) -> float:
-        if pd.isna(val): return 0.0
+    def _parse_amount(val) -> float:
+        """
+        Parse any format of amount:
+        - Handles commas (1,000.50)
+        - Handle parentheses: (100) -> -100
+        - Handle Dr/Cr suffixes: 100 Dr -> -100, 100 Cr -> 100
+        - Handle trailing negative: 100.00- -> -100
+        - Handle currency symbols
+        """
+        if val is None or (isinstance(val, str) and not val.strip()):
+            return 0.0
+        
         if isinstance(val, (int, float)): return float(val)
         
         amt_str = str(val).strip()
@@ -285,5 +312,6 @@ class UniversalParser:
         try:
             val_float = float(clean)
             return -val_float if is_negative else val_float
-        except:
+        except ValueError:
             return 0.0
+    
