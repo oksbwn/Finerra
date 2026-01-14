@@ -806,7 +806,7 @@ onMounted(() => {
                             </td>
                             <td class="col-amount">
                                 <div class="amount-cell" :class="{'is-income': Number(txn.amount) > 0, 'is-expense': Number(txn.amount) < 0}">
-                                    <span class="amount-icon">{{ Number(txn.amount) > 0 ? '↑' : '↓' }}</span>
+                                    <span class="amount-icon">{{ Number(txn.amount) > 0 ? '↓' : '↑' }}</span>
                                     <span class="amount-value">{{ Math.abs(Number(txn.amount)).toFixed(2) }}</span>
                                 </div>
                             </td>
