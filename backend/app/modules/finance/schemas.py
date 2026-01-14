@@ -79,6 +79,7 @@ class TransactionRead(TransactionBase):
     tenant_id: UUID
     type: Optional[str] = "DEBIT"
     source: Optional[str] = "MANUAL"
+    external_id: Optional[str] = None
 
     class Config:
         from_attributes = True

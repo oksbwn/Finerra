@@ -64,6 +64,8 @@ export const financeApi = {
     getAccounts: () => apiClient.get('/finance/accounts'),
     createAccount: (data: AccountCreate) => apiClient.post('/finance/accounts', data),
     updateAccount: (id: string, data: AccountUpdate) => apiClient.put(`/finance/accounts/${id}`, data),
+    deleteAccount: (id: string) => apiClient.delete(`/finance/accounts/${id}`),
+    getAccountTransactionCount: (id: string) => apiClient.get(`/finance/accounts/${id}/transaction-count`),
     getTransactions: (accountId?: string, page: number = 1, limit: number = 50, startDate?: string, endDate?: string) =>
         apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate } }),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),

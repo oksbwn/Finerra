@@ -739,6 +739,9 @@ onMounted(() => {
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
                                         </span>
+                                        <span class="ref-id-pill" v-if="txn.external_id">
+                                            <span class="ref-icon">🆔</span> {{ txn.external_id }}
+                                        </span>
                                     </div>
                                 </div>
                             </td>
@@ -950,6 +953,7 @@ onMounted(() => {
                                 <div class="triage-meta">
                                     <span class="meta-item">📍 {{ getAccountName(txn.account_id) }}</span>
                                     <span class="meta-item" v-if="txn.description">📝 {{ txn.description }}</span>
+                                    <span class="ref-id-pill small" v-if="txn.external_id">🆔 {{ txn.external_id }}</span>
                                 </div>
                                 <div v-if="txn.raw_message" class="raw-message-preview" :title="txn.raw_message">
                                     Raw: {{ txn.raw_message.substring(0, 60) }}...
@@ -2328,4 +2332,28 @@ onMounted(() => {
 
 .alert-icon { font-size: 1.25rem; }
 .alert-text { font-size: 0.875rem; color: #1e40af; }
+.ref-id-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: rgba(var(--brand-primary-rgb, 99, 102, 241), 0.1);
+    border: 1px solid rgba(var(--brand-primary-rgb, 99, 102, 241), 0.2);
+    border-radius: 100px;
+    font-size: 10px;
+    font-family: inherit;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+    font-weight: 500;
+}
+
+.ref-id-pill.small {
+    padding: 1px 6px;
+    font-size: 9px;
+}
+
+.ref-icon {
+    font-size: 10px;
+    filter: grayscale(1) opacity(0.7);
+}
 </style>

@@ -391,6 +391,7 @@ class PendingTransactionRead(BaseModel):
     category: Optional[str] = None
     source: str
     raw_message: Optional[str] = None
+    external_id: Optional[str] = None
     created_at: datetime
 
     class Config:
