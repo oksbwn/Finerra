@@ -18,7 +18,7 @@ class ParsedTransaction(BaseModel):
 
 class BaseParser(ABC):
     @abstractmethod
-    def parse(self, content: str) -> Optional[ParsedTransaction]:
+    def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         """
         Parse raw content (SMS body or CSV row) into a structured transaction.
         Returns None if parsing fails or content is irrelevant.
