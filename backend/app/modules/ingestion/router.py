@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from backend.app.core.database import get_db
 from backend.app.modules.ingestion.services import IngestionService
 from backend.app.modules.ingestion import models as ingestion_models
+from backend.app.modules.ingestion.pattern_service import PatternGenerator
 
 class EmailConfigCreate(BaseModel):
     email: str
@@ -426,3 +427,123 @@ def reject_triage(
     if not success:
         raise HTTPException(status_code=404, detail="Pending transaction not found")
     return {"status": "rejected"}
+
+# --- Interactive Training ---
+
+class UnparsedMessageRead(BaseModel):
+    id: str
+    source: str
+    raw_content: str
+    subject: Optional[str]
+    sender: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+@router.get("/training", response_model=List[UnparsedMessageRead])
+def list_training_messages(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return db.query(ingestion_models.UnparsedMessage).filter(
+        ingestion_models.UnparsedMessage.tenant_id == str(current_user.tenant_id)
+    ).order_by(ingestion_models.UnparsedMessage.created_at.desc()).all()
+
+class LabelPayload(BaseModel):
+    amount: float
+    date: datetime
+    account_mask: str
+    recipient: Optional[str]
+    ref_id: Optional[str]
+    generate_pattern: bool = True
+
+@router.post("/training/{message_id}/label")
+def label_message(
+    message_id: str,
+    payload: LabelPayload,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    msg = db.query(ingestion_models.UnparsedMessage).filter(
+        ingestion_models.UnparsedMessage.id == message_id,
+        ingestion_models.UnparsedMessage.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+        
+    # Promote to PendingTransaction
+    account = IngestionService.match_account(db, str(current_user.tenant_id), payload.account_mask)
+    if not account:
+        # Create auto-account if mask provided
+        account = finance_models.Account(
+            tenant_id=str(current_user.tenant_id),
+            name=f"Detected: (XX{payload.account_mask[-4:]})",
+            type=finance_models.AccountType.BANK,
+            account_mask=payload.account_mask[-4:],
+            is_verified=False,
+            balance=0.0
+        )
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+
+    effective_ref = payload.ref_id
+    if not effective_ref:
+        date_str = payload.date.strftime("%Y%m%d%H%M%S")
+        effective_ref = f"MAN-{date_str}-{payload.account_mask}-{payload.amount:.2f}"
+
+    pending = ingestion_models.PendingTransaction(
+        tenant_id=str(current_user.tenant_id),
+        account_id=str(account.id),
+        amount=payload.amount,
+        date=payload.date,
+        description=f"Labeled: {payload.recipient or 'Unknown'}",
+        recipient=payload.recipient,
+        category="Uncategorized",
+        source=msg.source,
+        raw_message=msg.raw_content,
+        external_id=effective_ref
+    )
+    db.add(pending)
+    
+    # Pattern Generation Logic
+    if payload.generate_pattern:
+        try:
+            pattern_str, mapping_json = PatternGenerator.generate_regex_and_config(msg.raw_content, payload.dict())
+            new_pattern = ingestion_models.ParsingPattern(
+                tenant_id=str(current_user.tenant_id),
+                pattern_type=msg.source,
+                pattern_value=pattern_str,
+                mapping_config=mapping_json,
+                is_active=True,
+                description=f"Auto-learned from: {payload.recipient or 'Unknown'}"
+            )
+            db.add(new_pattern)
+            print(f"[Training] Generated new pattern: {pattern_str}")
+        except Exception as e:
+            print(f"[Training] Failed to generate pattern: {e}")
+        
+    db.delete(msg)
+    db.commit()
+    
+    return {"status": "labeled", "pending_id": pending.id}
+
+@router.delete("/training/{message_id}")
+def dismiss_training_message(
+    message_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    msg = db.query(ingestion_models.UnparsedMessage).filter(
+        ingestion_models.UnparsedMessage.id == message_id,
+        ingestion_models.UnparsedMessage.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+        
+    db.delete(msg)
+    db.commit()
+    return {"status": "dismissed"}

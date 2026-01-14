@@ -139,3 +139,28 @@ class IngestionService:
             db.refresh(pending)
             print(f"[Ingestion] TRIAGED: Created pending transaction {pending.id}")
             return {"status": "triaged", "pending_id": pending.id, "account": account.name}
+
+    @staticmethod
+    def capture_unparsed(db: Session, tenant_id: str, source: str, raw_content: str, subject: Optional[str] = None, sender: Optional[str] = None):
+        """
+        Save a message that looks like a transaction but failed all parsers.
+        """
+        from backend.app.modules.ingestion import models as ingestion_models
+        
+        # Check if already exists to avoid spam
+        existing = db.query(ingestion_models.UnparsedMessage).filter(
+            ingestion_models.UnparsedMessage.tenant_id == tenant_id,
+            ingestion_models.UnparsedMessage.raw_content == raw_content
+        ).first()
+        if existing: return
+        
+        msg = ingestion_models.UnparsedMessage(
+            tenant_id=tenant_id,
+            source=source,
+            raw_content=raw_content,
+            subject=subject,
+            sender=sender
+        )
+        db.add(msg)
+        db.commit()
+        print(f"[Ingestion] Captured unparsed message for training from {source}")

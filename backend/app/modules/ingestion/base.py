@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from datetime import datetime
 from decimal import Decimal
 
@@ -15,6 +15,18 @@ class ParsedTransaction(BaseModel):
     ref_id: Optional[str] = None
     raw_message: str
     source: str = "SMS" # SMS, EMAIL, etc.
+
+    @model_validator(mode='after')
+    def generate_fallback_ref(self) -> 'ParsedTransaction':
+        if not self.ref_id:
+            # Format: YYYYMMDDHHMMSS-MASK-AMOUNT
+            # We use a hash-like prefix to indicate it's generated
+            date_str = self.date.strftime("%Y%m%d%H%M%S")
+            mask = self.account_mask or "XXXX"
+            # Ensure amount is stringified cleanly
+            amt_str = f"{self.amount:.2f}"
+            self.ref_id = f"GEN-{date_str}-{mask}-{amt_str}"
+        return self
 
 class BaseParser(ABC):
     @abstractmethod

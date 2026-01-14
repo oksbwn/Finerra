@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
+from sqlalchemy.orm import Session
 from backend.app.modules.ingestion.base import BaseSmsParser, BaseEmailParser, ParsedTransaction
 
 class SmsParserRegistry:
@@ -17,7 +18,6 @@ class SmsParserRegistry:
         """
         for parser in cls._parsers:
             if parser.can_handle(sender, message):
-                print(f"Parser {parser.__class__.__name__} handling message from {sender}")
                 return parser.parse(message)
         return None
 
@@ -30,12 +30,20 @@ class EmailParserRegistry:
         cls._parsers.append(parser)
 
     @classmethod
-    def parse(cls, subject: str, body: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
+    def parse(cls, subject: str, body: str, db: Session, tenant_id: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         """
-        Iterate through registered parsers and return the first successful result.
+        Iterate through registered parsers, then check user-defined patterns.
         """
+        # Combine subject and body for matching and parsing
+        combined_content = f"Subject: {subject}\nBody: {body}"
+        
+        # 1. Try static parsers
         for parser in cls._parsers:
             if parser.can_handle(subject, body):
-                print(f"Email Parser {parser.__class__.__name__} handling email: {subject}")
-                return parser.parse(body, date_hint)
-        return None
+                # Pass combined content to static parsers as well
+                res = parser.parse(combined_content, date_hint)
+                if res: return res
+        
+        # 2. Try User-Defined Patterns
+        from backend.app.modules.ingestion.parsers.pattern_parser import PatternParser
+        return PatternParser.parse(db, tenant_id, combined_content, "EMAIL", date_hint)

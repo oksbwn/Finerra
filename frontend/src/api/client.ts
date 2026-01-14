@@ -109,10 +109,13 @@ export const financeApi = {
     getTenants: () => apiClient.get('/auth/tenants'),
     updateTenant: (id: string, data: any) => apiClient.put(`/auth/tenants/${id}`, data),
 
-    // Triage
+    // Triage & Training
     getTriage: () => apiClient.get('/ingestion/triage'),
     approveTriage: (id: string, category?: string) => apiClient.post(`/ingestion/triage/${id}/approve`, { category }),
     rejectTriage: (id: string) => apiClient.delete(`/ingestion/triage/${id}`),
+    getTraining: () => apiClient.get('/ingestion/training'),
+    labelMessage: (id: string, data: any) => apiClient.post(`/ingestion/training/${id}/label`, data),
+    dismissTrainingMessage: (id: string) => apiClient.delete(`/ingestion/training/${id}`),
 
     // User Management
     getMe: () => apiClient.get<any>('/auth/me'),

@@ -61,9 +61,9 @@ class GenericEmailParser(BaseEmailParser):
     """
     Parser for common bank email formats.
     """
-    SPEND_PATTERN = re.compile(r"(?i)spend\s*of\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*at\s*(.*?)\s*on\s*A/c\s*(?:.*?|x*|X*)(\d+)\s*on\s*(\d{2}-\d{2}-\d{2,4})", re.IGNORECASE)
-    DEBIT_PATTERN = re.compile(r"(?i)A/c\s*(?:.*?|x*|X*)(\d+)\s*has\s*been\s*debited\s*for\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*(\d{2}-\d{2}-\d{2,4})\s*towards\s*(.*?)\.", re.IGNORECASE)
-    GENERIC_ALERT_PATTERN = re.compile(r"(?i)A/c\s*(?:.*?|x*|X*)(\d+):?\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*(?:spent|debited|spent\s*at)\s*(?:at|to)?\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})", re.IGNORECASE)
+    SPEND_PATTERN = re.compile(r"(?i)spend\s*of\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*at\s*(.*?)\s*on\s*(?:A/c|Card)\s*(?:.*?|x*|X*)(\d+)\s*on\s*(\d{2}-\d{2}-\d{2,4})", re.IGNORECASE)
+    DEBIT_PATTERN = re.compile(r"(?i)(?:A/c|Card)\s*(?:.*?|x*|X*)(\d+)\s*has\s*been\s*debited\s*for\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*(\d{2}-\d{2}-\d{2,4})\s*towards\s*(.*?)\.", re.IGNORECASE)
+    GENERIC_ALERT_PATTERN = re.compile(r"(?i)(?:A/c|Card)\s*(?:.*?|x*|X*)(\d+):?\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*(?:spent|debited|spent\s*at)\s*(?:at|to)?\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})", re.IGNORECASE)
     REF_PATTERN = re.compile(
         r"(?i)(?:Ref|UTR|TXN#|Ref\s*No|Reference\s*ID|reference\s*number|utr\s*no|Ref\s*ID)[:\.\s-]+(\w+)", 
         re.IGNORECASE

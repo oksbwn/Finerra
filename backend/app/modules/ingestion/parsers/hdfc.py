@@ -126,7 +126,9 @@ class HdfcEmailParser(BaseEmailParser):
         # If the subject is the specific HDFC UPI alert subject, handle it
         if "you have done a upi txn" in combined:
             return True
-        keywords = ["hdfc", "transaction", "debited", "spent", "txn", "upi", "vpa"]
+        if "hdfc" not in combined:
+            return False
+        keywords = ["transaction", "debited", "spent", "txn", "upi", "vpa", "rs"]
         return any(k in combined for k in keywords)
 
     def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:

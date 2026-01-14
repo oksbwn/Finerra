@@ -91,28 +91,35 @@ class IciciEmailParser(BaseEmailParser):
             amt_match = re.search(r"(?i)(?:INR|Rs\.?)\s*([\d\.]+(?:,\d{3})*)", clean_content)
             if amt_match:
                 amt_str = amt_match.group(1).replace(",", "")
-                date_match = re.search(r"(\d{2}-[a-zA-Z]{3}-\d{2,4})", clean_content)
+                # Flexible Date Support: 13-Jan-24, 13/01/2024, 13-01-2024
+                date_match = re.search(r"(\d{2}[-/ ](?:[a-zA-Z]{3,9}|\d{2})[-/ ]\d{2,4})", clean_content)
                 if date_match:
+                    date_val = date_match.group(1)
                     merchant_match = re.search(r"(?i)(?:at|to|towards|for|on)\s+([A-Z0-9\s*]{3,30}?)(?:\s+on|\s+at|\.|\s+from|\s+using)", clean_content)
                     merchant = merchant_match.group(1).strip() if merchant_match else "Unknown Merchant"
-                    mask_match = re.search(r"(?i)(?:A/c|card|XX)\s*(\d{4,})", clean_content)
+                    # Improved Mask: A/c, card, Card, XX, xxxx ending in 1234
+                    mask_match = re.search(r"(?i)(?:A/c|Account|card|Card|XX|xx|ending in)\s*.*?(?:x*|X*|\*)*(\d{4,})", clean_content)
                     mask = mask_match.group(1) if mask_match else "XXXX"
                     
                     ref_match = self.REF_PATTERN.search(clean_content)
                     ref_id = ref_match.group(1).strip() if ref_match else None
                     
-                    return self._create_txn(Decimal(amt_str), merchant, mask, date_match.group(1), "DEBIT", content, ref_id, date_hint)
+                    return self._create_txn(Decimal(amt_str), merchant, mask, date_val, "DEBIT", content, ref_id, date_hint)
 
         return None
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
-            txn_date = datetime.strptime(date_str, "%d-%b-%y")
+            formats = ["%d-%b-%y", "%d-%b-%Y", "%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y", "%d %b %y", "%d %B %Y"]
+            txn_date = None
+            for fmt in formats:
+                try:
+                    txn_date = datetime.strptime(date_str, fmt)
+                    break
+                except: continue
+            if not txn_date: txn_date = date_hint or datetime.now()
         except:
-            try:
-                txn_date = datetime.strptime(date_str, "%d-%b-%Y")
-            except:
-                txn_date = date_hint or datetime.now()
+            txn_date = datetime.now()
                 
         clean_recipient = RecipientParser.extract(recipient)
         return ParsedTransaction(

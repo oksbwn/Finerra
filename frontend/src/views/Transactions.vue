@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
-import { financeApi } from '@/api/client'
+import { financeApi, ingestionApi } from '@/api/client'
 import { useRoute } from 'vue-router'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
@@ -21,6 +21,20 @@ const triageTransactions = ref<any[]>([])
 const loading = ref(true)
 const selectedAccount = ref<string>('')
 const activeTab = ref<'list' | 'analytics' | 'triage'>('list')
+const activeTriageSubTab = ref<'pending' | 'training'>('pending')
+
+// Training State
+const unparsedMessages = ref<any[]>([])
+const selectedMessage = ref<any | null>(null)
+const showLabelForm = ref(false)
+const labelForm = ref({
+    amount: 0,
+    date: new Date().toISOString().slice(0, 16),
+    account_mask: '',
+    recipient: '',
+    ref_id: '',
+    generate_pattern: true
+})
 
 // Date Filter State
 const startDate = ref<string>('')
@@ -147,8 +161,12 @@ async function fetchData() {
 async function fetchTriage() {
     loading.value = true
     try {
-        const res = await financeApi.getTriage()
+        const [res, trainingRes] = await Promise.all([
+            financeApi.getTriage(),
+            financeApi.getTraining()
+        ])
         triageTransactions.value = res.data
+        unparsedMessages.value = trainingRes.data
     } catch (e) {
         console.error("Failed to fetch triage", e)
     } finally {
@@ -185,6 +203,46 @@ async function confirmDiscard() {
         triageIdToDiscard.value = null
     } catch (e) {
         notify.error("Failed to discard")
+    }
+}
+
+// --- Interactive Training Methods ---
+
+function startLabeling(msg: any) {
+    selectedMessage.value = msg
+    // Pre-fill what we can (date extracted from created_at)
+    const dateStr = msg.created_at ? new Date(msg.created_at).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16)
+    labelForm.value = {
+        amount: 0,
+        date: dateStr,
+        account_mask: '',
+        recipient: '',
+        ref_id: '',
+        generate_pattern: true
+    }
+    showLabelForm.value = true
+}
+
+async function handleLabelSubmit() {
+    if (!selectedMessage.value) return
+    try {
+        await financeApi.labelMessage(selectedMessage.value.id, labelForm.value)
+        notify.success("Message labeled and moved to triage")
+        showLabelForm.value = false
+        selectedMessage.value = null
+        fetchTriage()
+    } catch (e) {
+        notify.error("Failed to label message")
+    }
+}
+
+async function dismissTraining(id: string) {
+    try {
+        await financeApi.dismissTrainingMessage(id)
+        notify.success("Message dismissed")
+        fetchTriage()
+    } catch (e) {
+        notify.error("Failed to dismiss message")
     }
 }
 
@@ -929,14 +987,32 @@ onMounted(() => {
 
             <!-- Triage View -->
             <div v-if="activeTab === 'triage'" class="triage-view animate-in">
-                <div class="alert-info-glass mb-4">
-                    <div class="alert-icon">🔒</div>
-                    <div class="alert-text">
-                        <strong>Review Intake</strong>: These transactions were auto-detected but require categorization or confirmation before affecting your balance.
-                    </div>
+                <div class="triage-tabs mb-6">
+                    <button 
+                        class="triage-tab-btn" 
+                        :class="{ active: activeTriageSubTab === 'pending' }"
+                        @click="activeTriageSubTab = 'pending'"
+                    >
+                        Pending Inbox ({{ triageTransactions.length }})
+                    </button>
+                    <button 
+                        class="triage-tab-btn" 
+                        :class="{ active: activeTriageSubTab === 'training' }"
+                        @click="activeTriageSubTab = 'training'"
+                    >
+                        Training Area ({{ unparsedMessages.length }})
+                    </button>
                 </div>
 
-                <div class="triage-grid">
+                <div v-if="activeTriageSubTab === 'pending'">
+                    <div class="alert-info-glass mb-4">
+                        <div class="alert-icon">🔒</div>
+                        <div class="alert-text">
+                            <strong>Review Intake</strong>: These transactions were auto-detected but require categorization or confirmation before affecting your balance.
+                        </div>
+                    </div>
+
+                    <div class="triage-grid">
                     <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card">
                         <div class="triage-card-header">
                             <span class="source-tag" :class="txn.source.toLowerCase()">{{ txn.source }}</span>
@@ -976,10 +1052,49 @@ onMounted(() => {
                     </div>
                 </div>
 
-                <div v-if="triageTransactions.length === 0" class="empty-state-triage">
-                    <div class="empty-glow-icon">✨</div>
-                    <h3>Inbox zero!</h3>
-                    <p>No new transactions waiting for review.</p>
+                    <div v-if="triageTransactions.length === 0" class="empty-state-triage">
+                        <div class="empty-glow-icon">✨</div>
+                        <h3>Inbox zero!</h3>
+                        <p>No new transactions waiting for review.</p>
+                    </div>
+                </div>
+
+                <!-- Training Area -->
+                <div v-if="activeTriageSubTab === 'training'">
+                    <div class="alert-info-glass mb-4 training-alert">
+                        <div class="alert-icon">🤖</div>
+                        <div class="alert-text">
+                            <strong>Interactive Training</strong>: These messages look like transactions but could not be parsed. Label them to help the system learn!
+                        </div>
+                    </div>
+
+                    <div class="triage-grid">
+                        <div v-for="msg in unparsedMessages" :key="msg.id" class="glass-card triage-card training-card">
+                            <div class="triage-card-header">
+                                <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source }}</span>
+                                <span class="triage-date">{{ formatDate(msg.created_at).day }}</span>
+                            </div>
+                            
+                            <div class="triage-card-body">
+                                <div class="training-content">
+                                    <div class="training-sender" v-if="msg.sender">From: {{ msg.sender }}</div>
+                                    <div class="training-subject" v-if="msg.subject">Sub: {{ msg.subject }}</div>
+                                    <pre class="training-raw-preview">{{ msg.raw_content }}</pre>
+                                </div>
+                            </div>
+
+                            <div class="triage-card-footer">
+                                <button @click="dismissTraining(msg.id)" class="btn-discard">Dismiss</button>
+                                <button @click="startLabeling(msg)" class="btn-approve btn-label">Label Fields</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="unparsedMessages.length === 0" class="empty-state-triage">
+                        <div class="empty-glow-icon">🛡️</div>
+                        <h3>All clear!</h3>
+                        <p>No unparsed messages waiting for training.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1113,10 +1228,212 @@ onMounted(() => {
                 </div>
             </div>
         </div>
+
+        <!-- Interactive Labeling Modal -->
+        <div v-if="showLabelForm" class="modal-overlay-global">
+            <div class="modal-global" style="max-width: 800px;">
+                <div class="modal-header">
+                    <h2 class="modal-title">Label Transaction 🏷️</h2>
+                    <button class="btn-icon" @click="showLabelForm = false">✕</button>
+                </div>
+                
+                <div class="labeling-layout">
+                    <!-- Left: Raw Message -->
+                    <div class="labeling-raw">
+                        <h4 class="section-label">Raw Message</h4>
+                        <div class="raw-content-box">{{ selectedMessage?.raw_content }}</div>
+                        <div class="raw-meta" v-if="selectedMessage?.subject">
+                            <strong>Subject:</strong> {{ selectedMessage.subject }}
+                        </div>
+                    </div>
+
+                    <!-- Right: Form -->
+                    <form @submit.prevent="handleLabelSubmit" class="labeling-form">
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label class="form-label">Amount (₹)</label>
+                                <input type="number" v-model="labelForm.amount" class="form-input" required step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Date</label>
+                                <input type="datetime-local" v-model="labelForm.date" class="form-input" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Account Mask (Last 4 digits)</label>
+                            <input type="text" v-model="labelForm.account_mask" class="form-input" placeholder="e.g. 1234" required maxlength="4">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Recipient / Merchant</label>
+                            <input type="text" v-model="labelForm.recipient" class="form-input" placeholder="e.g. Starbucks">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Reference ID (Optional)</label>
+                            <input type="text" v-model="labelForm.ref_id" class="form-input" placeholder="UTR / TXN ID">
+                        </div>
+
+                        <div class="form-group check-group">
+                            <input type="checkbox" id="genPattern" v-model="labelForm.generate_pattern">
+                            <label for="genPattern">Learn this pattern for future messages</label>
+                        </div>
+
+                        <div class="modal-footer" style="padding: 1.5rem 0 0 0; background: transparent;">
+                            <button type="button" class="btn btn-outline" @click="showLabelForm = false">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Create Pending Transaction</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </MainLayout>
 </template>
 
 <style scoped>
+/* Triage Sub-Tabs */
+.triage-tabs {
+    display: flex;
+    gap: 1rem;
+    border-bottom: 2px solid #f3f4f6;
+    padding-bottom: 0.1rem;
+}
+
+.triage-tab-btn {
+    padding: 0.75rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #6b7280;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: -2px;
+}
+
+.triage-tab-btn:hover {
+    color: #4f46e5;
+}
+
+.triage-tab-btn.active {
+    color: #4f46e5;
+    border-bottom-color: #4f46e5;
+}
+
+/* Training Logic Styles */
+.training-card {
+    border-left: 4px solid #f59e0b;
+}
+
+.training-content {
+    background: #fdfaf5;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px dashed #fbbf24;
+}
+
+.training-sender, .training-subject {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #92400e;
+    margin-bottom: 0.25rem;
+}
+
+.training-raw-preview {
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: #4b5563;
+    white-space: pre-wrap;
+    margin: 0;
+}
+
+.btn-label {
+    background: #f59e0b;
+    border-color: #f59e0b;
+}
+
+.btn-label:hover {
+    background: #d97706;
+}
+
+/* Labeling Modal Layout */
+.labeling-layout {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 2rem;
+    padding: 1.5rem;
+}
+
+.labeling-raw {
+    background: #f9fafb;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+}
+
+.raw-content-box {
+    background: white;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    font-family: monospace;
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    border: 1px solid #f3f4f6;
+    flex-grow: 1;
+    overflow-y: auto;
+    max-height: 400px;
+    color: #111827;
+}
+
+.raw-meta {
+    margin-top: 1rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.section-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.labeling-form .form-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.check-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #eef2ff;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    margin-top: 1rem;
+}
+
+.check-group input {
+    width: 1.125rem;
+    height: 1.125rem;
+    cursor: pointer;
+}
+
+.check-group label {
+    font-size: 0.8125rem;
+    color: #4338ca;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* Legacy styles below ... */
 /* Modern Compact Design System */
 
 /* Page Header */

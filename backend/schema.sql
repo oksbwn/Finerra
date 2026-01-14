@@ -138,3 +138,27 @@ CREATE TABLE pending_transactions (
 	FOREIGN KEY(account_id) REFERENCES accounts (id)
 );
 
+CREATE TABLE unparsed_messages (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	source VARCHAR NOT NULL, 
+	raw_content VARCHAR NOT NULL, 
+	subject VARCHAR, 
+	sender VARCHAR, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+
+CREATE TABLE parsing_patterns (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	pattern_type VARCHAR DEFAULT 'regex', 
+	pattern_value VARCHAR NOT NULL, 
+	mapping_config VARCHAR NOT NULL, 
+	is_active BOOLEAN DEFAULT TRUE, 
+	description VARCHAR, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);

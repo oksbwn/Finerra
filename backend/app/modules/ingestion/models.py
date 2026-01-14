@@ -45,3 +45,26 @@ class PendingTransaction(Base):
     raw_message = Column(String, nullable=True)
     external_id = Column(String, nullable=True) # Reference Number/UTR
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class UnparsedMessage(Base):
+    __tablename__ = "unparsed_messages"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    source = Column(String, nullable=False) # SMS, EMAIL
+    raw_content = Column(String, nullable=False)
+    subject = Column(String, nullable=True)
+    sender = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ParsingPattern(Base):
+    __tablename__ = "parsing_patterns"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    pattern_type = Column(String, default="regex") # regex, template
+    pattern_value = Column(String, nullable=False) # The regex or template string
+    mapping_config = Column(String, nullable=False) # JSON: { "amount": 1, "date": 2, ... }
+    is_active = Column(Boolean, default=True)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

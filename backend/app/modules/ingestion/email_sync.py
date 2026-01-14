@@ -129,7 +129,7 @@ class EmailSyncService:
                             except: pass
 
                             # Parse via Registry
-                            parsed = EmailParserRegistry.parse(subject, body, email_date)
+                            parsed = EmailParserRegistry.parse(subject, body, db, tenant_id, email_date)
                             if parsed:
                                 print(f"[EmailSync] SUCCESS! Parsed: {parsed.amount} {parsed.recipient} (Ref: {parsed.ref_id})")
                                 result = IngestionService.process_transaction(db, tenant_id, parsed)
@@ -152,8 +152,24 @@ class EmailSyncService:
                                 # Log why it was skipped (now without cap for terminal debugging)
                                 err_msg = f"No parser matched for: {subject[:40]}..."
                                 stats["errors"].append(err_msg)
+                                
+                                # --- INTERACTIVE TRAINING CAPTURE ---
+                                # Check for transaction-related keywords
+                                keywords = ["bill", "mutual fund", "paid", "sent", "upi", "rs", "spent", "debited", "vpa", "txn", "transaction"]
+                                combined_text = (subject + " " + body).lower()
+                                if any(k in combined_text for k in keywords):
+                                    print(f"[EmailSync] Capture for training: {subject}")
+                                    IngestionService.capture_unparsed(
+                                        db=db,
+                                        tenant_id=tenant_id,
+                                        source="EMAIL",
+                                        raw_content=f"Subject: {subject}\nBody: {body}",
+                                        subject=subject,
+                                        sender=msg.get("From")
+                                    )
+                                
                                 # Print body snippet for debugging
-                                if any(k in (subject + " " + body).lower() for k in ["txn", "upi", "hdfc", "spent", "debited"]):
+                                if any(k in combined_text for k in ["txn", "upi", "hdfc", "spent", "debited", "transaction"]):
                                     clean_body = body.replace("\n", " ").strip()
                                     print(f"[EmailSync] Debug Body Snippet: {clean_body[:300]}...")
 
