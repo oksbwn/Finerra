@@ -24,24 +24,24 @@ class KotakSmsParser(BaseSmsParser):
     def can_handle(self, sender: str, message: str) -> bool:
         return "kotak" in sender.lower() or "kotak" in message.lower()
 
-    def parse(self, content: str) -> Optional[ParsedTransaction]:
+    def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
         # 1. Try Debit
         match = self.DEBIT_PATTERN.search(clean_content)
         if match:
             ref = match.group(5).strip() if match.group(5) else None
-            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(4), match.group(2), match.group(3), "DEBIT", content, ref, "SMS")
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(4), match.group(2), match.group(3), "DEBIT", content, ref, "SMS", date_hint)
 
         # 2. Try Spent
         match = self.SPENT_PATTERN.search(clean_content)
         if match:
             ref = match.group(5).strip() if match.group(5) else None
-            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, ref, "SMS")
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, ref, "SMS", date_hint)
 
         return None
 
-    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, source):
+    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, source, date_hint=None):
         try:
             formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
             txn_date = None
@@ -50,7 +50,7 @@ class KotakSmsParser(BaseSmsParser):
                     txn_date = datetime.strptime(date_str, fmt)
                     break
                 except: continue
-            if not txn_date: txn_date = datetime.now()
+            if not txn_date: txn_date = date_hint or datetime.now()
         except:
             txn_date = datetime.now()
             
@@ -77,7 +77,7 @@ class KotakEmailParser(BaseEmailParser):
         combined = (subject + " " + body).lower()
         return "kotak" in combined and any(k in combined for k in ["transaction", "spent", "debited", "alert", "upi"])
 
-    def parse(self, content: str) -> Optional[ParsedTransaction]:
+    def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
         if "kotak" in clean_content.lower():
@@ -94,11 +94,11 @@ class KotakEmailParser(BaseEmailParser):
                     ref_match = self.REF_PATTERN.search(clean_content)
                     ref_id = ref_match.group(1).strip() if ref_match else None
                     
-                    return self._create_txn(Decimal(amt_str), merchant, mask, date_match.group(1), "DEBIT", content, ref_id)
+                    return self._create_txn(Decimal(amt_str), merchant, mask, date_match.group(1), "DEBIT", content, ref_id, date_hint)
 
         return None
 
-    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id):
+    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
             formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
             txn_date = None
@@ -107,7 +107,7 @@ class KotakEmailParser(BaseEmailParser):
                     txn_date = datetime.strptime(date_str, fmt)
                     break
                 except: continue
-            if not txn_date: txn_date = datetime.now()
+            if not txn_date: txn_date = date_hint or datetime.now()
         except:
             txn_date = datetime.now()
             

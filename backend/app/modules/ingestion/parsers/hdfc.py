@@ -28,7 +28,7 @@ class HdfcSmsParser(BaseSmsParser):
     def can_handle(self, sender: str, message: str) -> bool:
         return "hdfc" in sender.lower() or "hdfc" in message.lower()
 
-    def parse(self, content: str) -> Optional[ParsedTransaction]:
+    def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
         # 1. Try Debit
@@ -39,7 +39,7 @@ class HdfcSmsParser(BaseSmsParser):
             date_str = match.group(3)
             recipient = match.group(4).strip()
             ref_id = match.group(5)
-            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id)
+            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, date_hint)
 
         # 2. Try Spent
         match = self.SPENT_PATTERN.search(clean_content)
@@ -49,7 +49,7 @@ class HdfcSmsParser(BaseSmsParser):
             recipient = match.group(3).strip()
             date_str = match.group(4)
             ref_id = match.group(5)
-            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id)
+            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, date_hint)
 
         # 3. Try Sent
         match = self.SENT_PATTERN.search(clean_content)
@@ -59,11 +59,11 @@ class HdfcSmsParser(BaseSmsParser):
             recipient = match.group(3).strip()
             date_str = match.group(4)
             ref_id = match.group(5)
-            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id)
+            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, date_hint)
 
         return None
 
-    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id):
+    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
             formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
             txn_date = None
@@ -72,7 +72,7 @@ class HdfcSmsParser(BaseSmsParser):
                     txn_date = datetime.strptime(date_str, fmt)
                     break
                 except: continue
-            if not txn_date: txn_date = datetime.now()
+            if not txn_date: txn_date = date_hint or datetime.now()
         except:
             txn_date = datetime.now()
             
@@ -115,7 +115,11 @@ class HdfcEmailParser(BaseEmailParser):
         re.IGNORECASE
     )
 
-    REF_PATTERN = re.compile(r"(?i)(?:Ref|UTR|TXN#|Ref No)[:\.\s-]+(\w{3,})")
+    # More flexible pattern for Reference/UTR
+    REF_PATTERN = re.compile(
+        r"(?i)(?:Ref|UTR|TXN#|Ref\s*No|Reference\s*ID|reference\s*number|utr\s*no|Ref\s*ID)[:\.\s-]+(\w+)", 
+        re.IGNORECASE
+    )
 
     def can_handle(self, subject: str, body: str) -> bool:
         combined = (subject + " " + body).lower()
@@ -125,38 +129,47 @@ class HdfcEmailParser(BaseEmailParser):
         keywords = ["hdfc", "transaction", "debited", "spent", "txn", "upi", "vpa"]
         return any(k in combined for k in keywords)
 
-    def parse(self, content: str) -> Optional[ParsedTransaction]:
+    def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
         def get_ref(match, group_idx):
             if group_idx < len(match.groups()) + 1 and match.group(group_idx): 
                 return match.group(group_idx)
+            
+            # Fallback 1: Search for improved REF_PATTERN
             ref_match = self.REF_PATTERN.search(clean_content)
-            return ref_match.group(1).strip() if ref_match else None
+            if ref_match: return ref_match.group(1).strip()
+            
+            # Fallback 2: Look for 12-digit UPI Ref specifically if "reference" or "Ref" is present
+            if any(k in clean_content.lower() for k in ["reference", "ref no", "utr"]):
+                digits_match = re.search(r"(\d{12})", clean_content)
+                if digits_match: return digits_match.group(1)
+                
+            return None
 
         # 1. Card
         match = self.DEBIT_CARD_PATTERN.search(clean_content)
         if match:
-            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5))
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5), date_hint)
 
         # 2. Account
         match = self.ACCOUNT_DEBIT_PATTERN.search(clean_content)
         if match:
-            return self._create_txn(Decimal(match.group(2).replace(",", "")), match.group(4), match.group(1), match.group(3), "DEBIT", content, get_ref(match, 5))
+            return self._create_txn(Decimal(match.group(2).replace(",", "")), match.group(4), match.group(1), match.group(3), "DEBIT", content, get_ref(match, 5), date_hint)
 
         # 3. UPI
         match = self.UPI_DEBIT_PATTERN.search(clean_content)
         if match:
-            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5))
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5), date_hint)
 
         # 4. Generic UPI
         match = self.GENERIC_UPI_PATTERN.search(clean_content)
         if match:
-            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5))
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5), date_hint)
 
         return None
 
-    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id):
+    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
             formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
             txn_date = None
@@ -165,7 +178,7 @@ class HdfcEmailParser(BaseEmailParser):
                     txn_date = datetime.strptime(date_str, fmt)
                     break
                 except: continue
-            if not txn_date: txn_date = datetime.now()
+            if not txn_date: txn_date = date_hint or datetime.now()
         except:
             txn_date = datetime.now()
             

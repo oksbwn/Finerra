@@ -26,6 +26,7 @@ class IngestionService:
         
         for acc in accounts:
             if acc.account_mask and acc.account_mask.endswith(mask[-4:]):
+                print(f"[Ingestion] Matched account: {acc.name} (Mask: {acc.account_mask})")
                 return acc
         return None
 
@@ -40,10 +41,11 @@ class IngestionService:
             
         if not account and parsed.account_mask:
             # Auto-Discovery: Create new untrusted account
-            print(f"Auto-creating account for mask {parsed.account_mask}")
+            source_label = parsed.source if parsed.source else "Auto"
+            print(f"Auto-creating account for mask {parsed.account_mask} from {source_label}")
             account = finance_models.Account(
                 tenant_id=tenant_id,
-                name=f"Auto-Detected (XX{parsed.account_mask[-4:]})",
+                name=f"Detected: {source_label} (XX{parsed.account_mask[-4:]})",
                 type=finance_models.AccountType.BANK, # Default to Bank
                 account_mask=parsed.account_mask[-4:], # Store last 4 digits
                 is_verified=False,
@@ -56,6 +58,7 @@ class IngestionService:
         if not account:
              # Fallback if no mask was present in SMS at all
              # For V1, we log/skip
+             print(f"[Ingestion] Skipped: No account found for tenant {tenant_id}")
              return {"status": "skipped", "reason": f"No account found and no mask in SMS"}
             
         # Create Transaction or Move to Triage
@@ -63,6 +66,13 @@ class IngestionService:
         from backend.app.modules.finance import schemas as finance_schemas
         from backend.app.modules.ingestion import models as ingestion_models
         
+        # Determine amount sign
+        final_amount = parsed.amount
+        if parsed.type == "DEBIT":
+            final_amount = -abs(parsed.amount)
+        else:
+            final_amount = abs(parsed.amount)
+
         # --- DEDUPLICATION CHECK ---
         if parsed.ref_id:
             # 1. Check if already exists in confirmed transactions
@@ -71,6 +81,7 @@ class IngestionService:
                 finance_models.Transaction.external_id == parsed.ref_id
             ).first()
             if existing_txn:
+                print(f"[Ingestion] Deduplicated Ref {parsed.ref_id} against Confirmed {existing_txn.id}")
                 return {"status": "skipped", "reason": f"Deduplicated (already exists in confirmed: {existing_txn.id})", "deduplicated": True}
                 
             # 2. Check if already exists in pending (triage)
@@ -79,15 +90,11 @@ class IngestionService:
                 ingestion_models.PendingTransaction.external_id == parsed.ref_id
             ).first()
             if existing_pending:
+                print(f"[Ingestion] Deduplicated Ref {parsed.ref_id} against Triage item {existing_pending.id}")
                 return {"status": "skipped", "reason": f"Deduplicated (already exists in triage: {existing_pending.id})", "deduplicated": True}
-
-        # Determine amount sign
-        final_amount = parsed.amount
-        if parsed.type == "DEBIT":
-            final_amount = -abs(parsed.amount)
-        else:
-            final_amount = abs(parsed.amount)
-            
+        
+        print(f"[Ingestion] Proceeding with processing: {final_amount} to account {account.name}")
+        
         # 1. Try to auto-categorize
         category = FinanceService.get_suggested_category(db, tenant_id, parsed.description, parsed.recipient)
         
@@ -108,10 +115,10 @@ class IngestionService:
             )
             try:
                 db_txn = FinanceService.create_transaction(db, txn_create, tenant_id)
-                # Note: FinanceService also has it's own deduplication, but we handled it above for extra safety
+                print(f"[Ingestion] SUCCESS: Created transaction {db_txn.id}")
                 return {"status": "success", "transaction_id": db_txn.id, "account": account.name}
             except Exception as e:
-                print(f"Error creating transaction: {e}")
+                print(f"[Ingestion] Error creating transaction: {e}")
                 raise e
         else:
             # Low confidence -> Move to Triage
@@ -130,4 +137,5 @@ class IngestionService:
             db.add(pending)
             db.commit()
             db.refresh(pending)
+            print(f"[Ingestion] TRIAGED: Created pending transaction {pending.id}")
             return {"status": "triaged", "pending_id": pending.id, "account": account.name}

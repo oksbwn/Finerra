@@ -24,7 +24,7 @@ class IciciSmsParser(BaseSmsParser):
     def can_handle(self, sender: str, message: str) -> bool:
         return "icici" in sender.lower() or "icici" in message.lower()
 
-    def parse(self, content: str) -> Optional[ParsedTransaction]:
+    def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
         # 1. Try Spent
@@ -35,7 +35,7 @@ class IciciSmsParser(BaseSmsParser):
             date_str = match.group(3)
             recipient = match.group(4).strip()
             ref_id = match.group(5)
-            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, "SMS")
+            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, "SMS", date_hint)
 
         # 2. Try Debit
         match = self.DEBIT_PATTERN.search(clean_content)
@@ -45,11 +45,11 @@ class IciciSmsParser(BaseSmsParser):
             date_str = match.group(3)
             recipient = match.group(4).strip()
             ref_id = match.group(5)
-            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, "SMS")
+            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, "SMS", date_hint)
 
         return None
 
-    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, source):
+    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, source, date_hint=None):
         try:
             # ICICI often uses 23-Sep-24
             txn_date = datetime.strptime(date_str, "%d-%b-%y")
@@ -57,7 +57,7 @@ class IciciSmsParser(BaseSmsParser):
             try:
                 txn_date = datetime.strptime(date_str, "%d-%b-%Y")
             except:
-                txn_date = datetime.now()
+                txn_date = date_hint or datetime.now()
             
         clean_recipient = RecipientParser.extract(recipient)
         return ParsedTransaction(
@@ -82,7 +82,7 @@ class IciciEmailParser(BaseEmailParser):
         combined = (subject + " " + body).lower()
         return "icici" in combined and any(k in combined for k in ["transaction", "spent", "debited", "alert", "upi"])
 
-    def parse(self, content: str) -> Optional[ParsedTransaction]:
+    def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
         # Use common patterns or loose fallback
@@ -101,18 +101,18 @@ class IciciEmailParser(BaseEmailParser):
                     ref_match = self.REF_PATTERN.search(clean_content)
                     ref_id = ref_match.group(1).strip() if ref_match else None
                     
-                    return self._create_txn(Decimal(amt_str), merchant, mask, date_match.group(1), "DEBIT", content, ref_id)
+                    return self._create_txn(Decimal(amt_str), merchant, mask, date_match.group(1), "DEBIT", content, ref_id, date_hint)
 
         return None
 
-    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id):
+    def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
             txn_date = datetime.strptime(date_str, "%d-%b-%y")
         except:
             try:
                 txn_date = datetime.strptime(date_str, "%d-%b-%Y")
             except:
-                txn_date = datetime.now()
+                txn_date = date_hint or datetime.now()
                 
         clean_recipient = RecipientParser.extract(recipient)
         return ParsedTransaction(
