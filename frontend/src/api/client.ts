@@ -30,7 +30,7 @@ apiClient.interceptors.response.use(
         if (error.response && error.response.status === 401) {
             // Clear token and redirect to login if not already there
             localStorage.removeItem('access_token')
-            // router.push('/login') // Would require importing router/store 
+            window.location.href = '/login'
         }
         return Promise.reject(error)
     }
