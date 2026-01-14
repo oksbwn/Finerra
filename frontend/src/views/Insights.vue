@@ -5,6 +5,7 @@ import { useFinanceStore } from '@/stores/finance'
 import { financeApi, aiApi } from '@/api/client'
 import { useCurrency } from '@/composables/useCurrency'
 import BaseChart from '@/components/BaseChart.vue'
+import BudgetHistoryChart from '@/components/BudgetHistoryChart.vue'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { marked } from 'marked'
 
@@ -34,6 +35,8 @@ const timeRangeOptions = [
 const transactions = ref<any[]>([])
 const analyticsMetrics = ref<any>(null)
 const forecastData = ref<any[]>([])
+const budgets = ref<any[]>([])
+const budgetHistory = ref<any[]>([])
 const aiInsights = ref<string>('')
 const generatingAI = ref(false)
 const loading = ref(false)
@@ -89,14 +92,18 @@ async function fetchAnalyticsData() {
             account_id: selectedAccount.value || undefined
         }
         
-        const [txnRes, metricsRes, forecastRes] = await Promise.all([
+        const [txnRes, metricsRes, forecastRes, budgetRes, historyRes] = await Promise.all([
             financeApi.getTransactions(params.account_id, 1, 1000, params.start_date || undefined, params.end_date || undefined),
             financeApi.getMetrics(params.account_id, params.start_date || undefined, params.end_date || undefined),
-            financeApi.getForecast(params.account_id)
+            financeApi.getForecast(params.account_id),
+            financeApi.getBudgets(),
+            financeApi.getBudgetHistory(6)
         ])
         transactions.value = txnRes.data.items
         analyticsMetrics.value = metricsRes.data
         forecastData.value = forecastRes.data
+        budgets.value = budgetRes.data
+        budgetHistory.value = historyRes.data
     } catch (e) {
         console.error(e)
     } finally {
@@ -111,8 +118,18 @@ async function generateAIInsights() {
             ? `from ${startDate.value} to ${endDate.value}`
             : `for ${selectedTimeRange.value.replace('-', ' ')}`
         
+        const velocity = budgetHistory.value.length > 0 ? `Spending velocity is currently showing a ${overallBudget.value?.percentage > 80 ? 'HIGH' : 'STABLE'} trend relative to the monthly cycle.` : ''
+        
         const res = await aiApi.generateSummaryInsights({
             ...analyticsMetrics.value,
+            budgets: budgets.value.map(b => ({ 
+                category: b.category, 
+                limit: b.amount_limit, 
+                spent: b.spent, 
+                percent: b.percentage,
+                status: b.percentage > 100 ? 'EXCEEDED' : (b.percentage > 80 ? 'CRITICAL' : 'OK')
+            })),
+            velocity_context: velocity,
             timeframe_filter: timeContext,
             account_filtered: selectedAccount.value ? "Yes" : "No"
         })
@@ -128,6 +145,8 @@ async function generateAIInsights() {
 const accountOptions = computed(() => {
     return store.accounts.map(a => ({ label: a.name, value: a.id }))
 })
+
+const overallBudget = computed(() => budgets.value.find(b => b.category === 'OVERALL'))
 
 // --- Analytics Computed Logic ---
 function formatTypeLabel(type: string) {
@@ -270,6 +289,7 @@ const trendChartData = computed(() => ({
         pointBackgroundColor: selectedTrendCategory.value ? store.getCategoryColor(selectedTrendCategory.value) : '#6366f1'
     }]
 }))
+
 
 const heatmapData = computed(() => {
     const hours = Array.from({ length: 24 }, (_, i) => i)
@@ -574,7 +594,7 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                                 :data="forecastChartData" 
                                 :height="250"
                             />
-                            <div v-else class="empty-chart-state">Calculating...</div>
+                             <div v-else class="empty-chart-state">Calculating...</div>
                         </div>
                         <div class="forecast-footer">
                              <div class="forecast-info">
@@ -586,6 +606,11 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
                              </div>
                         </div>
                     </div>
+
+                    <BudgetHistoryChart 
+                        v-if="budgetHistory.length > 0" 
+                        :history="budgetHistory" 
+                    />
 
                     <!-- Heatmap Section -->
                     <div class="analytics-card full-width">

@@ -20,6 +20,7 @@ const transactions = ref<any[]>([])
 const accounts = ref<any[]>([])
 const categories = ref<any[]>([])
 const triageTransactions = ref<any[]>([])
+const budgets = ref<any[]>([])
 const loading = ref(true)
 const selectedAccount = ref<string>('')
 const activeTab = ref<'list' | 'analytics' | 'triage'>('list')
@@ -106,19 +107,26 @@ const categoryOptions = computed(() => {
     }))
 })
 
+const currentCategoryBudget = computed(() => {
+    if (!form.value.category || form.value.is_transfer) return null
+    return budgets.value.find(b => b.category === form.value.category) || null
+})
+
 async function fetchData() {
     console.log('[Transactions] fetchData called, loading=true')
     loading.value = true
     try {
         if (accounts.value.length === 0) {
            console.log('[Transactions] Fetching accounts and categories...')
-           const [accRes, catRes] = await Promise.all([
+           const [accRes, catRes, budgetRes] = await Promise.all([
                financeApi.getAccounts(),
-               financeApi.getCategories()
+               financeApi.getCategories(),
+               financeApi.getBudgets()
            ])
            accounts.value = accRes.data
            categories.value = catRes.data
-           console.log('[Transactions] Loaded', accounts.value.length, 'accounts and', categories.value.length, 'categories')
+           budgets.value = budgetRes.data
+           console.log('[Transactions] Loaded', accounts.value.length, 'accounts,', categories.value.length, 'categories, and', budgets.value.length, 'budgets')
         }
         if (!selectedAccount.value && route.query.account_id) {
             selectedAccount.value = route.query.account_id as string
@@ -950,7 +958,13 @@ onMounted(() => {
 
                     <div class="form-group">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                             <label class="form-label" style="margin-bottom: 0;">Category</label>
+                             <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                 <label class="form-label" style="margin-bottom: 0;">Category</label>
+                                 <div v-if="currentCategoryBudget" class="budget-preview-tag" :class="{ 'danger': currentCategoryBudget.remaining < 0 }">
+                                     <span class="dot"></span>
+                                     {{ formatAmount(currentCategoryBudget.remaining) }} left
+                                 </div>
+                             </div>
                              
                              <div class="toggle-control" style="transform: scale(0.9); transform-origin: right center;">
                                 <label class="premium-switch">
@@ -1395,6 +1409,39 @@ onMounted(() => {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* Budget Preview Tag (Modal) */
+.budget-preview-tag {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.625rem;
+    background: #ecfdf5;
+    color: #065f46;
+    border-radius: 999px;
+    font-size: 0.725rem;
+    font-weight: 600;
+    border: 1px solid #d1fae5;
+    animation: slideInLeft 0.3s ease-out;
+}
+
+.budget-preview-tag.danger {
+    background: #fef2f2;
+    color: #991b1b;
+    border-color: #fee2e2;
+}
+
+.budget-preview-tag .dot {
+    width: 5px;
+    height: 5px;
+    background: currentColor;
+    border-radius: 50%;
+}
+
+@keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
 }
 
 /* Content Card */

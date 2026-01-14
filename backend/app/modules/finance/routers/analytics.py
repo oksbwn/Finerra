@@ -38,3 +38,14 @@ def get_forecast(
         days=days,
         account_id=account_id
     )
+@router.get("/budget-history")
+def get_budget_history(
+    months: int = 6,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return AnalyticsService.get_budget_history(
+        db, 
+        str(current_user.tenant_id), 
+        months=months
+    )

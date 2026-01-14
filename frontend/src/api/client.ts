@@ -98,6 +98,8 @@ export const financeApi = {
     processRecurring: () => apiClient.post('/finance/recurring/process'),
     getForecast: (accountId?: string, days: number = 30) =>
         apiClient.get('/finance/forecast', { params: { account_id: accountId, days } }),
+    getBudgetHistory: (months: number = 6) =>
+        apiClient.get('/finance/budget-history', { params: { months } }),
 
     // Ingestion
     analyzeCsv: (formData: FormData) => apiClient.post('/ingestion/csv/analyze', formData, {

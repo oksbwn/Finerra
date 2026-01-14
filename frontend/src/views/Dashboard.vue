@@ -28,6 +28,16 @@ const metrics = ref({
     currency: 'INR'
 })
 
+const budgets = ref<any[]>([])
+const categories = ref<any[]>([])
+
+const budgetPulse = computed(() => {
+    return budgets.value
+        .filter(b => b.category !== 'OVERALL')
+        .sort((a, b) => b.percentage - a.percentage)
+        .slice(0, 3)
+})
+
 // Computed
 const creditUtilPercent = computed(() => {
     const limit = metrics.value.breakdown.total_credit_limit
@@ -48,7 +58,6 @@ function formatDate(dateStr: string) {
     return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
-    const categories = ref<any[]>([])
 
     // Helper to get category details including color
     function getCategoryDetails(name: string) {
@@ -59,14 +68,16 @@ function formatDate(dateStr: string) {
 
     onMounted(async () => {
         try {
-            const [res, catRes] = await Promise.all([
+            const [res, catRes, budgetRes] = await Promise.all([
                 financeApi.getMetrics(),
-                financeApi.getCategories()
+                financeApi.getCategories(),
+                financeApi.getBudgets()
             ])
             metrics.value = res.data
             categories.value = catRes.data
+            budgets.value = budgetRes.data
         } catch (e) {
-            console.error("Failed to load metrics", e)
+            console.error("Failed to load dashboard data", e)
         } finally {
             loading.value = false
         }
@@ -111,7 +122,7 @@ function formatDate(dateStr: string) {
                 </div>
             </div>
 
-            <div class="metric-card budget-card h-glow-warning" @click="router.push('/budgets')">
+            <div class="metric-card budget-card h-glow-warning" :class="{'pulse-critical': metrics.budget_health.percentage > 100}" @click="router.push('/budgets')">
                 <div class="card-top-row">
                     <div class="card-icon-bg orange">📊</div>
                     <span class="mini-percent" :class="{'danger': metrics.budget_health.percentage > 100}">
@@ -119,12 +130,17 @@ function formatDate(dateStr: string) {
                     </span>
                 </div>
                 <div class="card-data">
-                    <span class="label">Budget Used</span>
+                    <span class="label">Budget Target</span>
                     <div class="progress-bar-xs">
-                        <div class="fill" :style="{ width: Math.min(metrics.budget_health.percentage, 100) + '%' }"></div>
+                        <div class="fill" 
+                             :style="{ width: Math.min(metrics.budget_health.percentage, 100) + '%' }"
+                             :class="{'danger': metrics.budget_health.percentage > 90}"
+                        ></div>
                     </div>
                     <span class="sub-text">
-                        {{ formatAmount(metrics.budget_health.limit - metrics.budget_health.spent, metrics.currency) }} left
+                        {{ metrics.budget_health.spent > metrics.budget_health.limit ? 'Overspent by ' : '' }}
+                        {{ formatAmount(Math.abs(metrics.budget_health.limit - metrics.budget_health.spent), metrics.currency) }} 
+                        {{ metrics.budget_health.spent > metrics.budget_health.limit ? '' : 'left' }}
                     </span>
                 </div>
             </div>
@@ -145,7 +161,34 @@ function formatDate(dateStr: string) {
                 </div>
             </div>
 
-            <!-- ROW 2: Account Snapshot & Recent Activity -->
+            <!-- ROW 2: Budget Pulse (Surfacing category limits) -->
+            <div v-if="budgetPulse.length > 0" class="dashboard-section pulse-section glass-panel">
+                <div class="section-header">
+                    <div class="header-with-badge">
+                        <h3>Budget Pulse</h3>
+                        <span class="pulse-status-badge">Live Monitor</span>
+                    </div>
+                    <button class="btn-text" @click="router.push('/budgets')">Manage Limits</button>
+                </div>
+                <div class="pulse-grid">
+                    <div v-for="b in budgetPulse" :key="b.id" class="pulse-card" @click="router.push('/budgets')">
+                        <div class="pulse-card-top">
+                            <span class="pulse-cat">{{ getCategoryDetails(b.category).icon }} {{ b.category }}</span>
+                            <span class="pulse-percent" :class="{ 'danger': b.percentage > 100 }">{{ b.percentage.toFixed(0) }}%</span>
+                        </div>
+                        <div class="pulse-bar-bg">
+                            <div class="pulse-bar-fill" 
+                                :style="{ width: Math.min(b.percentage, 100) + '%', backgroundColor: b.percentage > 100 ? '#ef4444' : (b.percentage > 85 ? '#f59e0b' : '#6366f1') }"
+                            ></div>
+                        </div>
+                        <div class="pulse-footer">
+                            {{ formatAmount(b.spent, metrics.currency) }} of {{ formatAmount(b.amount_limit, metrics.currency) }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ROW 3: Account Snapshot & Recent Activity -->
             
             <!-- Snapshot -->
             <div class="dashboard-section snapshot-section glass-panel">
@@ -319,6 +362,13 @@ function formatDate(dateStr: string) {
 
 .snapshot-section { grid-column: span 2; }
 .activity-section { grid-column: span 2; }
+.pulse-section { grid-column: span 4; }
+
+.header-with-badge { display: flex; align-items: center; gap: 0.75rem; }
+.pulse-status-badge { 
+    padding: 0.25rem 0.5rem; background: #e0e7ff; color: #4338ca; 
+    font-size: 0.65rem; font-weight: 800; border-radius: 4px; text-transform: uppercase;
+}
 
 .glass-panel {
     background: rgba(255, 255, 255, 0.8);
@@ -368,9 +418,37 @@ function formatDate(dateStr: string) {
 
 .empty-state-sm { text-align: center; color: var(--color-text-muted); font-size: 0.85rem; padding: 2rem 0; }
 
+/* Pulse Grid */
+.pulse-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.pulse-card { 
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.875rem; padding: 1rem;
+    cursor: pointer; transition: all 0.2s;
+}
+.pulse-card:hover { border-color: #cbd5e1; transform: scale(1.02); }
+.pulse-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.pulse-cat { font-size: 0.8125rem; font-weight: 700; color: #374151; }
+.pulse-percent { font-size: 0.8125rem; font-weight: 800; color: #6366f1; }
+.pulse-percent.danger { color: #ef4444; }
+
+.pulse-bar-bg { height: 4px; background: #e5e7eb; border-radius: 2px; margin-bottom: 0.5rem; overflow: hidden; }
+.pulse-bar-fill { height: 100%; transition: width 1s ease-out; }
+.pulse-footer { font-size: 0.7rem; color: #64748b; font-weight: 500; }
+
+.pulse-critical {
+    animation: criticalPulse 2s infinite;
+    border-color: #fecaca !important;
+}
+
+@keyframes criticalPulse {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
 /* Mobile Responsive */
 @media (max-width: 1024px) {
     .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
+    .pulse-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {

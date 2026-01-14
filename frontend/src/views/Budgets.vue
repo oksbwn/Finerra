@@ -12,7 +12,6 @@ const notify = useNotificationStore()
 const budgets = ref<any[]>([])
 const categories = ref<any[]>([])
 const loading = ref(true)
-const activeTab = ref('list')
 
 const showModal = ref(false)
 const newBudget = ref({
@@ -41,6 +40,22 @@ const totalSpent = computed(() => {
      return categoryBudgets.value.reduce((sum, b) => sum + Number(b.spent), 0)
 })
 const totalRemaining = computed(() => effectiveTotalBudget.value - totalSpent.value)
+
+const spendingVelocity = computed(() => {
+    const now = new Date()
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    const dayOfMonth = now.getDate()
+    const monthProgress = (dayOfMonth / daysInMonth) * 100
+    
+    if (!overallBudget.value) return { status: 'stable', diff: 0 }
+    
+    const diff = overallBudget.value.percentage - monthProgress
+    let status = 'stable'
+    if (diff > 15) status = 'aggressive'
+    else if (diff > 5) status = 'warning'
+    
+    return { status, diff, monthProgress }
+})
 
 const categoryOptions = computed(() => {
     return categories.value.map(c => ({
@@ -124,23 +139,8 @@ onMounted(() => {
             <!-- Premium Header -->
             <div class="page-header-compact">
                 <div class="header-left">
-                    <h1 class="page-title">Budgets</h1>
-                    <div class="header-tabs">
-                        <button 
-                            class="tab-btn" 
-                            :class="{ active: activeTab === 'list' }" 
-                            @click="activeTab = 'list'"
-                        >
-                            List
-                        </button>
-                        <button 
-                            class="tab-btn" 
-                            :class="{ active: activeTab === 'analytics' }" 
-                            @click="activeTab = 'analytics'"
-                        >
-                            Analytics
-                        </button>
-                    </div>
+                    <h1 class="page-title">Budgets & Limits</h1>
+                    <p class="page-subtitle">Define your monthly spending boundaries</p>
                 </div>
                 
                 <div class="header-actions">
@@ -158,45 +158,70 @@ onMounted(() => {
                 <p>Calculating your spending power...</p>
             </div>
 
-            <div v-else>
-                <!-- LIST VIEW -->
-                <div v-if="activeTab === 'list'" class="tab-content animate-in">
-                    <!-- Overall Budget Hero Card -->
-                    <div v-if="overallBudget" class="overall-glass-card">
-                        <div class="card-top">
-                            <div class="card-main">
-                                <span class="card-label">Overall Monthly Limit</span>
-                                <div class="price-row">
-                                    <span class="amount-large">{{ formatAmount(overallBudget.spent) }}</span>
-                                    <span class="separator">/</span>
-                                    <span class="total-limit">{{ formatAmount(overallBudget.amount_limit) }}</span>
+            <div v-else class="animate-in">
+                    <!-- Overall Budget Hero Card (Premium Midnight) -->
+                    <div v-if="overallBudget" class="overall-premium-card">
+                        <div class="card-glass-content">
+                            <div class="card-top">
+                                <div class="card-main">
+                                    <div class="card-header-badge">Overall Target</div>
+                                    <div class="price-row">
+                                        <span class="amount-large">{{ formatAmount(overallBudget.spent) }}</span>
+                                        <span class="separator">/</span>
+                                        <span class="total-limit">{{ formatAmount(overallBudget.amount_limit) }}</span>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button @click="editBudget(overallBudget)" class="btn-glass-sq">✏️</button>
                                 </div>
                             </div>
-                            <div class="card-actions">
-                                <button @click="editBudget(overallBudget)" class="btn-icon-circle">✏️</button>
-                                <button @click="deleteBudget(overallBudget.id)" class="btn-icon-circle danger">🗑️</button>
-                            </div>
-                        </div>
 
-                        <div class="progress-container-lg">
-                            <div class="progress-bar-bg-lg">
-                                <div class="progress-bar-fill-lg" 
-                                    :style="{ width: Math.min(overallBudget.percentage, 100) + '%' }"
-                                    :class="{ 
-                                        'warning': overallBudget.percentage > 80 && overallBudget.percentage <= 100,
-                                        'danger': overallBudget.percentage > 100 
-                                    }"
-                                ></div>
+                            <div class="velocity-indicator" :class="spendingVelocity.status">
+                                <div class="velocity-icon">
+                                    <span v-if="spendingVelocity.status === 'aggressive'">⚠️</span>
+                                    <span v-else-if="spendingVelocity.status === 'warning'">🔔</span>
+                                    <span v-else>✅</span>
+                                </div>
+                                <div class="velocity-text">
+                                    <template v-if="spendingVelocity.status === 'aggressive'">
+                                        Spending is <strong>{{ spendingVelocity.diff.toFixed(0) }}% ahead</strong> of the monthly curve. Consider cooling off.
+                                    </template>
+                                    <template v-else-if="spendingVelocity.status === 'warning'">
+                                        Slightly above pace. {{ formatAmount(overallBudget.remaining) }} left for {{ 30 - new Date().getDate() }} days.
+                                    </template>
+                                    <template v-else>
+                                        Under control. You are spend-aligned with the monthly progress.
+                                    </template>
+                                </div>
                             </div>
-                            <div class="progress-meta">
-                                <span class="percentage-badge" :class="{ 'over': overallBudget.percentage > 100 }">
-                                    {{ overallBudget.percentage?.toFixed(1) }}% Used
-                                </span>
-                                <span class="remaining-text" :class="{ 'over': overallBudget.remaining < 0 }">
-                                    {{ overallBudget.remaining >= 0 ? `${formatAmount(overallBudget.remaining)} remaining` : `${formatAmount(Math.abs(overallBudget.remaining))} overspent` }}
-                                </span>
+
+                            <div class="progress-container-lg">
+                                <div class="progress-bar-bg-lg">
+                                    <div class="progress-bar-fill-lg" 
+                                        :style="{ width: Math.min(overallBudget.percentage, 100) + '%' }"
+                                        :class="{ 
+                                            'warning': overallBudget.percentage > 80 && overallBudget.percentage <= 100,
+                                            'danger': overallBudget.percentage > 100 
+                                        }"
+                                    ></div>
+                                    <!-- Month progress vertical line marker -->
+                                    <div class="month-marker" :style="{ left: spendingVelocity.monthProgress + '%' }">
+                                        <span class="marker-label">Today</span>
+                                    </div>
+                                </div>
+                                <div class="progress-meta">
+                                    <span class="percentage-badge" :class="{ 'over': overallBudget.percentage > 100 }">
+                                        {{ overallBudget.percentage?.toFixed(1) }}% Utilized
+                                    </span>
+                                    <span class="remaining-text">
+                                        {{ overallBudget.spent > overallBudget.amount_limit ? 'Overspent by ' : 'Safe Capacity: ' }} 
+                                        <strong>{{ formatAmount(Math.abs(overallBudget.remaining)) }}</strong>
+                                    </span>
+                                </div>
                             </div>
                         </div>
+                        <div class="mesh-blob blob-1"></div>
+                        <div class="mesh-blob blob-2"></div>
                     </div>
 
                     <!-- Summary Grid -->
@@ -229,13 +254,18 @@ onMounted(() => {
                         <div v-for="b in categoryBudgets" :key="b.id" class="glass-card budget-card" :style="{ borderLeft: `4px solid ${getCategoryDisplay(b.category).color}` }">
                             <div class="card-top">
                                 <div class="card-main">
+                                    <div class="card-icon-wrapper" :style="{ background: getCategoryDisplay(b.category).color + '15', color: getCategoryDisplay(b.category).color }">
+                                        {{ getCategoryDisplay(b.category).icon }}
+                                    </div>
                                     <span class="card-name">{{ getCategoryDisplay(b.category).text }}</span>
                                 </div>
                                 <div class="card-actions">
-                                    <button @click="editBudget(b)" class="btn-icon-circle-sm">✏️</button>
-                                    <button @click="deleteBudget(b.id)" class="btn-icon-circle-sm danger">🗑️</button>
+                                    <button @click="editBudget(b)" class="btn-ghost-sm" title="Edit Budget">✏️</button>
+                                    <button @click="deleteBudget(b.id)" class="btn-ghost-sm danger" title="Delete Budget">✕</button>
                                 </div>
                             </div>
+                            <!-- Decorative BG Icon -->
+                            <div class="card-bg-icon">{{ getCategoryDisplay(b.category).icon }}</div>
                             
                             <div class="progress-section">
                                 <div class="progress-info-compact">
@@ -261,71 +291,6 @@ onMounted(() => {
                             <p>Enforce category limit</p>
                         </div>
                     </div>
-                </div>
-
-                <!-- ANALYTICS VIEW -->
-                <div v-else-if="activeTab === 'analytics'" class="tab-content animate-in">
-                    <div class="analytics-grid-budget">
-                        <!-- Utilization Gauge (Mockup for now, could use SVG like transactions) -->
-                        <div class="analytics-card glass">
-                            <div class="card-header">
-                                <h3 class="card-title">Budget Health</h3>
-                            </div>
-                            <div class="gauge-container">
-                                <svg viewBox="0 0 100 60" class="gauge-svg">
-                                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#f3f4f6" stroke-width="8" stroke-linecap="round" />
-                                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" 
-                                          :stroke="overallBudget?.percentage > 100 ? '#ef4444' : (overallBudget?.percentage > 80 ? '#f59e0b' : '#10b981')" 
-                                          stroke-width="8" stroke-linecap="round"
-                                          :stroke-dasharray="125" :stroke-dashoffset="125 - (125 * Math.min(overallBudget?.percentage || 0, 100) / 100)" />
-                                </svg>
-                                <div class="gauge-value">
-                                    <span class="val">{{ overallBudget?.percentage?.toFixed(0) || 0 }}%</span>
-                                    <span class="lbl">Utilized</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Top Burners -->
-                        <div class="analytics-card glass">
-                            <div class="card-header">
-                                <h3 class="card-title">Critical Categories</h3>
-                            </div>
-                            <div class="burner-list">
-                                <div v-for="b in [...categoryBudgets].sort((x,y) => y.percentage - x.percentage).slice(0,4)" :key="b.id" class="burner-item">
-                                    <div class="burner-info">
-                                        <span class="burner-label">{{ getCategoryDisplay(b.category).text }}</span>
-                                        <span class="burner-val" :class="{ 'danger': b.percentage > 100 }">{{ b.percentage?.toFixed(0) }}%</span>
-                                    </div>
-                                    <div class="burner-bar-bg">
-                                        <div class="burner-bar-fill" 
-                                            :style="{ 
-                                                width: Math.min(b.percentage, 100) + '%', 
-                                                backgroundColor: b.percentage > 100 ? '#ef4444' : getCategoryDisplay(b.category).color 
-                                            }"
-                                        ></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Budget vs Reality Chart (Mockup SVG) -->
-                        <div class="analytics-card glass full-width">
-                            <div class="card-header">
-                                <h3 class="card-title">Monthly Budget Adherence</h3>
-                            </div>
-                            <div class="budget-chart">
-                                <div v-for="b in categoryBudgets" :key="b.id" class="chart-col">
-                                    <div class="bar-pair">
-                                        <div class="bar limit-bar" :title="'Limit: ' + b.amount_limit" :style="{ height: '100px' }"></div>
-                                        <div class="bar spend-bar" :title="'Spent: ' + b.spent" :class="{ 'over': b.spent > b.amount_limit }" :style="{ height: Math.min(100 * b.spent / b.amount_limit, 150) + 'px' }"></div>
-                                    </div>
-                                    <span class="col-label">{{ b.category }}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -374,49 +339,27 @@ onMounted(() => {
 .page-header-compact {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.25rem;
-    gap: 1.5rem;
+    align-items: flex-end;
+    margin-bottom: 2rem;
 }
 
 .header-left {
     display: flex;
-    align-items: center;
-    gap: 1rem;
+    flex-direction: column;
 }
 
 .page-title {
-    font-size: 1.25rem;
+    font-size: 1.75rem;
     font-weight: 800;
-    color: #111827;
+    color: #1e293b;
     margin: 0;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.02em;
 }
 
-.header-tabs {
-    display: flex;
-    gap: 0.125rem;
-    background: #f3f4f6;
-    padding: 0.125rem;
-    border-radius: 0.625rem;
-}
-
-.tab-btn {
-    padding: 0.375rem 1rem;
-    border: none;
-    background: transparent;
-    border-radius: 0.5rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #6b7280;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.tab-btn.active {
-    background: white;
-    color: #111827;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+.page-subtitle {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin: 0.25rem 0 0 0;
 }
 
 .header-actions {
@@ -424,304 +367,283 @@ onMounted(() => {
     gap: 0.75rem;
 }
 
-.btn-primary-glow {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.5rem 1rem;
-    background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+/* Premium Midnight Card */
+.overall-premium-card {
+    background: #0f172a;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border-radius: 1.5rem;
+    padding: 2.25rem;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
     color: white;
-    border: none;
-    border-radius: 0.625rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 10px rgba(79, 70, 229, 0.15);
+    box-shadow: 0 20px 25px -5px rgba(0, 0,0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
-.btn-outline-compact {
-    padding: 0.5rem 1rem;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.625rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #4b5563;
-    cursor: pointer;
-    transition: all 0.2s;
+.card-glass-content {
+    position: relative;
+    z-index: 10;
 }
 
-.btn-outline-compact:hover {
-    background: #f9fafb;
-    border-color: #d1d5db;
-}
-
-/* Overall Hero Card */
-.overall-glass-card {
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 1.25rem;
-    padding: 1.5rem;
-    margin-bottom: 1.25rem;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+.card-header-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .price-row {
     display: flex;
     align-items: baseline;
-    gap: 0.25rem;
-    margin-top: 0.25rem;
+    gap: 0.5rem;
 }
 
-.currency { font-size: 1.25rem; font-weight: 600; color: #6b7280; }
-.amount-large { font-size: 2.25rem; font-weight: 800; color: #111827; letter-spacing: -0.05em; }
-.separator { font-size: 1.5rem; color: #d1d5db; margin: 0 0.5rem; }
-.total-limit { font-size: 1.25rem; font-weight: 600; color: #6b7280; }
+.amount-large { font-size: 2.75rem; font-weight: 800; color: #f8fafc; letter-spacing: -0.05em; }
+.separator { font-size: 1.5rem; color: #475569; }
+.total-limit { font-size: 1.5rem; font-weight: 600; color: #94a3b8; }
+
+.velocity-indicator {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.875rem;
+}
+
+.velocity-indicator.aggressive { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); }
+.velocity-indicator.warning { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.2); }
+
+.velocity-icon { font-size: 1.25rem; }
+.velocity-text { color: #cbd5e1; line-height: 1.5; }
+.velocity-text strong { color: #f8fafc; font-weight: 700; }
 
 .progress-container-lg {
-    margin-top: 1.5rem;
+    margin-top: 2rem;
 }
 
 .progress-bar-bg-lg {
     height: 12px;
-    background: #f3f4f6;
+    background: rgba(255, 255, 255, 0.1);
     border-radius: 6px;
-    overflow: hidden;
+    position: relative;
+    overflow: visible;
 }
 
 .progress-bar-fill-lg {
     height: 100%;
-    background: #10b981;
-    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    background: #6366f1;
+    border-radius: 6px;
+    transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
 }
 
-.progress-bar-fill-lg.warning { background: #f59e0b; }
-.progress-bar-fill-lg.danger { background: #ef4444; }
+.progress-bar-fill-lg.warning { background: #f59e0b; box-shadow: 0 0 15px rgba(245, 158, 11, 0.3); }
+.progress-bar-fill-lg.danger { background: #ef4444; box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+
+.month-marker {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    background: white;
+    z-index: 5;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+}
+
+.marker-label {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
 
 .progress-meta {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-top: 0.75rem;
+    margin-top: 1rem;
 }
 
 .percentage-badge {
-    padding: 0.25rem 0.625rem;
-    background: #ecfdf5;
-    color: #059669;
-    border-radius: 9999px;
+    padding: 0.25rem 0.75rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
     font-size: 0.75rem;
     font-weight: 700;
 }
 
-.percentage-badge.over { background: #fef2f2; color: #dc2626; }
+.percentage-badge.over { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
 
-.remaining-text {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: #6b7280;
+.remaining-text { font-size: 0.875rem; color: #94a3b8; }
+.remaining-text strong { color: white; }
+
+/* Mesh Blobs */
+.mesh-blob {
+    position: absolute;
+    filter: blur(80px);
+    opacity: 0.15;
+    border-radius: 50%;
+    z-index: 1;
 }
 
-.remaining-text.over { color: #dc2626; }
+.blob-1 { width: 400px; height: 400px; background: #3b82f6; top: -150px; right: -100px; }
+.blob-2 { width: 350px; height: 350px; background: #6366f1; bottom: -100px; left: -100px; }
 
-/* Summary Widgets */
+/* Summary Grid */
 .summary-widgets-budget {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.875rem;
-    margin-bottom: 2rem;
+    gap: 1.25rem;
+    margin-bottom: 2.5rem;
 }
 
+.mini-stat-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 1.25rem;
+    padding: 1.25rem;
+    transition: all 0.2s;
+}
+
+.mini-stat-card:hover { border-color: #cbd5e1; transform: translateY(-2px); }
+
 /* Category Grid */
+.section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #64748b;
+    margin-bottom: 1.25rem;
+}
+
 .budget-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 0.875rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.25rem;
 }
 
 .glass-card {
     background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 1rem;
-    padding: 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 1.25rem;
+    padding: 1.5rem;
     transition: all 0.2s;
-}
-
-.budget-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-}
-
-.progress-info-compact {
-    display: flex;
-    align-items: baseline;
-    gap: 0.25rem;
-    margin-top: 0.75rem;
-}
-
-.spent { font-size: 1rem; font-weight: 700; color: #111827; }
-.limit { font-size: 0.75rem; color: #9ca3af; }
-
-.progress-bar-bg-sm {
-    height: 6px;
-    background: #f3f4f6;
-    border-radius: 3px;
-    margin: 0.5rem 0;
+    position: relative;
     overflow: hidden;
 }
 
-.progress-bar-fill-sm {
-    height: 100%;
-    background: #10b981;
-}
-.progress-bar-fill-sm.warning { background: #f59e0b; }
-.progress-bar-fill-sm.danger { background: #ef4444; }
+.card-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 2; }
+.card-main { display: flex; align-items: center; gap: 0.75rem; }
+.card-name { font-size: 1rem; font-weight: 700; color: #1e293b; }
 
-.remaining-footer {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #6b7280;
-    text-align: right;
-}
-
-.remaining-footer.over { color: #dc2626; }
-
-/* Analytics View */
-.analytics-grid-budget {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-}
-
-.analytics-card {
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 1rem;
-    padding: 1.25rem;
-}
-
-.full-width { grid-column: 1 / -1; }
-
-.card-title {
-    font-size: 0.875rem;
-    font-weight: 700;
-    color: #374151;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 1rem;
-}
-
-/* Gauge Mockup */
-.gauge-container {
+.card-icon-wrapper {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.625rem;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    position: relative;
-    padding-top: 1rem;
+    justify-content: center;
+    font-size: 1.1rem;
+    backdrop-filter: blur(4px);
 }
 
-.gauge-svg {
-    width: 200px;
-    height: 120px;
-}
-
-.gauge-value {
+.card-bg-icon {
     position: absolute;
-    bottom: 20px;
+    bottom: -1rem;
+    right: -1rem;
+    font-size: 6rem;
+    opacity: 0.05;
+    transform: rotate(-15deg);
+    pointer-events: none;
+    z-index: 0;
+    filter: grayscale(100%);
+}
+
+.btn-glass-sq {
+    width: 2.25rem;
+    height: 2.25rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    color: white;
     display: flex;
-    flex-direction: column;
     align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: all 0.2s;
 }
 
-.gauge-value .val { font-size: 1.5rem; font-weight: 800; color: #111827; }
-.gauge-value .lbl { font-size: 0.7rem; color: #9ca3af; text-transform: uppercase; font-weight: 600; }
+.btn-glass-sq:hover { background: rgba(255, 255, 255, 0.15); transform: translateY(-1px); }
+.btn-glass-sq.danger:hover { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.3); }
 
-/* Burner List */
-.burner-list { display: flex; flex-direction: column; gap: 0.75rem; }
-.burner-info { display: flex; justify-content: space-between; margin-bottom: 0.25rem; }
-.burner-label { font-size: 0.8125rem; font-weight: 600; color: #4b5563; }
-.burner-val { font-size: 0.8125rem; font-weight: 700; color: #10b981; }
-.burner-val.danger { color: #ef4444; }
-
-.burner-bar-bg { height: 4px; background: #f3f4f6; border-radius: 2px; overflow: hidden; }
-.burner-bar-fill { height: 100%; background: #10b981; }
-.burner-bar-fill.danger { background: #ef4444; }
-
-/* Budget Chart Mockup */
-.budget-chart {
-    display: flex;
-    align-items: flex-end;
-    gap: 1.5rem;
-    height: 200px;
-    padding: 1rem;
-    overflow-x: auto;
+/* Buttons */
+.btn-primary-glow {
+    padding: 0.625rem 1.25rem;
+    background: #4f46e5;
+    color: white;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
 }
 
-.chart-col {
+.btn-outline-compact {
+    padding: 0.625rem 1.25rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+}
+
+.btn-ghost-sm {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
-    min-width: 60px;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
 }
 
-.bar-pair {
-    position: relative;
-    width: 24px;
-    height: 150px;
-    display: flex;
-    align-items: flex-end;
+.btn-ghost-sm:hover {
+    background: #f1f5f9;
+    color: #475569;
 }
 
-.bar { width: 100%; border-radius: 4px 4px 0 0; }
-.limit-bar { background: #f3f4f6; position: absolute; bottom: 0; left: 0; z-index: 1; opacity: 0.5; }
-.spend-bar { background: #10b981; position: absolute; bottom: 0; left: 0; z-index: 2; }
-.spend-bar.over { background: #ef4444; }
+.btn-ghost-sm.danger:hover {
+    background: #fef2f2;
+    color: #ef4444;
+}
 
-.col-label { font-size: 0.65rem; font-weight: 600; color: #9ca3af; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; }
+/* Animations */
+.animate-in { animation: slideUp 0.5s ease-out forwards; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
 
-/* States & Global Reused */
-.loading-state { padding: 4rem 0; text-align: center; color: #6b7280; }
-.loader-spinner { width: 32px; height: 32px; border: 3px solid #f3f3f3; border-top: 3px solid #4f46e5; border-radius: 50%; margin: 0 auto 1rem; animation: spin 1s linear infinite; }
-@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-.animate-in { animation: slideUp 0.4s ease-out forwards; }
-@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-/* Shared Stat Cards */
-.mini-stat-card { background: white; border: 1px solid #e5e7eb; border-radius: 0.875rem; padding: 0.875rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; transition: all 0.2s; }
-.mini-stat-card:hover { transform: translateY(-2px); border-color: #d1d5db; }
-.stat-top { display: flex; justify-content: space-between; align-items: center; }
-.stat-label { font-size: 0.7rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
-.stat-icon-bg { width: 32px; height: 32px; border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
-.stat-icon-bg.gray { background: #f3f4f6; }
-.stat-icon-bg.red { background: #fef2f2; }
-.stat-icon-bg.green { background: #ecfdf5; }
-.stat-value { font-size: 1.25rem; font-weight: 800; color: #111827; letter-spacing: -0.025em; }
-.stat-value.negative { color: #dc2626; }
-
-.btn-icon-circle { width: 2.25rem; height: 2.25rem; border-radius: 50%; border: none; background: #f9fafb; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
-.btn-icon-circle:hover { background: #f3f4f6; }
-.btn-icon-circle.danger:hover { background: #fef2f2; color: #dc2626; }
-.btn-icon-circle-sm { width: 1.75rem; height: 1.75rem; border-radius: 50%; border: none; background: #f9fafb; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; font-size: 0.75rem; }
-.btn-icon-circle-sm:hover { background: #f3f4f6; }
-
-.section-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5rem 0 0.875rem; color: #6b7280; }
-
-.empty-card { border: 2px dashed #e5e7eb; border-radius: 1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; cursor: pointer; transition: all 0.2s; color: #9ca3af; }
-.empty-card:hover { border-color: #4f46e5; background: #f5f3ff; color: #4f46e5; }
-.empty-plus { font-size: 1.5rem; font-weight: 300; margin-bottom: 0.5rem; }
-
-/* Modal Enhancement */
-.form-compact .form-group { margin-bottom: 1rem; }
-.amount-input-wrapper { position: relative; }
-.input-prefix { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); font-weight: 600; color: #6b7280; }
-.amount-input-wrapper .form-input { padding-left: 2rem; }
-.btn-secondary { padding: 0.625rem 1.25rem; background: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; font-weight: 600; cursor: pointer; }
-
-/* Glow Effects */
-.h-glow-primary:hover { box-shadow: 0 4px 15px rgba(79, 70, 229, 0.1); }
-.h-glow-success:hover { box-shadow: 0 4px 15px rgba(16, 185, 129, 0.1); }
-.h-glow-danger:hover { box-shadow: 0 4px 15px rgba(239, 68, 68, 0.1); }
+@media (max-width: 640px) {
+    .summary-widgets-budget { grid-template-columns: 1fr; }
+    .amount-large { font-size: 2rem; }
+}
 </style>

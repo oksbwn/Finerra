@@ -168,3 +168,74 @@ class AnalyticsService:
             })
             
         return forecast
+    @staticmethod
+    def get_budget_history(db: Session, tenant_id: str, months: int = 6):
+        from datetime import timedelta
+        
+        # Get all budgets to know which categories to track
+        budgets = db.query(models.Budget).filter(models.Budget.tenant_id == tenant_id).all()
+        categories = [b.category for b in budgets]
+        
+        if not categories:
+            return []
+
+        now = datetime.utcnow()
+        history = []
+        
+        for i in range(months):
+            # Calculate target month and year
+            target_month = now.month - i
+            target_year = now.year
+            while target_month <= 0:
+                target_month += 12
+                target_year -= 1
+            
+            m_start = datetime(target_year, target_month, 1)
+            if target_month == 12:
+                m_end = datetime(target_year + 1, 1, 1)
+            else:
+                m_end = datetime(target_year, target_month + 1, 1)
+            
+            # Query spending for these categories in this month
+            spendings = db.query(
+                models.Transaction.category,
+                func.sum(models.Transaction.amount).label('total')
+            ).filter(
+                models.Transaction.tenant_id == tenant_id,
+                models.Transaction.date >= m_start,
+                models.Transaction.date < m_end,
+                models.Transaction.amount < 0,
+                models.Transaction.is_transfer == False,
+                models.Transaction.category.in_(categories)
+            ).group_by(models.Transaction.category).all()
+            
+            spend_map = {s.category: abs(float(s.total)) for s in spendings}
+            
+            # Special case for OVERALL: ignore category and sum all
+            if 'OVERALL' in categories:
+                overall_spend = db.query(func.sum(models.Transaction.amount)).filter(
+                    models.Transaction.tenant_id == tenant_id,
+                    models.Transaction.date >= m_start,
+                    models.Transaction.date < m_end,
+                    models.Transaction.amount < 0,
+                    models.Transaction.is_transfer == False
+                ).scalar() or 0
+                spend_map['OVERALL'] = abs(float(overall_spend))
+            
+            month_label = m_start.strftime("%b %Y")
+            
+            entry = {
+                "month": month_label,
+                "data": []
+            }
+            
+            for b in budgets:
+                entry["data"].append({
+                    "category": b.category,
+                    "limit": float(b.amount_limit),
+                    "spent": spend_map.get(b.category, 0.0)
+                })
+            
+            history.append(entry)
+            
+        return history[::-1] # Chronological order
