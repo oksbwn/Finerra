@@ -11,6 +11,7 @@ class AccountBase(BaseModel):
     currency: str = "INR"
     account_mask: Optional[str] = None
     balance: Optional[Decimal] = 0.0
+    credit_limit: Optional[Decimal] = None
     is_verified: bool = True
     import_config: Optional[str] = None
 
@@ -27,6 +28,7 @@ class AccountUpdate(BaseModel):
     owner_name: Optional[str] = None
     owner_id: Optional[UUID] = None
     balance: Optional[Decimal] = None
+    credit_limit: Optional[Decimal] = None
     is_verified: Optional[bool] = None
     import_config: Optional[str] = None
     tenant_id: Optional[Union[UUID, str]] = None

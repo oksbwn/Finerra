@@ -40,6 +40,7 @@ const newAccount = ref({
     currency: 'INR',
     account_mask: '',
     balance: 0,
+    credit_limit: null,
     owner_name: '',
     is_verified: true
 })
@@ -264,7 +265,9 @@ function openCreateAccountModal() {
     editingAccountId.value = null
     newAccount.value = { 
         name: '', type: 'BANK', currency: 'INR', 
-        account_mask: '', balance: 0, owner_name: '', 
+        account_mask: '', balance: 0, 
+        credit_limit: null,
+        owner_name: '', 
         is_verified: true,
         tenant_id: tenants.value[0]?.id || '',
         owner_id: ''
@@ -278,23 +281,30 @@ function openEditAccountModal(account: any) {
         name: account.name,
         type: account.type,
         currency: account.currency,
-        account_mask: account.account_mask || '',
-        owner_name: account.owner_name || '',
-        balance: account.balance || 0,
-        is_verified: account.is_verified,
+        account_mask: account.account_mask,
+        balance: account.balance,
+        credit_limit: account.credit_limit,
+        owner_name: account.owner_name,
+        owner_id: account.owner_id,
         tenant_id: account.tenant_id,
-        owner_id: account.owner_id || ''
+        is_verified: account.is_verified
     }
     showAccountModal.value = true
 }
 
 async function handleAccountSubmit() {
     try {
+        const payload = {
+            ...newAccount.value,
+            balance: Number(newAccount.value.balance),
+            credit_limit: newAccount.value.type === 'CREDIT_CARD' ? Number(newAccount.value.credit_limit) : null
+        }
+        
         if (editingAccountId.value) {
-            await financeApi.updateAccount(editingAccountId.value, newAccount.value)
+            await financeApi.updateAccount(editingAccountId.value, payload)
             notify.success("Account updated")
         } else {
-            await financeApi.createAccount(newAccount.value)
+            await financeApi.createAccount(payload)
             notify.success("Account created")
         }
         showAccountModal.value = false
@@ -467,7 +477,6 @@ async function openHistoryModal(config: any) {
     try {
         const res = await financeApi.getEmailSyncLogs(config.id)
         syncLogs.value = res.data
-    } catch (e) {
         notify.error("Failed to fetch logs")
     }
 }
@@ -478,6 +487,33 @@ function formatDateFull(dateStr: string) {
 }
 
 function formatDate(dateStr: string) {
+    if (!dateStr) return 'N/A'
+    return new Date(dateStr).toLocaleDateString()
+}
+
+function getAccountTypeIcon(type: string) {
+    const icons: Record<string, string> = {
+        'BANK': '🏦',
+        'CREDIT_CARD': '💳',
+        'LOAN': '💸',
+        'WALLET': '👛',
+        'INVESTMENT': '📈'
+    }
+    return icons[type] || '💰'
+}
+
+function getAccountTypeLabel(type: string) {
+    const labels: Record<string, string> = {
+        'BANK': 'Bank account',
+        'CREDIT_CARD': 'Credit Card',
+        'LOAN': 'Loans / EMIs',
+        'WALLET': 'Wallet / Cash',
+        'INVESTMENT': 'Investment'
+    }
+    return labels[type] || type
+}
+
+function getLogIcon(status: string) {
     if (!dateStr) return { day: '-', meta: '' }
     const d = new Date(dateStr)
     const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
@@ -842,12 +878,12 @@ async function handleMemberSubmit() {
                         </div>
                         <div class="mini-stat-card glass h-glow-danger">
                             <div class="stat-top">
-                                <span class="stat-label">Credit Liability</span>
+                                <span class="stat-label">Credit Consumed</span>
                                 <span class="stat-icon-bg red">💳</span>
                             </div>
                             <div class="stat-value">₹ {{ accountMetrics.credit.toLocaleString() }}</div>
                         </div>
-                    </div>
+                   </div>
 
                     <!-- Untrusted Accounts -->
                     <div v-if="untrustedAccounts.length > 0" class="alert-section">
@@ -856,7 +892,10 @@ async function handleMemberSubmit() {
                             <div v-for="acc in untrustedAccounts" :key="acc.id" class="glass-card untrusted pulse-border">
                                 <div class="card-top">
                                     <div class="card-main">
-                                        <span class="card-label">Untrusted Source</span>
+                                        <div class="card-type-header">
+                                            <span class="type-icon">{{ getAccountTypeIcon(acc.type) }}</span>
+                                            <span class="card-label">Untrusted Source</span>
+                                        </div>
                                         <h3 class="card-name">{{ acc.name }}</h3>
                                     </div>
                                     <div class="card-actions-row">
@@ -865,7 +904,11 @@ async function handleMemberSubmit() {
                                     </div>
                                 </div>
                                 <div class="card-bottom">
-                                    <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
+                                    <div v-if="acc.type === 'CREDIT_CARD'" class="credit-mini-info">
+                                        <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }} used</span>
+                                        <span v-if="acc.credit_limit" class="card-meta">₹ {{ Number(acc.credit_limit - (acc.balance || 0)).toLocaleString() }} left</span>
+                                    </div>
+                                    <span v-else class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
                                     <span class="card-meta">Auto-Detected</span>
                                 </div>
                             </div>
@@ -878,8 +921,8 @@ async function handleMemberSubmit() {
                             <div class="card-top">
                                 <div class="card-main">
                                     <div class="card-type-header">
-                                        <span class="type-dot" :class="acc.type.toLowerCase()"></span>
-                                        <span class="card-label">{{ acc.type }}</span>
+                                        <span class="type-icon">{{ getAccountTypeIcon(acc.type) }}</span>
+                                        <span class="card-label">{{ getAccountTypeLabel(acc.type) }}</span>
                                     </div>
                                     <h3 class="card-name">{{ acc.name }}</h3>
                                 </div>
@@ -889,7 +932,11 @@ async function handleMemberSubmit() {
                                 </div>
                             </div>
                             <div class="card-bottom">
-                                <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
+                                <div v-if="acc.type === 'CREDIT_CARD'" class="credit-mini-info">
+                                    <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }} <span class="card-sub-label">used</span></span>
+                                    <span v-if="acc.credit_limit" class="card-available-info">₹ {{ Number(acc.credit_limit - (acc.balance || 0)).toLocaleString() }} <span class="card-sub-label">left</span></span>
+                                </div>
+                                <span v-else class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
                                     <div class="card-pills">
                                         <span class="owner-badge">
                                             {{ resolveOwnerAvatar(acc) }} {{ resolveOwnerName(acc) }}
@@ -1245,10 +1292,11 @@ async function handleMemberSubmit() {
                             <CustomSelect 
                                 v-model="newAccount.type"
                                 :options="[
-                                    { label: 'Bank Account', value: 'BANK' },
-                                    { label: 'Cash Wallet', value: 'CASH' },
-                                    { label: 'Investment', value: 'INVESTMENT' },
-                                    { label: 'Credit Card', value: 'CREDIT' }
+                                    { label: '🏦 Bank Account', value: 'BANK' },
+                                    { label: '💳 Credit Card', value: 'CREDIT_CARD' },
+                                    { label: '💸 Loan / EMIs', value: 'LOAN' },
+                                    { label: '👛 Wallet / Cash', value: 'WALLET' },
+                                    { label: '📈 Investment', value: 'INVESTMENT' }
                                 ]"
                             />
                         </div>
@@ -1278,9 +1326,15 @@ async function handleMemberSubmit() {
                         />
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Current Balance</label>
-                        <input type="number" v-model.number="newAccount.balance" class="form-input" step="0.01" />
+                    <div class="form-row">
+                        <div class="form-group" :class="newAccount.type === 'CREDIT_CARD' ? 'half' : 'full'">
+                            <label class="form-label">{{ newAccount.type === 'CREDIT_CARD' ? 'Consumed Limit' : 'Current Balance' }}</label>
+                            <input type="number" v-model.number="newAccount.balance" class="form-input" step="0.01" />
+                        </div>
+                        <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
+                            <label class="form-label">Total Credit Limit</label>
+                            <input type="number" v-model.number="newAccount.credit_limit" class="form-input" step="0.01" placeholder="e.g. 100000" />
+                        </div>
                     </div>
 
                     <div class="modal-footer">
@@ -2650,7 +2704,32 @@ input:checked + .slider:before { transform: translateX(20px); }
     margin-bottom: 2rem; box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.2);
 }
 .ai-toggle-info h3 { margin: 0; font-size: 1.1rem; font-weight: 700; }
-.ai-toggle-info p { margin: 0.25rem 0 0 0; font-size: 0.8rem; opacity: 0.9; }
+.ai-toggle-info p { margin: 0.25rem 0 0 0; font-size: 0.85rem; opacity: 0.9; }
+
+/* Account Card Enhancements */
+.type-icon {
+    font-size: 1.125rem;
+    margin-right: 0.5rem;
+}
+
+.credit-mini-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.card-available-info {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #059669;
+}
+
+.card-sub-label {
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: #9ca3af;
+    text-transform: uppercase;
+}
 
 .ai-input-group { margin-bottom: 1.5rem; }
 .ai-input-label { display: block; font-size: 0.8rem; font-weight: 600; color: #4b5563; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.025em; }

@@ -24,7 +24,8 @@ class Account(Base):
     currency = Column(String, default="INR", nullable=False)
     account_mask = Column(String, nullable=True) # e.g. "XX1234" used for SMS matching
     owner_name = Column(String, nullable=True) # Display name of owner (e.g. "Dad")
-    balance = Column(Numeric(15, 2), default=0.0) # Current Balance
+    balance = Column(Numeric(15, 2), default=0.0) # Current Balance or Consumed Limit
+    credit_limit = Column(Numeric(15, 2), nullable=True) # For Credit Cards
     is_verified = Column(Boolean, default=True, nullable=False) # False = Auto-detected from SMS
     import_config = Column(String, nullable=True) # JSON config for CSV/Excel mapping
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -299,6 +299,9 @@ const analyticsData = computed(() => {
     const dateMap: Record<string, number> = {}
     const merchantMap: Record<string, number> = {}
     const accountMap: Record<string, number> = {}
+    const typeMap: Record<string, number> = {} // Spending by account type
+    let totalLimit = 0
+    let totalConsumed = 0
     let weekendSpend = 0
     let weekdaySpend = 0
 
@@ -322,8 +325,15 @@ const analyticsData = computed(() => {
             merchantMap[merchant] = (merchantMap[merchant] || 0) + absAmt
 
             // Account Distribution
-            const accName = getAccountName(t.account_id)
+            const acc = accounts.value.find(a => a.id === t.account_id)
+            const accName = acc ? acc.name : 'Unknown Account'
             accountMap[accName] = (accountMap[accName] || 0) + absAmt
+            
+            // Account Type Breakdown
+            if (acc) {
+                const typeLabel = formatTypeLabel(acc.type)
+                typeMap[typeLabel] = (typeMap[typeLabel] || 0) + absAmt
+            }
 
             // Weekend vs Weekday
             if (t.date) {
@@ -337,6 +347,14 @@ const analyticsData = computed(() => {
         const dateKey = t.date ? t.date.split('T')[0] : 'Unknown'
         if (isExpense) {
             dateMap[dateKey] = (dateMap[dateKey] || 0) + absAmt
+        }
+    })
+
+    // Calculate Credit Utilization based on current accounts (not just filtered txns)
+    accounts.value.forEach(acc => {
+        if (acc.type === 'CREDIT_CARD' && acc.credit_limit) {
+            totalLimit += Number(acc.credit_limit)
+            totalConsumed += Number(acc.balance)
         }
     })
 
@@ -358,6 +376,10 @@ const analyticsData = computed(() => {
         .slice(-14)
         .map(([date, value]) => ({ date, value }))
 
+    const sortedTypes = Object.entries(typeMap)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, value]) => ({ name, value }))
+
     return {
         income,
         expense,
@@ -365,6 +387,13 @@ const analyticsData = computed(() => {
         categories: sortedCategories,
         merchants: sortedMerchants,
         accounts: sortedAccounts,
+        types: sortedTypes,
+        credit: {
+            limit: totalLimit,
+            consumed: totalConsumed,
+            available: totalLimit - totalConsumed,
+            percent: totalLimit > 0 ? (totalConsumed / totalLimit * 100) : 0
+        },
         trends: sortedTrends,
         patterns: {
             weekend: weekendSpend,
@@ -453,6 +482,17 @@ function formatDate(dateStr: string) {
 function getAccountName(id: string) {
     const acc = accounts.value.find(a => a.id === id)
     return acc ? acc.name : 'Unknown Account'
+}
+
+function formatTypeLabel(type: string) {
+    const labels: Record<string, string> = {
+        'BANK': 'Bank account',
+        'CREDIT_CARD': 'Credit Card',
+        'LOAN': 'Loans / EMIs',
+        'WALLET': 'Wallet / Cash',
+        'INVESTMENT': 'Investments'
+    }
+    return labels[type] || type
 }
 
 
@@ -899,6 +939,28 @@ onMounted(() => {
                         </div>
                     </div>
 
+                    <!-- Account Type Breakdown -->
+                    <div class="analytics-card">
+                        <h3 class="card-title">Spending by Account Type</h3>
+                        <div class="category-list">
+                            <div v-for="type in analyticsData.types" :key="type.name" class="category-item">
+                                <div class="category-info">
+                                    <span class="cat-name">{{ type.name }}</span>
+                                    <span class="cat-value">₹{{ type.value.toFixed(2) }}</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div 
+                                        class="progress-bar-fill type-bar" 
+                                        :style="{ width: `${(type.value / analyticsData.expense * 100) || 0}%` }"
+                                    ></div>
+                                </div>
+                            </div>
+                            <div v-if="analyticsData.types.length === 0" class="empty-small">
+                                No spending by type
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Daily Trend -->
                     <div class="analytics-card">
                         <h3 class="card-title">Daily Spending Trend</h3>
@@ -952,6 +1014,27 @@ onMounted(() => {
                                         <div class="mini-bar-bg">
                                             <div class="mini-bar-fill" :style="{ width: `${(acc.value / analyticsData.expense * 100) || 0}%` }"></div>
                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="insight-section mt-6" v-if="analyticsData.credit.limit > 0">
+                                <h4 class="insight-subtitle">Credit Utilization</h4>
+                                <div class="credit-preview-box">
+                                    <div class="credit-meta">
+                                        <span class="credit-label">Limit Used</span>
+                                        <span class="credit-val">₹{{ analyticsData.credit.consumed.toFixed(2) }} / ₹{{ analyticsData.credit.limit.toFixed(2) }}</span>
+                                    </div>
+                                    <div class="credit-bar-container">
+                                        <div 
+                                            class="credit-bar-fill" 
+                                            :class="analyticsData.credit.percent > 80 ? 'danger' : (analyticsData.credit.percent > 50 ? 'warning' : 'safe')"
+                                            :style="{ width: `${analyticsData.credit.percent}%` }"
+                                        ></div>
+                                    </div>
+                                    <div class="credit-footer">
+                                        <span>{{ analyticsData.credit.available.toFixed(2) }} available</span>
+                                        <span>{{ analyticsData.credit.percent.toFixed(1) }}% used</span>
                                     </div>
                                 </div>
                             </div>
@@ -2264,6 +2347,72 @@ onMounted(() => {
     border-radius: 9999px;
     overflow: hidden;
 }
+
+.progress-bar-fill {
+    height: 100%;
+    background: #4f46e5;
+    border-radius: 9999px;
+    transition: width 0.3s ease;
+}
+
+.type-bar {
+    background: #8b5cf6;
+}
+
+/* Credit Utilization Box */
+.credit-preview-box {
+    background: #f8fafc;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    border: 1px solid #e2e8f0;
+}
+
+.credit-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.credit-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+}
+
+.credit-val {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.credit-bar-container {
+    height: 0.5rem;
+    background: #e2e8f0;
+    border-radius: 999px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+
+.credit-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+
+.credit-bar-fill.safe { background: #10b981; }
+.credit-bar-fill.warning { background: #f59e0b; }
+.credit-bar-fill.danger { background: #ef4444; }
+
+.credit-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+.mt-6 { margin-top: 1.5rem; }
 
 .progress-bar-fill {
     height: 100%;

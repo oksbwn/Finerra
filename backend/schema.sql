@@ -31,6 +31,7 @@ CREATE TABLE accounts (
 	account_mask VARCHAR,
 	owner_name VARCHAR,
 	balance NUMERIC(15, 2),
+	credit_limit NUMERIC(15, 2),
 	is_verified BOOLEAN DEFAULT TRUE NOT NULL,
 	import_config VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
