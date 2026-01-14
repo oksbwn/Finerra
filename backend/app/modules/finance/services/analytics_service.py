@@ -7,10 +7,12 @@ from backend.app.modules.finance.services.transaction_service import Transaction
 
 class AnalyticsService:
     @staticmethod
-    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT"):
+    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT", account_id: str = None, start_date: datetime = None, end_date: datetime = None):
         
         # 1. Accounts & Net Worth
         accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
+        if account_id:
+            accounts_query = accounts_query.filter(models.Account.id == account_id)
         if user_role == "CHILD":
             accounts_query = accounts_query.filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
         
@@ -50,16 +52,21 @@ class AnalyticsService:
                 if acc.type == 'BANK': breakdown["bank_balance"] += bal
                 elif acc.type == 'WALLET': breakdown["cash_balance"] += bal
 
-        # 2. Monthly Spending
-        now = datetime.utcnow()
-        start_of_month = datetime(now.year, now.month, 1)
+        # 2. Monthly Spending (or Filtered Spending)
+        if not start_date:
+            now = datetime.utcnow()
+            start_date = datetime(now.year, now.month, 1)
         
         txns_query = db.query(models.Transaction).filter(
             models.Transaction.tenant_id == tenant_id,
-            models.Transaction.date >= start_of_month,
+            models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
         )
+        if end_date:
+            txns_query = txns_query.filter(models.Transaction.date <= end_date)
+        if account_id:
+            txns_query = txns_query.filter(models.Transaction.account_id == account_id)
         if user_role == "CHILD":
              txns_query = txns_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
                                     .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
@@ -90,3 +97,74 @@ class AnalyticsService:
             "recent_transactions": recent_txns,
             "currency": accounts[0].currency if accounts else "INR"
         }
+
+    @staticmethod
+    def get_balance_forecast(db: Session, tenant_id: str, days: int = 30, account_id: str = None):
+        from datetime import timedelta
+        
+        # 1. Starting Balance (Liquid assets only)
+        liquid_accounts_query = db.query(models.Account).filter(
+            models.Account.tenant_id == tenant_id,
+            models.Account.type.in_(['BANK', 'WALLET'])
+        )
+        if account_id:
+            liquid_accounts_query = liquid_accounts_query.filter(models.Account.id == account_id)
+        
+        liquid_accounts = liquid_accounts_query.all()
+        
+        current_balance = float(sum(acc.balance or 0 for acc in liquid_accounts))
+        
+        # 2. Get Recurring Transactions
+        recs_query = db.query(models.RecurringTransaction).filter(
+            models.RecurringTransaction.tenant_id == tenant_id,
+            models.RecurringTransaction.is_active == True
+        )
+        if account_id:
+            recs_query = recs_query.filter(models.RecurringTransaction.account_id == account_id)
+        recs = recs_query.all()
+        
+        # 3. Discretionary Spending Heuristic
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        recent_txns_query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= thirty_days_ago,
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False
+        )
+        if account_id:
+            recent_txns_query = recent_txns_query.filter(models.Transaction.account_id == account_id)
+        recent_txns = recent_txns_query.all()
+        
+        total_recent = abs(sum(float(t.amount) for t in recent_txns))
+        # Daily burn rate based on history
+        daily_burn = total_recent / 30.0 if total_recent > 0 else 0
+        
+        forecast = []
+        today = datetime.utcnow().date()
+        running_bal = current_balance
+        
+        for i in range(days):
+            target_date = today + timedelta(days=i)
+            
+            # Apply burn (except for day 0)
+            if i > 0:
+                running_bal -= daily_burn
+            
+            # Apply recurring if due
+            for r in recs:
+                # Simplistic check: matches next_run_date or follows frequency logic
+                # For this forecast, we look ahead at next_run and if it lands on this date, we apply.
+                # In a more advanced version, we'd Project all occurrences in the window.
+                if r.next_run_date.date() == target_date:
+                    amt = float(r.amount)
+                    if r.type == 'DEBIT':
+                        running_bal -= amt
+                    else:
+                        running_bal += amt
+            
+            forecast.append({
+                "date": target_date.isoformat(),
+                "balance": round(running_bal, 2)
+            })
+            
+        return forecast

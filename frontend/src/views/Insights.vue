@@ -2,36 +2,134 @@
 import { ref, onMounted, computed } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { useFinanceStore } from '@/stores/finance'
-import { financeApi } from '@/api/client'
+import { financeApi, aiApi } from '@/api/client'
 import { useCurrency } from '@/composables/useCurrency'
+import BaseChart from '@/components/BaseChart.vue'
+import CustomSelect from '@/components/CustomSelect.vue'
+import { marked } from 'marked'
 
 const store = useFinanceStore()
 const { formatAmount } = useCurrency()
 
 const activeTab = ref<'analytics' | 'recurring'>('analytics')
 
+// Filters
+const selectedTimeRange = ref('this-month')
+const startDate = ref('')
+const endDate = ref('')
+const selectedAccount = ref('')
+const selectedTrendCategory = ref('')
+const trendView = ref<'daily' | 'monthly'>('daily')
+
+const timeRangeOptions = [
+    { label: 'All Time', value: 'all' },
+    { label: 'Today', value: 'today' },
+    { label: 'This Week', value: 'this-week' },
+    { label: 'This Month', value: 'this-month' },
+    { label: 'Last Month', value: 'last-month' },
+    { label: 'Custom Range', value: 'custom' }
+]
+
 // Data for Analytics
 const transactions = ref<any[]>([])
+const analyticsMetrics = ref<any>(null)
+const forecastData = ref<any[]>([])
+const aiInsights = ref<string>('')
+const generatingAI = ref(false)
 const loading = ref(false)
 
 onMounted(async () => {
     await store.fetchAll()
-    fetchAnalyticsData()
+    handleTimeRangeChange('this-month') // Initial fetch via handler
 })
+
+function handleTimeRangeChange(val: string) {
+    const now = new Date()
+    const start = new Date()
+    const end = new Date()
+    
+    startDate.value = ''
+    endDate.value = ''
+
+    if (val === 'today') {
+        start.setHours(0, 0, 0, 0)
+        end.setHours(23, 59, 59, 999)
+        startDate.value = start.toISOString().split('T')[0]
+        endDate.value = end.toISOString().split('T')[0]
+    } else if (val === 'this-week') {
+        const day = now.getDay()
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+        start.setDate(diff)
+        start.setHours(0, 0, 0, 0)
+        startDate.value = start.toISOString().split('T')[0]
+    } else if (val === 'this-month') {
+        start.setDate(1)
+        start.setHours(0, 0, 0, 0)
+        startDate.value = start.toISOString().split('T')[0]
+    } else if (val === 'last-month') {
+        start.setMonth(start.getMonth() - 1)
+        start.setDate(1)
+        start.setHours(0, 0, 0, 0)
+        end.setMonth(end.getMonth())
+        end.setDate(0)
+        end.setHours(23, 59, 59, 999)
+        startDate.value = start.toISOString().split('T')[0]
+        endDate.value = end.toISOString().split('T')[0]
+    }
+    
+    fetchAnalyticsData()
+}
 
 async function fetchAnalyticsData() {
     loading.value = true
     try {
-        // Fetch last 1000 transactions for analytics
-        // In a real app, this should probably be a dedicated metrics API
-        const res = await financeApi.getTransactions(undefined, 1, 1000)
-        transactions.value = res.data.items
+        const params = {
+            start_date: startDate.value,
+            end_date: endDate.value,
+            account_id: selectedAccount.value || undefined
+        }
+        
+        const [txnRes, metricsRes, forecastRes] = await Promise.all([
+            financeApi.getTransactions(params.account_id, 1, 1000, params.start_date || undefined, params.end_date || undefined),
+            financeApi.getMetrics(params.account_id, params.start_date || undefined, params.end_date || undefined),
+            financeApi.getForecast(params.account_id)
+        ])
+        transactions.value = txnRes.data.items
+        analyticsMetrics.value = metricsRes.data
+        forecastData.value = forecastRes.data
     } catch (e) {
         console.error(e)
     } finally {
         loading.value = false
+        // Auto trigger AI insights
+        generateAIInsights()
     }
 }
+
+async function generateAIInsights() {
+    generatingAI.value = true
+    try {
+        const timeContext = selectedTimeRange.value === 'custom' 
+            ? `from ${startDate.value} to ${endDate.value}`
+            : `for ${selectedTimeRange.value.replace('-', ' ')}`
+        
+        const res = await aiApi.generateSummaryInsights({
+            ...analyticsMetrics.value,
+            timeframe_filter: timeContext,
+            account_filtered: selectedAccount.value ? "Yes" : "No"
+        })
+        aiInsights.value = res.data.insights
+    } catch (e) {
+        console.error(e)
+        aiInsights.value = "Failed to generate insights. Ensure AI settings are configured."
+    } finally {
+        generatingAI.value = false
+    }
+}
+
+const accountOptions = computed(() => {
+    return store.accounts.map(a => ({ label: a.name, value: a.id }))
+})
 
 // --- Analytics Computed Logic ---
 function formatTypeLabel(type: string) {
@@ -119,7 +217,6 @@ const analyticsData = computed(() => {
         merchants: toSortedArray(merchantMap).slice(0, 5),
         accounts: toSortedArray(accountMap),
         types: toSortedArray(typeMap),
-        trends: Object.entries(dateMap).sort((a,b) => a[0].localeCompare(b[0])).slice(-14).map(([date, value]) => ({ date, value })),
         credit: {
             limit: totalLimit,
             consumed: totalConsumed,
@@ -136,9 +233,112 @@ const analyticsData = computed(() => {
     }
 })
 
+// --- Chart Data Preparations ---
+const categoryOptions = computed(() => {
+    return [{ label: 'All Categories', value: '' }, ...store.categories.map(c => ({ label: c.name, value: c.name }))]
+})
+
+const filteredTrendData = computed(() => {
+    const txns = transactions.value.filter(t => {
+        if (t.is_transfer) return false
+        if (Number(t.amount) >= 0) return false
+        if (selectedTrendCategory.value && t.category !== selectedTrendCategory.value) return false
+        return true
+    })
+
+    const map: Record<string, number> = {}
+    txns.forEach(t => {
+        const key = trendView.value === 'daily' 
+            ? t.date.split('T')[0] 
+            : t.date.slice(0, 7) // YYYY-MM
+        map[key] = (map[key] || 0) + Math.abs(Number(t.amount))
+    })
+
+    return Object.entries(map)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([label, value]) => ({ label, value }))
+})
+
+const trendChartData = computed(() => ({
+    labels: filteredTrendData.value.map(d => trendView.value === 'daily' ? d.label.slice(5) : d.label),
+    datasets: [{
+        label: selectedTrendCategory.value || 'All Spending',
+        data: filteredTrendData.value.map(d => d.value),
+        borderColor: selectedTrendCategory.value ? store.getCategoryColor(selectedTrendCategory.value) : '#6366f1',
+        backgroundColor: (selectedTrendCategory.value ? store.getCategoryColor(selectedTrendCategory.value) : '#6366f1') + '20',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 4,
+        pointBackgroundColor: selectedTrendCategory.value ? store.getCategoryColor(selectedTrendCategory.value) : '#6366f1'
+    }]
+}))
+
+const heatmapData = computed(() => {
+    const hours = Array.from({ length: 24 }, (_, i) => i)
+    const activeCats = analyticsData.value.categories.slice(0, 8).map(c => c.name)
+    
+    // category -> hour -> amount
+    const grid: Record<string, Record<number, number>> = {}
+    activeCats.forEach(cat => {
+        grid[cat] = {}
+        hours.forEach(h => grid[cat][h] = 0)
+    })
+
+    transactions.value.forEach(t => {
+        if (Number(t.amount) >= 0 || t.is_transfer) return
+        if (!activeCats.includes(t.category)) return
+        
+        const date = new Date(t.date)
+        const hour = date.getHours()
+        if (grid[t.category]) {
+            grid[t.category][hour] += Math.abs(Number(t.amount))
+        }
+    })
+
+    // Find max for scaling
+    let max = 0
+    Object.values(grid).forEach(hMap => {
+        Object.values(hMap).forEach(val => { if (val > max) max = val })
+    })
+
+    return { grid, categories: activeCats, hours, max }
+})
+
+const merchantChartData = computed(() => ({
+    labels: analyticsData.value.merchants.map(m => m.name),
+    datasets: [{
+        label: 'Spending',
+        data: analyticsData.value.merchants.map(m => m.value),
+        backgroundColor: '#6366f1',
+        borderRadius: 6,
+        borderSkipped: false,
+    }]
+}))
+
+const categoryChartData = computed(() => ({
+    labels: analyticsData.value.categories.map(c => c.name),
+    datasets: [{
+        data: analyticsData.value.categories.map(c => c.value),
+        backgroundColor: analyticsData.value.categories.map(c => c.color || '#3B82F6'),
+        hoverOffset: 4
+    }]
+}))
+
+const forecastChartData = computed(() => ({
+    labels: forecastData.value.map(d => d.date.split('T')[0].slice(5)),
+    datasets: [{
+        label: 'Projected Balance',
+        data: forecastData.value.map(d => d.balance),
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0
+    }]
+}))
+
 // --- Recurring Logic ---
 const showAddModal = ref(false)
-const processing = ref(false)
 
 const newRecurrence = ref({
     name: '',
@@ -149,18 +349,6 @@ const newRecurrence = ref({
     start_date: new Date().toISOString().slice(0, 10),
     type: 'DEBIT' 
 })
-
-async function triggerProcess() {
-    processing.value = true
-    try {
-        await financeApi.processRecurring()
-        await store.fetchRecurring()
-    } catch (e) {
-        console.error(e)
-    } finally {
-        processing.value = false
-    }
-}
 
 async function saveRecurrence() {
     try {
@@ -186,200 +374,276 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 
 <template>
     <MainLayout>
-        <div class="p-6 space-y-6">
-            <!-- Header -->
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 class="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
-                        Insights & Subscriptions
-                    </h1>
-                    <p class="text-gray-500 text-sm mt-1">Analyze spending patterns and manage recurring bills</p>
-                </div>
-                
-                <div class="flex bg-white rounded-lg p-1 shadow-sm border border-gray-200">
+        <div class="page-header">
+            <div class="header-left">
+                <h1 class="page-title">Insights</h1>
+                <div class="header-tabs">
                     <button 
+                        class="tab-btn" 
+                        :class="{ active: activeTab === 'analytics' }"
                         @click="activeTab = 'analytics'"
-                        :class="['px-4 py-2 text-sm font-medium rounded-md transition-all', 
-                        activeTab === 'analytics' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-900']"
                     >
                         Analytics
                     </button>
                     <button 
+                        class="tab-btn" 
+                        :class="{ active: activeTab === 'recurring' }"
                         @click="activeTab = 'recurring'"
-                        :class="['px-4 py-2 text-sm font-medium rounded-md transition-all', 
-                        activeTab === 'recurring' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-900']"
                     >
                         Recurring
                     </button>
                 </div>
+                <span class="transaction-count">{{ analyticsData.count }} records analyzed</span>
             </div>
+            <div class="header-actions">
+                <CustomSelect 
+                    v-if="activeTab === 'analytics'" 
+                    v-model="selectedAccount" 
+                    :options="[{ label: 'All Accounts', value: '' }, ...accountOptions]"
+                    placeholder="All Accounts"
+                    @update:modelValue="fetchAnalyticsData"
+                    class="account-select"
+                />
 
-            <!-- ANALYTICS TAB -->
-            <div v-if="activeTab === 'analytics'" class="animate-fade-in space-y-6">
-                <!-- AI Insight Card -->
-                <div class="glass-card p-6 bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-100 relative overflow-hidden">
-                    <div class="flex justify-between items-center mb-4 relative z-10">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-xl animate-bounce-slow">
-                                ✨
-                            </div>
-                            <div>
-                                <h3 class="font-semibold text-gray-900">AI Spending Analysis</h3>
-                                <p class="text-xs text-gray-500">Based on your recent activity</p>
-                            </div>
-                        </div>
-                        <button class="btn-secondary text-xs flex items-center gap-2 hover:bg-white hover:shadow-sm">
-                            <span>🤖</span> Generate Insights
+                <button v-if="activeTab === 'recurring'" @click="showAddModal = true" class="btn-compact btn-primary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                    Add Subscription
+                </button>
+            </div>
+        </div>
+
+        <div class="filter-bar" v-if="activeTab === 'analytics'">
+            <div class="filter-main">
+                <div class="filter-group">
+                    <span class="filter-label">Time Range:</span>
+                    <div class="range-pill-group">
+                        <button 
+                            v-for="opt in timeRangeOptions" 
+                            :key="opt.value"
+                            class="range-pill"
+                            :class="{ active: selectedTimeRange === opt.value }"
+                            @click="selectedTimeRange = opt.value; handleTimeRangeChange(opt.value)"
+                        >
+                            {{ opt.label }}
                         </button>
                     </div>
-                    <p class="text-sm text-gray-600 leading-relaxed relative z-10">
-                        Use the "Generate Insights" button to get a personalized analysis of your spending habits, anomaly detection, and budget recommendations powered by Gemini.
-                    </p>
-                    <!-- Decorative background blobs -->
-                    <div class="absolute top-0 right-0 w-32 h-32 bg-purple-200/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
-                    <div class="absolute bottom-0 left-0 w-24 h-24 bg-indigo-200/20 rounded-full translate-y-1/2 -translate-x-1/2 blur-2xl"></div>
+                </div>
+
+                <div class="filter-divider" v-if="selectedTimeRange === 'custom'"></div>
+
+                <div class="filter-group animate-in" v-if="selectedTimeRange === 'custom'">
+                    <input type="date" v-model="startDate" class="date-input" @change="fetchAnalyticsData" />
+                    <span class="filter-separator">to</span>
+                    <input type="date" v-model="endDate" class="date-input" @change="fetchAnalyticsData" />
+                </div>
+            </div>
+
+            <button v-if="startDate || endDate" class="btn-link" @click="selectedTimeRange='all'; handleTimeRangeChange('all')">
+                Reset
+            </button>
+        </div>
+
+        <div class="content-container">
+            <!-- ANALYTICS TAB -->
+            <div v-if="activeTab === 'analytics'" class="analytics-layout">
+                <!-- AI Insight Card -->
+                <div class="ai-card" :class="{ 'is-loading': generatingAI }">
+                    <div class="ai-card-content">
+                        <div class="ai-header">
+                            <div class="ai-title-left">
+                                <div class="ai-sparkle-icon">✨</div>
+                                <div class="ai-title-group">
+                                    <h3 class="ai-card-title">AI Financial Intelligence</h3>
+                                    <p class="ai-card-subtitle">Personalized spending vectors and optimization strategy</p>
+                                </div>
+                            </div>
+                            <button 
+                                @click="generateAIInsights"
+                                :disabled="generatingAI"
+                                class="ai-btn-glass"
+                            >
+                                <svg v-if="!generatingAI" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>
+                                {{ generatingAI ? 'Analyzing...' : 'Refresh Insights' }}
+                            </button>
+                        </div>
+                        
+                        <div v-if="aiInsights" class="ai-insight-box custom-scrollbar">
+                            <div class="ai-insight-text markdown-body" v-html="marked(aiInsights)"></div>
+                        </div>
+                        <div v-else-if="generatingAI" class="ai-loading-skeleton">
+                            <div class="shimmer-line"></div>
+                            <div class="shimmer-line w-3/4"></div>
+                            <div class="shimmer-line w-1/2"></div>
+                        </div>
+                        <p v-else class="ai-card-description">
+                            Generate smart insights from your spending patterns, upcoming bills and financial goals.
+                        </p>
+                    </div>
+                    <!-- Mesh blobs for premium feel -->
+                    <div class="mesh-blob blob-1"></div>
+                    <div class="mesh-blob blob-2"></div>
+                    <div class="mesh-blob blob-3"></div>
                 </div>
 
                 <!-- Summary Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <!-- ... existing summary cards ... -->
-                    <div class="glass-card p-4 flex items-center gap-4">
-                        <div class="p-3 bg-green-50 text-green-600 rounded-full text-xl">⚡</div>
-                        <div>
-                            <p class="text-xs text-gray-500 font-medium">Total Income</p>
-                            <p class="text-xl font-bold text-gray-900">{{ formatAmount(analyticsData.income) }}</p>
+                <div class="summary-cards">
+                    <div class="summary-card income">
+                        <div class="card-icon">📥</div>
+                        <div class="card-content">
+                            <span class="card-label">Total Income</span>
+                            <span class="card-value">{{ formatAmount(analyticsData.income) }}</span>
+                            <span class="card-trend text-emerald-600">↑ 12% vs last period</span>
                         </div>
                     </div>
-                    <div class="glass-card p-4 flex items-center gap-4">
-                        <div class="p-3 bg-red-50 text-red-600 rounded-full text-xl">🔥</div>
-                        <div>
-                            <p class="text-xs text-gray-500 font-medium">Total Expenses</p>
-                            <p class="text-xl font-bold text-gray-900">{{ formatAmount(analyticsData.expense) }}</p>
+                    <div class="summary-card expense">
+                        <div class="card-icon">💸</div>
+                        <div class="card-content">
+                            <span class="card-label">Total Expenses</span>
+                            <span class="card-value">{{ formatAmount(analyticsData.expense) }}</span>
+                            <span class="card-trend text-rose-600">↓ 5% vs last period</span>
                         </div>
                     </div>
-                    <div class="glass-card p-4 flex items-center gap-4">
-                        <div class="p-3 bg-blue-50 text-blue-600 rounded-full text-xl">💰</div>
-                        <div>
-                            <p class="text-xs text-gray-500 font-medium">Net Savings</p>
-                            <p class="text-xl font-bold text-gray-900" :class="analyticsData.net < 0 ? 'text-red-600' : 'text-green-600'">
-                                {{ formatAmount(analyticsData.net) }}
-                            </p>
+                    <div class="summary-card net">
+                        <div class="card-icon">⚖️</div>
+                        <div class="card-content">
+                            <span class="card-label">Net Balance</span>
+                            <span class="card-value">{{ formatAmount(analyticsData.net) }}</span>
+                            <span class="card-trend text-indigo-600">Healthy trend</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Forecast Chart -->
-                <div class="glass-card p-6">
-                    <h3 class="font-semibold text-gray-800 mb-4">Future Balance Forecast (30 Days)</h3>
-                    <div class="h-64 flex items-end justify-between gap-1 border-b border-gray-100 pb-4 relative">
-                        <!-- Simple visual approximation of a line chart using bars for now, typically would use Chart.js -->
-                         <div class="absolute inset-0 flex items-center justify-center text-gray-400 text-sm bg-gray-50/50 rounded-lg border border-dashed border-gray-200">
-                            <div class="text-center">
-                                <span class="text-2xl block mb-2">📈</span>
-                                Forecasting requires more historical data.<br>
-                                <span class="text-xs opacity-75">Visual forecast will appear here once Chart.js is integrated.</span>
-                            </div>
-                        </div>
-                    </div>
-                     <div class="flex justify-between mt-4 text-sm text-gray-500">
-                        <span>Based on recurring transactions & average spending</span>
-                        <span>Projected: {{ formatAmount(analyticsData.net + (store.recurringTransactions.reduce((acc, t) => acc + (t.type === 'DEBIT' ? -t.amount : t.amount), 0))) }}</span>
-                    </div>
-                </div>
-
-                <!-- Main Analytics Grid -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <!-- Category Breakdown -->
-                    <div class="glass-card p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4">Category Breakdown</h3>
-                        <div class="space-y-4">
-                            <div v-for="cat in analyticsData.categories.slice(0, 6)" :key="cat.name" class="space-y-1">
-                                <div class="flex justify-between text-sm">
-                                    <span class="flex items-center gap-2">
-                                        <span>{{ cat.icon }}</span> {{ cat.name }}
-                                    </span>
-                                    <span class="font-medium">{{ formatAmount(cat.value) }}</span>
-                                </div>
-                                <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                    <div class="h-full rounded-full transition-all duration-500" 
-                                        :style="{ width: `${(cat.value / analyticsData.expense * 100)}%`, backgroundColor: cat.color }">
-                                    </div>
-                                </div>
-                            </div>
+                <!-- Charts Section -->
+                <div class="analytics-grid">
+                    <div class="analytics-card">
+                        <h3 class="card-title">Spending by Category</h3>
+                        <div class="chart-box">
+                            <BaseChart type="doughnut" :data="categoryChartData" :height="250" />
                         </div>
                     </div>
 
-                    <!-- Trends -->
-                    <div class="glass-card p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4">Daily Spending Trend</h3>
-                        <div class="h-48 flex items-end gap-2">
-                            <div v-for="day in analyticsData.trends" :key="day.date" 
-                                class="flex-1 bg-indigo-100 rounded-t-sm hover:bg-indigo-200 transition-colors relative group"
-                                :style="{ height: `${(day.value / Math.max(...analyticsData.trends.map(d => d.value), 1) * 100)}%` }">
-                                <div class="opacity-0 group-hover:opacity-100 absolute bottom-full mb-1 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded whitespace-nowrap z-10">
-                                    {{ day.date.slice(5) }}: {{ formatAmount(day.value) }}
+                    <div class="analytics-card">
+                        <h3 class="card-title">Top Merchants</h3>
+                        <div class="chart-box">
+                            <BaseChart 
+                                type="bar" 
+                                :data="merchantChartData" 
+                                :height="250" 
+                                :options="{ 
+                                    indexAxis: 'y',
+                                    plugins: { legend: { display: false } },
+                                    scales: { x: { grid: { display: false } }, y: { grid: { display: false } } }
+                                }" 
+                            />
+                        </div>
+                    </div>
+
+                    <div class="analytics-card full-width">
+                        <div class="card-header-flex">
+                            <h3 class="card-title">Spending Trends</h3>
+                            <div class="card-controls">
+                                <div class="toggle-group">
+                                    <button :class="{ active: trendView === 'daily' }" @click="trendView = 'daily'">Day</button>
+                                    <button :class="{ active: trendView === 'monthly' }" @click="trendView = 'monthly'">Month</button>
+                                </div>
+                                <CustomSelect 
+                                    v-model="selectedTrendCategory" 
+                                    :options="categoryOptions"
+                                    placeholder="All Categories"
+                                    class="mini-select"
+                                />
+                            </div>
+                        </div>
+                        <div class="chart-box-large">
+                            <BaseChart 
+                                v-if="filteredTrendData.length > 0"
+                                type="line" 
+                                :data="trendChartData" 
+                                :height="400"
+                            />
+                            <div v-else class="empty-chart-state">No data for this filter</div>
+                        </div>
+                    </div>
+
+                    <div class="analytics-card full-width">
+                        <h3 class="card-title">Future Balance Forecast (30 Days)</h3>
+                        <div class="chart-box relative">
+                            <BaseChart 
+                                v-if="forecastData.length > 0"
+                                type="line" 
+                                :data="forecastChartData" 
+                                :height="250"
+                            />
+                            <div v-else class="empty-chart-state">Calculating...</div>
+                        </div>
+                        <div class="forecast-footer">
+                             <div class="forecast-info">
+                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                                 Forecast factors in upcoming subscriptions and average spending velocity
+                             </div>
+                             <div class="forecast-net">
+                                 Est. Net Change: {{ formatAmount(analyticsData.net + (store.recurringTransactions.reduce((acc, t) => acc + (t.type === 'DEBIT' ? -t.amount : t.amount), 0))) }}
+                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Heatmap Section -->
+                    <div class="analytics-card full-width">
+                        <h3 class="card-title">Spending Heatmap (Category vs Hour)</h3>
+                        <div class="heatmap-container">
+                            <div class="heatmap-header">
+                                <div class="heatmap-cat-label"></div>
+                                <div v-for="h in heatmapData.hours" :key="h" class="hour-label">{{ h }}h</div>
+                            </div>
+                            <div v-for="cat in heatmapData.categories" :key="cat" class="heatmap-row">
+                                <div class="heatmap-cat-label text-truncate">{{ cat }}</div>
+                                <div v-for="h in heatmapData.hours" :key="h" class="heatmap-cell-wrapper">
+                                    <div 
+                                        class="heatmap-cell"
+                                        :style="{ 
+                                            opacity: heatmapData.grid[cat][h] > 0 ? 0.2 + (heatmapData.grid[cat][h] / heatmapData.max * 0.8) : 0.05,
+                                            backgroundColor: store.getCategoryColor(cat) || '#4f46e5'
+                                        }"
+                                        :title="`${cat} at ${h}h: ${formatAmount(heatmapData.grid[cat][h])}`"
+                                    ></div>
                                 </div>
                             </div>
                         </div>
-                        <div class="flex justify-between mt-2 text-xs text-gray-400">
-                            <span>14 days ago</span>
-                            <span>Today</span>
+                        <div class="heatmap-footer">
+                            <div class="heatmap-legend">
+                                <span class="legend-label">Low Spending</span>
+                                <div class="legend-gradient"></div>
+                                <span class="legend-label">High Spending</span>
+                            </div>
+                            <span class="heatmap-hint text-xs">Higher opacity indicates more spending activity in that hour.</span>
+                        </div>
+                    </div>
+
+                    <!-- Category Breakdown List -->
+                    <div class="analytics-card">
+                        <h3 class="card-title">Spending Breakdown</h3>
+                        <div class="category-list">
+                            <div v-for="cat in analyticsData.categories.slice(0, 6)" :key="cat.name" class="category-item-box">
+                                <div class="item-header">
+                                    <span class="item-name">{{ cat.name }}</span>
+                                    <span class="item-value">{{ formatAmount(cat.value) }}</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div class="progress-bar-fill" :style="{ width: `${(cat.value / analyticsData.expense * 100)}%`, backgroundColor: cat.color }"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Top Merchants -->
-                    <div class="glass-card p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4">Top Merchants</h3>
-                        <div class="space-y-3">
-                            <div v-for="(m, i) in analyticsData.merchants" :key="m.name" class="flex justify-between items-center p-2 hover:bg-gray-50 rounded-lg">
-                                <div class="flex items-center gap-3">
-                                    <span class="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500">{{ i + 1 }}</span>
-                                    <span class="text-sm font-medium text-gray-700">{{ m.name }}</span>
-                                </div>
-                                <span class="text-sm font-bold text-gray-900">{{ formatAmount(m.value) }}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Insights & Patterns -->
-                    <div class="glass-card p-6 space-y-6">
-                         <!-- Credit Utilization -->
-                         <div v-if="analyticsData.credit.limit > 0">
-                            <h4 class="text-sm font-medium text-gray-500 mb-2">Credit Utilization</h4>
-                            <div class="flex justify-between text-xs mb-1">
-                                <span>Used: {{ formatAmount(analyticsData.credit.consumed) }}</span>
-                                <span>Limit: {{ formatAmount(analyticsData.credit.limit) }}</span>
-                            </div>
-                            <div class="h-3 bg-gray-100 rounded-full overflow-hidden">
-                                <div class="h-full transition-all duration-500"
-                                    :class="analyticsData.credit.percent > 80 ? 'bg-red-500' : (analyticsData.credit.percent > 50 ? 'bg-yellow-500' : 'bg-green-500')"
-                                    :style="{ width: `${analyticsData.credit.percent}%` }">
-                                </div>
-                            </div>
-                        </div>
-
-                         <!-- Weekend vs Weekday -->
-                         <div>
-                            <h4 class="text-sm font-medium text-gray-500 mb-2">Spending Habits</h4>
-                            <div class="flex gap-4">
-                                <div class="flex-1">
-                                    <div class="flex justify-between text-xs mb-1">
-                                        <span>Weekdays</span>
-                                        <span>{{ analyticsData.patterns.weekdayPercent.toFixed(0) }}%</span>
-                                    </div>
-                                    <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                        <div class="h-full bg-blue-500" :style="{ width: `${analyticsData.patterns.weekdayPercent}%` }"></div>
-                                    </div>
-                                </div>
-                                <div class="flex-1">
-                                    <div class="flex justify-between text-xs mb-1">
-                                        <span>Weekends</span>
-                                        <span>{{ analyticsData.patterns.weekendPercent.toFixed(0) }}%</span>
-                                    </div>
-                                    <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                        <div class="h-full bg-purple-500" :style="{ width: `${analyticsData.patterns.weekendPercent}%` }"></div>
-                                    </div>
-                                </div>
+                    <div class="analytics-card">
+                        <h3 class="card-title">Top Merchants</h3>
+                        <div class="merchant-list">
+                            <div v-for="m in analyticsData.merchants" :key="m.name" class="merchant-item">
+                                <span class="item-name">{{ m.name }}</span>
+                                <span class="item-value">{{ formatAmount(m.value) }}</span>
                             </div>
                         </div>
                     </div>
@@ -387,122 +651,884 @@ const frequencyOptions = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
             </div>
 
             <!-- RECURRING TAB -->
-            <div v-else class="animate-fade-in space-y-6">
-                <div class="flex justify-between items-center">
-                    <h2 class="text-lg font-semibold text-gray-800">Active Subscriptions</h2>
-                    <div class="flex gap-2">
-                        <button @click="triggerProcess" :disabled="processing" class="btn-secondary text-sm">
-                            <span v-if="processing">Processing...</span>
-                            <span v-else>⚡ Run Checks Now</span>
-                        </button>
-                         <button @click="showAddModal = true" class="btn-primary text-sm">
-                            + Add Recurring
-                        </button>
+            <div v-else class="recurring-layout">
+                <div class="recurring-grid">
+                    <div v-for="rec in store.recurringTransactions" :key="rec.id" class="recurring-card flex justify-between items-center group">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-gray-50 text-2xl">
+                                {{ store.getCategoryIcon(rec.category) }}
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-900">{{ rec.name }}</h3>
+                                <p class="text-xs text-gray-500 font-medium">Next: {{ new Date(rec.next_run_date).toLocaleDateString() }} • {{ rec.frequency }}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-bold text-gray-900">{{ formatAmount(rec.amount) }}</p>
+                            <button @click="deleteRecurrence(rec.id)" class="text-xs text-red-500 opacity-0 group-hover:opacity-100 transition-opacity mt-1">Cancel</button>
+                        </div>
                     </div>
                 </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div v-for="rec in store.recurringTransactions" :key="rec.id" 
-                        class="glass-card p-4 hover:shadow-md transition-all relative overflow-hidden group">
-                        
-                        <div class="flex justify-between items-start mb-2">
-                            <div class="flex items-center gap-3">
-                                <span class="text-2xl p-2 bg-gray-50 rounded-lg">{{ store.getCategoryIcon(rec.category) }}</span>
-                                <div>
-                                    <h3 class="font-medium text-gray-900">{{ rec.name }}</h3>
-                                    <p class="text-xs text-gray-500 capitalize">{{ rec.frequency.toLowerCase() }} • {{ store.getAccountName(rec.account_id) }}</p>
-                                </div>
-                            </div>
-                            <span class="font-bold text-gray-900">{{ formatAmount(rec.amount) }}</span>
-                        </div>
-
-                        <div class="mt-3 flex justify-between items-center text-xs text-gray-400">
-                             <span>Next: {{ new Date(rec.next_run_date).toLocaleDateString() }}</span>
-                             <button @click="deleteRecurrence(rec.id)" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">Stop</button>
-                        </div>
-                        
-                        <!-- Progress bar for next due? -->
-                         <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 opacity-10 w-full"></div>
-                    </div>
-
-                    <!-- Empty State -->
-                    <div v-if="store.recurringTransactions.length === 0" class="col-span-full py-12 text-center text-gray-400">
-                        No recurring transactions set up.
-                    </div>
+                
+                <div v-if="store.recurringTransactions.length === 0" class="py-20 text-center bg-white rounded-2xl border border-dashed border-gray-300">
+                    <p class="text-2xl mb-2">📫</p>
+                    <h3 class="font-bold text-gray-900">No active subscriptions</h3>
+                    <p class="text-sm text-gray-500">Add your recurring bills to see them here.</p>
                 </div>
             </div>
         </div>
 
-        <!-- Add Modal -->
-        <div v-if="showAddModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-up">
-                <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                    <h3 class="font-semibold text-lg text-gray-800">New Subscription</h3>
-                    <button @click="showAddModal = false" class="text-gray-400 hover:text-gray-600">✕</button>
+        <!-- Standard Add Modal -->
+        <div v-if="showAddModal" class="modal-overlay-global" @click.self="showAddModal = false">
+            <div class="modal-global">
+                <div class="modal-header">
+                    <h3 class="modal-title">New Subscription</h3>
+                    <button @click="showAddModal = false" class="btn-icon">✕</button>
                 </div>
                 
-                <div class="p-6 space-y-4">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">Name</label>
-                        <input v-model="newRecurrence.name" type="text" placeholder="e.g. Netflix" class="input-field w-full" autofocus>
+                <div class="space-y-4">
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input v-model="newRecurrence.name" type="text" class="form-input" placeholder="Netflix, Rent, etc.">
                     </div>
                     
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Amount</label>
-                            <input v-model="newRecurrence.amount" type="number" class="input-field w-full">
+                        <div class="form-group">
+                            <label class="form-label">Amount</label>
+                            <input v-model="newRecurrence.amount" type="number" class="form-input">
                         </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Frequency</label>
-                            <select v-model="newRecurrence.frequency" class="input-field w-full">
+                        <div class="form-group">
+                            <label class="form-label">Frequency</label>
+                            <select v-model="newRecurrence.frequency" class="form-select">
                                 <option v-for="f in frequencyOptions" :key="f" :value="f">{{ f }}</option>
                             </select>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
-                            <input v-model="newRecurrence.start_date" type="date" class="input-field w-full">
+                        <div class="form-group">
+                            <label class="form-label">Start Date</label>
+                            <input v-model="newRecurrence.start_date" type="date" class="form-input">
                         </div>
-                         <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Account</label>
-                            <select v-model="newRecurrence.account_id" class="input-field w-full">
+                         <div class="form-group">
+                            <label class="form-label">Account</label>
+                            <select v-model="newRecurrence.account_id" class="form-select">
                                 <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                             </select>
                         </div>
                     </div>
                     
-                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">Category</label>
-                        <select v-model="newRecurrence.category" class="input-field w-full">
+                     <div class="form-group">
+                        <label class="form-label">Category</label>
+                        <select v-model="newRecurrence.category" class="form-select">
                              <option v-for="c in store.categories" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
                         </select>
                     </div>
-
                 </div>
                 
-                <div class="p-6 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
-                    <button @click="showAddModal = false" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">Cancel</button>
-                    <button @click="saveRecurrence" class="btn-primary">Start Subscription</button>
+                <div class="modal-footer">
+                    <button @click="showAddModal = false" class="btn btn-outline">Cancel</button>
+                    <button @click="saveRecurrence" class="btn btn-primary">Start Subscription</button>
                 </div>
             </div>
         </div>
-
     </MainLayout>
 </template>
 
 <style scoped>
-.glass-card {
-    @apply bg-white/80 backdrop-blur-md rounded-xl border border-white/20 shadow-sm transition-all duration-300;
+/* --- Design Language Consistenty (Ported from Transactions.vue) --- */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #e5e7eb;
 }
-.btn-primary {
-    @apply bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200;
+
+.account-select {
+    min-width: 240px;
 }
-.btn-secondary {
-    @apply bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors;
+
+.account-select :deep(.select-trigger) {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
 }
-.input-field {
-    @apply bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 transition-all outline-none;
+
+.header-left {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+
+.page-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+
+.transaction-count {
+    font-size: 0.875rem;
+    color: #6b7280;
+    font-weight: 400;
+}
+
+.header-tabs {
+    display: flex;
+    gap: 0.25rem;
+    background: #f3f4f6;
+    padding: 0.25rem;
+    border-radius: 0.5rem;
+    margin: 0 1rem;
+}
+
+.tab-btn {
+    padding: 0.375rem 1rem;
+    border: none;
+    background: transparent;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn.active {
+    background: white;
+    color: #4f46e5;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.account-select-header {
+    min-width: 180px;
+    padding: 0.5rem 2rem 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    border-radius: 0.5rem;
+}
+
+.header-divider {
+    width: 1px;
+    height: 1.5rem;
+    background: #e5e7eb;
+    margin: 0 0.5rem;
+}
+
+.content-container {
+    padding: 0;
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.summary-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.75rem;
+    font-size: 1.5rem;
+}
+
+.card-content {
+    flex: 1;
+}
+
+.card-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.card-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.card-trend {
+    font-size: 0.625rem;
+    font-weight: 700;
+    margin-top: 0.25rem;
+    display: block;
+}
+
+.income .card-icon { background: #ecfdf5; color: #059669; }
+.expense .card-icon { background: #fef2f2; color: #dc2626; }
+.net .card-icon { background: #eff6ff; color: #4f46e5; }
+
+.income .card-value { color: #059669; }
+.expense .card-value { color: #dc2626; }
+
+.analytics-layout, .recurring-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    padding-bottom: 2rem;
+}
+
+.analytics-card.full-width {
+    grid-column: span 2;
+}
+
+.analytics-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.card-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #111827;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1.25rem;
+}
+
+.ai-card {
+    background: #0f172a;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: white;
+    padding: 1.75rem 2.25rem;
+    border-radius: 1.5rem;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.ai-card.is-loading .ai-insight-box {
+    opacity: 0.5;
+    filter: blur(1px);
+}
+
+.ai-card-content {
+    position: relative;
+    z-index: 10;
+}
+
+.ai-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1.5rem;
+}
+
+.ai-title-left {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.ai-sparkle-icon {
+    font-size: 2rem;
+    background: rgba(255, 255, 255, 0.1);
+    width: 3.5rem;
+    height: 3.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1rem;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ai-card-title {
+    font-size: 1.125rem;
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: -0.01em;
+    color: #f8fafc;
+}
+
+.ai-card-subtitle {
+    font-size: 0.8125rem;
+    color: #94a3b8;
+    margin: 4px 0 0 0;
+    font-weight: 400;
+}
+
+.ai-insight-box {
+    background: rgba(15, 23, 42, 0.4);
+    padding: 1.5rem;
+    border-radius: 1.25rem;
+    backdrop-filter: blur(8px);
+    margin-bottom: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.ai-insight-text {
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    color: #e2e8f0;
+}
+
+.ai-btn-glass {
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    padding: 0.625rem 1.25rem;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    white-space: nowrap;
+}
+
+.ai-btn-glass:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.ai-card-description {
+    font-size: 0.875rem;
+    color: #94a3b8;
+    margin: 1rem 0;
+    max-width: 500px;
+}
+
+/* Mesh Blobs - Toned Down */
+.mesh-blob {
+    position: absolute;
+    filter: blur(80px);
+    opacity: 0.15;
+    border-radius: 50%;
+    z-index: 1;
+}
+
+.blob-1 { width: 400px; height: 400px; background: #3b82f6; top: -150px; right: -100px; }
+.blob-2 { width: 350px; height: 350px; background: #6366f1; bottom: -100px; left: -100px; }
+.blob-3 { width: 250px; height: 250px; background: #1e40af; top: 10%; left: 20%; }
+
+/* Skeleton */
+.ai-loading-skeleton {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.shimmer-line {
+    height: 1rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.shimmer-line::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.markdown-body :deep(h4) {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 1rem 0 0.5rem 0;
+    color: white;
+}
+
+.markdown-body :deep(p) {
+    margin-bottom: 0.75rem;
+}
+
+.markdown-body :deep(ul), .markdown-body :deep(ol) {
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.markdown-body :deep(li) {
+    margin-bottom: 0.375rem;
+}
+
+.markdown-body :deep(strong) {
+    font-weight: 700;
+    color: white;
+}
+
+.forecast-footer {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: #f9fafb;
+    border-radius: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid #f3f4f6;
+}
+
+.forecast-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.forecast-net {
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #111827;
+}.item-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+}
+
+.empty-chart-state {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9ca3af;
+    font-size: 0.875rem;
+}
+
+.ai-card-description {
+    font-size: 0.875rem;
+    margin-bottom: 1.5rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.ai-card-decoration {
+    position: absolute;
+    right: -5rem;
+    bottom: -5rem;
+    width: 20rem;
+    height: 20rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    filter: blur(60px);
+}
+
+.ai-btn-white {
+    background: white;
+    color: #4f46e5;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+
+.ai-btn-white:hover {
+    background: #f9fafb;
+}
+
+.category-list, .merchant-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.category-item, .merchant-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.item-name {
+    font-size: 0.875rem;
+    color: #374151;
+    font-weight: 500;
+}
+
+.item-value {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.progress-bar-bg {
+    height: 0.5rem;
+    background: #f3f4f6;
+    border-radius: 999px;
+    margin-top: 0.375rem;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: #4f46e5;
+    border-radius: 999px;
+}
+
+.recurring-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.recurring-card {
+    background: white;
+    padding: 1.25rem;
+    border-radius: 1rem;
+    border: 1px solid #e5e7eb;
+}
+
+/* Animations */
+.fade-enter-active, .fade-leave-active {
+    transition: opacity 0.3s ease;
+}
+.fade-enter-from, .fade-leave-to {
+    opacity: 0;
+}
+
+/* --- Filter Bar (Ported from Transactions.vue) --- */
+.filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 0.625rem 1rem;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.filter-main {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.filter-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.range-pill-group {
+    display: flex;
+    gap: 0.375rem;
+    background: #f3f4f6;
+    padding: 2px;
+    border-radius: 0.5rem;
+    height: 36px;
+    box-sizing: border-box;
+    align-items: center;
+}
+
+.range-pill {
+    padding: 0 0.75rem;
+    height: 32px;
+    border: none;
+    background: transparent;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #4b5563;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+}
+
+.range-pill:hover:not(.active) {
+    color: #111827;
+    background: #e5e7eb;
+}
+
+.range-pill.active {
+    background: white;
+    color: #4f46e5;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.chart-box {
+    height: 250px;
+    margin-top: 1rem;
+}
+
+.chart-box-large {
+    height: 400px;
+    margin-top: 1rem;
+}
+
+.card-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.card-controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.mini-select {
+    width: 160px;
+}
+
+.mini-select :deep(.select-trigger) {
+    padding: 0.25rem 0.625rem;
+    height: 32px;
+    font-size: 0.75rem;
+    background: white;
+}
+
+.mini-select :deep(.select-dropdown) {
+    font-size: 0.75rem;
+}
+
+.toggle-group {
+    display: flex;
+    background: #f3f4f6;
+    padding: 2px;
+    border-radius: 0.375rem;
+}
+
+.toggle-group button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    border: none;
+    background: transparent;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.toggle-group button.active {
+    background: white;
+    color: #4f46e5;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+/* Heatmap Styles */
+.heatmap-container {
+    overflow-x: auto;
+    padding: 1rem 0;
+}
+
+.heatmap-header, .heatmap-row {
+    display: grid;
+    grid-template-columns: 120px repeat(24, 1fr);
+    gap: 2px;
+    min-width: 800px;
+}
+
+.hour-label {
+    font-size: 0.65rem;
+    color: #9ca3af;
+    text-align: center;
+}
+
+.heatmap-cat-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #4b5563;
+    padding-right: 0.5rem;
+    display: flex;
+    align-items: center;
+}
+
+.heatmap-cell-wrapper {
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.heatmap-cell {
+    width: 100%;
+    height: 100%;
+    border-radius: 2px;
+    transition: transform 0.2s;
+}
+
+.heatmap-cell:hover {
+    transform: scale(1.2);
+    z-index: 10;
+}
+
+.heatmap-footer {
+    margin-top: 1.5rem;
+    border-top: 1px solid #f3f4f6;
+    padding-top: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.legend-label {
+    font-size: 0.7rem;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.legend-gradient {
+    width: 120px;
+    height: 8px;
+    background: linear-gradient(to right, rgba(79, 70, 229, 0.1), rgba(79, 70, 229, 1));
+    border-radius: 4px;
+}
+
+.heatmap-hint {
+    color: #9ca3af;
+}
+
+.text-truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filter-divider {
+    width: 1px;
+    height: 1.25rem;
+    background: #e5e7eb;
+}
+
+.filter-select {
+    padding: 0.375rem 2rem 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+    background-color: white;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    appearance: none;
+}
+
+.date-input {
+    height: 36px;
+    padding: 0 0.625rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    color: #374151;
+    background: white;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.date-input:focus {
+    border-color: #4f46e5;
+}
+
+.filter-separator {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    font-weight: 500;
+}
+
+.btn-link {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #4f46e5;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
+}
+
+.animate-in {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
 }
 </style>

@@ -106,3 +106,17 @@ def list_ai_models(
 ):
     from backend.app.modules.ingestion.ai_service import AIService
     return AIService.list_available_models(db, str(current_user.tenant_id), provider, api_key)
+
+@router.post("/generate-insights")
+def generate_insights(
+    payload: Dict[str, Any],
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from backend.app.modules.ingestion.ai_service import AIService
+    summary_data = payload.get("summary_data")
+    if not summary_data:
+        raise HTTPException(status_code=400, detail="Missing summary_data")
+    
+    insights = AIService.generate_summary_insights(db, str(current_user.tenant_id), summary_data)
+    return {"insights": insights}

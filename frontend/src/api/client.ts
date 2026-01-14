@@ -73,7 +73,8 @@ export const financeApi = {
     smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean }) =>
         apiClient.post('/finance/transactions/smart-categorize', data),
     bulkDeleteTransactions: (ids: string[]) => apiClient.post('/finance/transactions/bulk-delete', { transaction_ids: ids }),
-    getMetrics: () => apiClient.get('/finance/metrics'),
+    getMetrics: (accountId?: string, startDate?: string, endDate?: string) =>
+        apiClient.get('/finance/metrics', { params: { account_id: accountId, start_date: startDate, end_date: endDate } }),
     getRules: () => apiClient.get('/finance/rules'),
     getRuleSuggestions: () => apiClient.get('/finance/rules/suggestions'),
     createRule: (data: any) => apiClient.post('/finance/rules', data),
@@ -95,6 +96,8 @@ export const financeApi = {
     updateRecurring: (id: string, data: any) => apiClient.put(`/finance/recurring/${id}`, data),
     deleteRecurring: (id: string) => apiClient.delete(`/finance/recurring/${id}`),
     processRecurring: () => apiClient.post('/finance/recurring/process'),
+    getForecast: (accountId?: string, days: number = 30) =>
+        apiClient.get('/finance/forecast', { params: { account_id: accountId, days } }),
 
     // Ingestion
     analyzeCsv: (formData: FormData) => apiClient.post('/ingestion/csv/analyze', formData, {
@@ -136,5 +139,6 @@ export const aiApi = {
     getSettings: () => apiClient.get('/ingestion/ai/settings'),
     updateSettings: (data: any) => apiClient.post('/ingestion/ai/settings', data),
     testConnection: (content: string) => apiClient.post('/ingestion/ai/test', { content }),
-    listModels: (provider: string, apiKey?: string) => apiClient.get('/ingestion/ai/models', { params: { provider, api_key: apiKey } })
+    listModels: (provider: string, apiKey?: string) => apiClient.get('/ingestion/ai/models', { params: { provider, api_key: apiKey } }),
+    generateSummaryInsights: (summary_data: any) => apiClient.post('/ingestion/ai/generate-insights', { summary_data })
 }

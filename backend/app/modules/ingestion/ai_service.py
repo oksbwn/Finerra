@@ -70,6 +70,30 @@ class GeminiProvider:
             print(f"[GeminiProvider] List Models Error: {e}")
             return []
 
+    def generate_analysis(self, config: ingestion_models.AIConfiguration, summary_data: str) -> Optional[str]:
+        if not config.api_key:
+            return None
+        
+        client = genai.Client(api_key=config.api_key)
+        model_id = config.model_name or "gemini-1.5-flash"
+        
+        prompt = (
+            "You are a professional financial advisor. Analyze the following financial summary data for a household. "
+            "Provide 3-4 concise, actionable insights or observations. Focus on spending patterns, budget health, and savings opportunities. "
+            "Keep it friendly and professional. Use bullet points. "
+            f"\n\nFINANCIAL SUMMARY:\n{summary_data}"
+        )
+        
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt
+            )
+            return response.text if response else None
+        except Exception as e:
+            print(f"[GeminiProvider] Generate Analysis Error: {e}")
+            return None
+
 class AIService:
     _providers = {
         "gemini": GeminiProvider()
@@ -179,3 +203,24 @@ class AIService:
             return []
             
         return provider.list_models(api_key)
+
+    @classmethod
+    def generate_summary_insights(cls, db: Session, tenant_id: str, summary_data: Dict[str, Any]) -> Optional[str]:
+        # 1. Get Config
+        config = db.query(ingestion_models.AIConfiguration).filter(
+            ingestion_models.AIConfiguration.tenant_id == tenant_id,
+            ingestion_models.AIConfiguration.is_enabled == True
+        ).first()
+
+        if not config:
+            return "AI Insights are currently disabled in settings."
+
+        # 2. Call Provider
+        provider = cls._providers.get(config.provider.lower())
+        if not provider or not hasattr(provider, 'generate_analysis'):
+            return "AI Provider not configured correctly."
+
+        # Convert summary to string for the prompt
+        summary_str = json.dumps(summary_data, indent=2)
+        
+        return provider.generate_analysis(config, summary_str)
