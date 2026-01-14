@@ -1,19 +1,31 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import apiClient from '@/api/client'
-import type { AxiosError } from 'axios'
 
 interface User {
     id: string
     email: string
     role: string
     tenant_id: string
+    full_name?: string
+    avatar?: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
     const user = ref<User | null>(null)
     const token = ref<string | null>(localStorage.getItem('access_token'))
     const isAuthenticated = computed(() => !!token.value)
+
+    async function fetchUser() {
+        if (!token.value) return
+        try {
+            const response = await apiClient.get('/auth/me')
+            user.value = response.data
+        } catch (error) {
+            console.error("Failed to fetch user profile", error)
+            // If 401, logout logic is handled by interceptor, but we can double check
+        }
+    }
 
     async function login(email: string, password: string) {
         try {
@@ -28,10 +40,8 @@ export const useAuthStore = defineStore('auth', () => {
             token.value = response.data.access_token
             if (token.value) {
                 localStorage.setItem('access_token', token.value)
+                await fetchUser() // Fetch profile immediately
             }
-
-            // Fetch user profile after login (requires implementing /auth/me or deducing from token)
-            // For now we decode (or assume backend provides user info separately)
 
         } catch (error) {
             throw error
@@ -44,11 +54,17 @@ export const useAuthStore = defineStore('auth', () => {
         localStorage.removeItem('access_token')
     }
 
+    // Initialize: Fetch user if token exists
+    if (token.value) {
+        fetchUser()
+    }
+
     return {
         user,
         token,
         isAuthenticated,
         login,
-        logout
+        logout,
+        fetchUser
     }
 })

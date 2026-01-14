@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import ToastContainer from '@/components/ToastContainer.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
-const route = useRoute()
 
 // Sidebar State
 const isSidebarCollapsed = ref(true)
@@ -14,7 +13,6 @@ function toggleSidebar() { isSidebarCollapsed.value = !isSidebarCollapsed.value 
 
 // User Menu State
 const showUserMenu = ref(false)
-const showAvatarModal = ref(false)
 const selectedAvatar = ref(localStorage.getItem('user_avatar') || 'default')
 const userMenuContainer = ref<HTMLElement | null>(null)
 
@@ -26,13 +24,6 @@ const AVATARS = {
 }
 
 function toggleUserMenu() { showUserMenu.value = !showUserMenu.value }
-
-function selectAvatar(type: string) {
-    selectedAvatar.value = type
-    localStorage.setItem('user_avatar', type)
-    showAvatarModal.value = false
-    showUserMenu.value = false
-}
 
 function logout() {
     auth.logout()
@@ -80,6 +71,10 @@ onUnmounted(() => {
 
                 <div class="user-menu-container" ref="userMenuContainer">
                     <div class="user-menu-trigger" @click.stop="toggleUserMenu">
+                        <div class="user-info-pill" v-if="auth.user">
+                            <span class="user-greeting">Hi,</span>
+                            <span class="user-name-text">{{ auth.user.full_name || auth.user.email?.split('@')[0] }}</span>
+                        </div>
                         <div class="user-avatar">
                             {{ AVATARS[selectedAvatar as keyof typeof AVATARS] }}
                         </div>
@@ -89,13 +84,10 @@ onUnmounted(() => {
                     <transition name="fade">
                         <div v-if="showUserMenu" class="dropdown-menu">
                             <div class="dropdown-header">
-                                <div class="user-name">{{ auth.user?.email }}</div>
-                                <div class="user-role">Family Member</div>
+                                <div class="user-name">{{ auth.user?.full_name || auth.user?.email || 'User' }}</div>
+                                <div class="user-role" style="text-transform: capitalize;">{{ auth.user?.role || 'Member' }}</div>
                             </div>
                             <div class="dropdown-divider"></div>
-                            <button class="dropdown-item" @click="showAvatarModal = true">
-                                🎨 Change Avatar
-                            </button>
                             <button class="dropdown-item danger" @click="logout">
                                 🚪 Logout
                             </button>
@@ -132,8 +124,6 @@ onUnmounted(() => {
                         <span class="label" v-if="!isSidebarCollapsed">Settings</span>
                     </router-link>
                 </nav>
-                
-                <!-- Sidebar Footer Removed as requested -->
             </aside>
             
             <main class="main-content">
@@ -141,20 +131,6 @@ onUnmounted(() => {
                     <slot></slot>
                 </div>
             </main>
-        </div>
-
-        <!-- Avatar Selection Modal -->
-        <div v-if="showAvatarModal" class="modal-overlay">
-            <div class="modal avatar-modal">
-                <h2>Choose Your Avatar</h2>
-                <div class="avatar-grid">
-                    <button class="avatar-option" :class="{ 'selected': selectedAvatar === 'male' }" @click="selectAvatar('male')">👨‍💼 <span>Dad</span></button>
-                    <button class="avatar-option" :class="{ 'selected': selectedAvatar === 'female' }" @click="selectAvatar('female')">👩‍💼 <span>Mom</span></button>
-                    <button class="avatar-option" :class="{ 'selected': selectedAvatar === 'kid' }" @click="selectAvatar('kid')">🧒 <span>Kid</span></button>
-                    <button class="avatar-option" :class="{ 'selected': selectedAvatar === 'default' }" @click="selectAvatar('default')">👤 <span>Default</span></button>
-                </div>
-                <button class="btn btn-outline" @click="showAvatarModal = false" style="margin-top: 1rem; width: 100%">Cancel</button>
-            </div>
         </div>
 
         <ToastContainer />
@@ -216,11 +192,24 @@ onUnmounted(() => {
 .notification-trigger:hover { background: var(--color-background); }
 .user-menu-container { position: relative; }
 .user-menu-trigger {
-    display: flex; align-items: center; gap: var(--spacing-lg);
-    cursor: pointer; padding: 0.5rem; border-radius: 0.5rem;
-    transition: background 0.2s;
+    display: flex; align-items: center; gap: 0.75rem;
+    cursor: pointer; padding: 0.25rem 0.5rem 0.25rem 0.75rem; 
+    border-radius: 2rem;
+    transition: all 0.2s;
+    border: 1px solid transparent;
 }
-.user-menu-trigger:hover { background: var(--color-background); }
+.user-menu-trigger:hover { 
+    background: var(--color-background); 
+    border-color: var(--color-border);
+}
+
+.user-info-pill {
+    display: flex; flex-direction: column; align-items: flex-end;
+    line-height: 1.1;
+    text-align: right;
+}
+.user-greeting { font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500; }
+.user-name-text { font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); }
 
 .notification-bell { font-size: 1.2rem; }
 .user-avatar {
