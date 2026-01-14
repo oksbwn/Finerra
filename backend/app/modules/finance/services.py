@@ -54,6 +54,19 @@ class FinanceService:
         db.refresh(db_account)
         return db_account
 
+    def delete_account(db: Session, account_id: str, tenant_id: str) -> bool:
+        db_account = db.query(models.Account).filter(
+            models.Account.id == account_id,
+            models.Account.tenant_id == tenant_id
+        ).first()
+        
+        if not db_account:
+            return False
+            
+        db.delete(db_account)
+        db.commit()
+        return True
+
     # --- Transactions ---
     def create_transaction(db: Session, transaction: schemas.TransactionCreate, tenant_id: str) -> models.Transaction:
         # Deduplication Check: external_id

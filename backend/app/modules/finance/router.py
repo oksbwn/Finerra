@@ -53,6 +53,36 @@ def update_account(
         raise HTTPException(status_code=404, detail="Account not found")
     return db_account
 
+@router.delete("/accounts/{account_id}")
+def delete_account(
+    account_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an account and all its transactions.
+    """
+    success = services.FinanceService.delete_account(
+        db, account_id, str(current_user.tenant_id)
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"status": "success", "message": "Account and related transactions deleted"}
+
+@router.get("/accounts/{account_id}/transaction-count")
+def get_account_transaction_count(
+    account_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the number of transactions associated with an account.
+    """
+    count = services.FinanceService.count_transactions(
+        db, str(current_user.tenant_id), account_id, user_role=current_user.role
+    )
+    return {"count": count}
+
 # --- Transactions ---
 @router.post("/transactions", response_model=schemas.TransactionRead)
 def create_transaction(

@@ -29,7 +29,7 @@ class Account(Base):
     import_config = Column(String, nullable=True) # JSON config for CSV/Excel mapping
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    transactions = relationship("Transaction", back_populates="account")
+    transactions = relationship("Transaction", back_populates="account", cascade="all, delete-orphan")
 
 
 

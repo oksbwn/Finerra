@@ -99,6 +99,40 @@ const newRule = ref({
     keywords: ''
 })
 
+// Account Deletion State
+const showAccountDeleteConfirm = ref(false)
+const accountToDelete = ref<any>(null)
+const accountTxCount = ref(0)
+const isDeletingAccount = ref(false)
+
+async function deleteAccountRequest(account: any) {
+    accountToDelete.value = account
+    accountTxCount.value = 0
+    try {
+        const res = await financeApi.getAccountTransactionCount(account.id)
+        accountTxCount.value = res.data.count
+    } catch (e) {
+        console.error("Failed to fetch tx count", e)
+    }
+    showAccountDeleteConfirm.value = true
+}
+
+async function confirmAccountDelete() {
+    if (!accountToDelete.value) return
+    isDeletingAccount.value = true
+    try {
+        await financeApi.deleteAccount(accountToDelete.value.id)
+        notify.success("Account and related data removed")
+        showAccountDeleteConfirm.value = false
+        fetchData()
+    } catch (e) {
+        notify.error("Failed to delete account")
+    } finally {
+        isDeletingAccount.value = false
+        accountToDelete.value = null
+    }
+}
+
 const showCategoryModal = ref(false)
 const showDeleteCategoryConfirm = ref(false)
 const categoryToDelete = ref<string | null>(null)
@@ -738,11 +772,14 @@ async function handleMemberSubmit() {
                                         <span class="card-label">Untrusted Source</span>
                                         <h3 class="card-name">{{ acc.name }}</h3>
                                     </div>
-                                    <button @click="openEditAccountModal(acc)" class="btn-verify">Verify</button>
+                                    <div class="card-actions-row">
+                                        <button @click="deleteAccountRequest(acc)" class="btn-icon-circle danger-subtle">🗑️</button>
+                                        <button @click="openEditAccountModal(acc)" class="btn-verify">Verify</button>
+                                    </div>
                                 </div>
                                 <div class="card-bottom">
                                     <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
-                                    <span class="card-meta">Found via SMS</span>
+                                    <span class="card-meta">Auto-Detected</span>
                                 </div>
                             </div>
                         </div>
@@ -759,7 +796,10 @@ async function handleMemberSubmit() {
                                     </div>
                                     <h3 class="card-name">{{ acc.name }}</h3>
                                 </div>
-                                <button @click="openEditAccountModal(acc)" class="btn-icon-circle">✏️</button>
+                                <div class="card-actions">
+                                    <button @click="openEditAccountModal(acc)" class="btn-icon-circle">✏️</button>
+                                    <button @click="deleteAccountRequest(acc)" class="btn-icon-circle danger-subtle">🗑️</button>
+                                </div>
                             </div>
                             <div class="card-bottom">
                                 <span class="card-balance">₹ {{ Number(acc.balance || 0).toLocaleString() }}</span>
@@ -1213,6 +1253,29 @@ async function handleMemberSubmit() {
                 </div>
             </div>
         </div>
+        <!-- Delete Account Confirmation -->
+        <div v-if="showAccountDeleteConfirm" class="modal-overlay-global">
+            <div class="modal-global glass alert max-w-md">
+                <div class="modal-icon-header danger">🗑️</div>
+                <h2 class="modal-title">Delete Account?</h2>
+                <div class="alert-info-box mb-6">
+                    <p class="mb-2">You are about to delete <strong>{{ accountToDelete?.name }}</strong>.</p>
+                    <p class="text-danger font-bold" v-if="accountTxCount > 0">
+                        ⚠️ This will also permanently delete {{ accountTxCount }} transactions.
+                    </p>
+                    <p v-else class="text-muted">No transactions are currently linked to this account.</p>
+                </div>
+                <p class="text-xs text-muted mb-6">This action cannot be undone. Are you absolutely sure?</p>
+                
+                <div class="modal-footer">
+                    <button @click="showAccountDeleteConfirm = false" class="btn-secondary" :disabled="isDeletingAccount">Cancel</button>
+                    <button @click="confirmAccountDelete" class="btn-danger-glow" :disabled="isDeletingAccount">
+                        {{ isDeletingAccount ? 'Deleting...' : 'Yes, Delete Everything' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
 
         <!-- Add/Edit Family Member Modal -->
         <div v-if="showMemberModal" class="modal-overlay-global">
@@ -2308,5 +2371,46 @@ input:checked + .slider:before { transform: translateX(20px); }
     justify-content: space-between;
     align-items: center;
     width: 100%;
+}
+.btn-icon-circle.danger-subtle {
+    color: #ef4444;
+}
+.btn-icon-circle.danger-subtle:hover {
+    background: #fef2f2;
+}
+
+.modal-icon-header.danger {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.alert-info-box {
+    background: #fdf2f2;
+    border: 1px solid #fecaca;
+    border-radius: 0.75rem;
+    padding: 1rem;
+}
+
+.btn-danger-glow {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+    border: none;
+    border-radius: 0.625rem;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+    transition: all 0.2s;
+}
+
+.btn-danger-glow:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 15px rgba(239, 68, 68, 0.3);
+}
+
+.btn-danger-glow:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
 }
 </style>
