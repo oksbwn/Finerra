@@ -68,8 +68,15 @@ class EmailSyncService:
 
             for e_id in email_ids:
                 try:
-                    # Fetch the email message by ID
-                    status, msg_data = mail.fetch(e_id, "(RFC822)")
+                    # Fetch the email message by ID (PEEK to avoid marking as read)
+                    # Use RFC822 for full message, but wrapped in BODY.PEEK[] if supported, 
+                    # but standard python imaplib with RFC822 usually marks as seen. 
+                    # To peek, we technically need BODY.PEEK[] which returns the body structure.
+                    # However, for full raw email with headers, standard is RFC822.
+                    # To avoid marking as read, many servers support BODY.PEEK[] effectively returning content.
+                    # But simpler is to fetching BODY.PEEK[] 
+                    
+                    status, msg_data = mail.fetch(e_id, "(BODY.PEEK[])")
                     if status != "OK":
                         continue
                     
