@@ -35,12 +35,7 @@ const tenantForm = ref({ id: '', name: '' })
 
 // Email Config Modal State
 const showEmailModal = ref(false)
-const newEmailConfig = ref({
-    email: '',
-    password: '',
-    imap_server: 'imap.gmail.com',
-    folder: 'INBOX'
-})
+
 const showAccountModal = ref(false)
 const editingAccountId = ref<string | null>(null)
 const newAccount = ref({
@@ -64,8 +59,12 @@ const memberForm = ref({
     full_name: '',
     password: '',
     role: 'ADULT',
-    avatar: '👨‍💼'
+    avatar: '👨‍💼',
+    dob: '',
+    pan_number: ''
 })
+
+const showPan = ref(false)
 
 const searchQuery = ref('')
 const verifiedAccounts = computed(() => {
@@ -233,7 +232,7 @@ async function testAi() {
         if (res.data.status === 'success') {
             notify.success("AI test successful")
         } else {
-            notify.warning("AI test failed")
+            notify.info("AI test failed")
         }
     } catch (e) {
         notify.error("AI test error")
@@ -351,14 +350,6 @@ const resolveOwnerName = (account: any) => {
     return 'Family'
 }
 
-const getOwnerIcon = (name: string) => {
-    const n = name.toLowerCase()
-    if (n.includes('dad') || n.includes('father')) return '👨'
-    if (n.includes('mom') || n.includes('mother')) return '👩'
-    if (n.includes('kid') || n.includes('child')) return '🧒'
-    if (n.includes('grand')) return '🧓'
-    return '👤'
-}
 
 const getMemberAccountCount = (memberId: string) => {
     return accounts.value.filter(a => a.owner_id === memberId).length
@@ -424,11 +415,6 @@ async function saveEmailConfig() {
     }
 }
 
-function openAddEmailModal() {
-    emailForm.value = { email: '', password: '', host: 'imap.gmail.com', folder: 'INBOX', auto_sync: false }
-    editingEmailConfig.value = null
-    showEmailModal.value = true
-}
 
 function openEditEmailModal(config: any) {
     emailForm.value = { 
@@ -508,8 +494,12 @@ function formatDateFull(dateStr: string) {
 }
 
 function formatDate(dateStr: string) {
-    if (!dateStr) return 'N/A'
-    return new Date(dateStr).toLocaleDateString()
+    if (!dateStr) return { day: 'N/A', meta: '' }
+    const d = new Date(dateStr)
+    return {
+        day: d.toLocaleDateString(),
+        meta: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
 }
 
 function getAccountTypeIcon(type: string) {
@@ -699,16 +689,6 @@ async function handleSync(configId: string) {
     }
 }
 
-async function handleEmailConfigSubmit() {
-    try {
-        await financeApi.createEmailConfig(newEmailConfig.value)
-        showEmailModal.value = false
-        newEmailConfig.value = { email: '', password: '', imap_server: 'imap.gmail.com', folder: 'INBOX' }
-        fetchData()
-    } catch (err) {
-        console.error("Failed to save email config", err)
-    }
-}
 
 
 function openRenameTenantModal(tenant: any) {
@@ -736,8 +716,11 @@ function openAddMemberModal() {
         full_name: '',
         password: '',
         role: 'ADULT' as any,
-        avatar: '👨‍💼'
+        avatar: '👨‍💼',
+        dob: '',
+        pan_number: ''
     }
+    showPan.value = false
     showMemberModal.value = true
 }
 
@@ -749,8 +732,11 @@ function openEditMemberModal(member: any) {
         full_name: member.full_name || '',
         password: '',
         role: member.role,
-        avatar: member.avatar || '👤'
+        avatar: member.avatar || '👤',
+        dob: member.dob || '',
+        pan_number: member.pan_number || ''
     }
+    showPan.value = false
     showMemberModal.value = true
 }
 
@@ -761,6 +747,8 @@ async function handleMemberSubmit() {
                 full_name: memberForm.value.full_name,
                 avatar: memberForm.value.avatar,
                 role: memberForm.value.role,
+                dob: memberForm.value.dob || undefined,
+                pan_number: memberForm.value.pan_number || undefined,
                 password: memberForm.value.password || undefined
             })
             notify.success("Member updated")
@@ -799,6 +787,7 @@ async function handleMemberSubmit() {
                         >
                             Accounts
                         </button>
+
                         <button 
                             class="tab-btn" 
                             :class="{ active: activeTab === 'tenants' }" 
@@ -1014,6 +1003,8 @@ async function handleMemberSubmit() {
                         </div>
                     </div>
                 </div>
+
+
 
                 <!-- EMAILS TAB -->
                 <div v-if="activeTab === 'emails'" class="tab-content animate-in">
@@ -1634,6 +1625,22 @@ async function handleMemberSubmit() {
                     <div class="form-group">
                         <label class="form-label">Full Name</label>
                         <input v-model="memberForm.full_name" class="form-input" required placeholder="e.g. Sarah Smith" />
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label class="form-label">Date of Birth</label>
+                            <input type="date" v-model="memberForm.dob" class="form-input" />
+                        </div>
+                        <div class="form-group half">
+                            <label class="form-label">PAN Number</label>
+                            <div style="position: relative;">
+                                <input :type="showPan ? 'text' : 'password'" v-model="memberForm.pan_number" class="form-input" style="padding-right: 2.5rem;" placeholder="ABCDE1234F" maxlength="10" />
+                                <button type="button" @click="showPan = !showPan" style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; opacity: 0.5;">
+                                    {{ showPan ? '🙈' : '👁️' }}
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="form-group">

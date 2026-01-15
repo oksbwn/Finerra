@@ -97,7 +97,9 @@ def create_family_member(
         tenant_id=current_user.tenant_id,
         role=payload.role,
         full_name=payload.full_name,
-        avatar=payload.avatar
+        avatar=payload.avatar,
+        dob=payload.dob,
+        pan_number=payload.pan_number
     )
     db.add(new_user)
     db.commit()
@@ -125,6 +127,10 @@ def update_family_member(
         member.avatar = payload.avatar
     if payload.role is not None:
         member.role = payload.role
+    if payload.dob is not None:
+        member.dob = payload.dob
+    if payload.pan_number is not None:
+        member.pan_number = payload.pan_number
     if payload.password:
         member.password_hash = services.AuthService.get_password_hash(payload.password)
         
