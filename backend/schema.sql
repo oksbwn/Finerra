@@ -16,6 +16,8 @@ CREATE TABLE users (
 	full_name VARCHAR,
 	avatar VARCHAR,
 	role VARCHAR DEFAULT 'ADULT' NOT NULL, 
+	dob DATE,
+	pan_number VARCHAR,
 	scopes VARCHAR, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -92,6 +94,69 @@ CREATE TABLE budgets (
 	updated_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+
+CREATE TABLE recurring_transactions (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	name VARCHAR NOT NULL, 
+	amount NUMERIC(15, 2) NOT NULL, 
+	type VARCHAR NOT NULL DEFAULT 'DEBIT', 
+	category VARCHAR, 
+	account_id VARCHAR NOT NULL, 
+	frequency VARCHAR DEFAULT 'MONTHLY' NOT NULL, 
+	start_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	next_run_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	is_active BOOLEAN DEFAULT TRUE NOT NULL, 
+	last_run_date TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+
+CREATE TABLE mutual_funds_meta (
+	scheme_code VARCHAR NOT NULL, 
+	scheme_name VARCHAR NOT NULL, 
+	isin_growth VARCHAR, 
+	isin_reinvest VARCHAR, 
+	fund_house VARCHAR, 
+	category VARCHAR, 
+	updated_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (scheme_code)
+);
+
+CREATE TABLE mutual_fund_holdings (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	scheme_code VARCHAR NOT NULL, 
+	folio_number VARCHAR, 
+	units NUMERIC(15, 4) DEFAULT 0, 
+	average_price NUMERIC(15, 4) DEFAULT 0, 
+	current_value NUMERIC(15, 2), 
+	last_nav NUMERIC(15, 4), 
+	last_updated_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
+	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code)
+);
+
+CREATE TABLE mutual_fund_orders (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	holding_id VARCHAR, 
+	scheme_code VARCHAR NOT NULL, 
+	type VARCHAR DEFAULT 'BUY' NOT NULL, 
+	amount NUMERIC(15, 2) NOT NULL, 
+	units NUMERIC(15, 4) NOT NULL, 
+	nav NUMERIC(15, 4) NOT NULL, 
+	order_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	status VARCHAR DEFAULT 'COMPLETED', 
+	external_id VARCHAR, 
+	import_source VARCHAR DEFAULT 'MANUAL', 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
+	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code)
 );
 
 CREATE TABLE email_configurations (
