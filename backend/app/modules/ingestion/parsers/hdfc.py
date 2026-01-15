@@ -128,18 +128,19 @@ class HdfcEmailParser(BaseEmailParser):
 
     # Example: "❗ You have done a UPI txn. Rs.10.00 debited from A/c XX1234 to MERCHANT on 13-01-26. Ref: 123"
     GENERIC_UPI_PATTERN = re.compile(
-        r"(?i)UPI\s*txn.*?([\d,]+\.?\d*)\s*debited\s*from\s*A/c\s*(?:.*?|x*|X*)(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})",
+        r"(?i)UPI\s*txn.*?([\d,]+\.?\d*)\s*debited\s*from\s*A/c\s*(?:.*?|x*|X*)(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?\b(?:Ref|Reference)\s*(?:No|ID|Number)?[\s:\.-]+([a-zA-Z0-9]+))?",
         re.IGNORECASE
     )
 
     # More flexible pattern for Reference/UTR
+    # Updated to allow "is" as separator e.g. "Reference number is 123"
     REF_PATTERN = re.compile(
-        r"(?i)(?:Ref|UTR|TXN#|Ref\s*No|Reference\s*ID|reference\s*number|utr\s*no|Ref\s*ID)[:\.\s-]+(\w+)", 
+        r"(?i)\b(?:Ref|UTR|TXN#|Ref\s*No|Reference\s*ID|reference\s*number|utr\s*no|Ref\s*ID)(?:[\s:\.-]|\bis\b)+([a-zA-Z0-9]{3,})", 
         re.IGNORECASE
     )
 
-    BAL_PATTERN = re.compile(r"(?i)(?:Avbl\s*Bal|Bal|Balance)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
-    LIMIT_PATTERN = re.compile(r"(?i)(?:Credit\s*Limit|Limit)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
+    BAL_PATTERN = re.compile(r"(?i)\b(?:Avbl\s*Bal|Bal|Balance)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
+    LIMIT_PATTERN = re.compile(r"(?i)\b(?:Credit\s*Limit|Limit)[:\.\s-]+(?:Rs\.?|INR)\s*([\d,]+\.?\d*)", re.IGNORECASE)
 
     def can_handle(self, subject: str, body: str) -> bool:
         combined = (subject + " " + body).lower()
