@@ -1,6 +1,5 @@
-import pdfplumber
-import re
-from datetime import datetime
+import casparser
+from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 import os
 import tempfile
@@ -12,124 +11,159 @@ from backend.app.modules.finance.services.mutual_funds import MutualFundService
 
 class CASParser:
     """
-    Parses Consolidated Account Statements (CAS) from CAMS/KFintech.
-    Supports PDF password decryption.
+    Parses Consolidated Account Statements (CAS) from CAMS/KFintech using the casparser library.
     """
 
     @staticmethod
     def parse_pdf(file_path: str, password: Optional[str] = None) -> List[Dict[str, Any]]:
-        transactions = []
+        """
+        Parses a CAS PDF using the casparser library and flattens the result into a list of transactions.
+        """
+        flattened_transactions = []
         try:
-            with pdfplumber.open(file_path, password=password) as pdf:
-                full_text = ""
-                for page in pdf.pages:
-                    full_text += page.extract_text() + "\n"
+            # Use casparser to read the PDF
+            # Output structure:
+            # {
+            #   "file_type": "CAMS" | "KFINTECH",
+            #   "folios": [
+            #     {
+            #       "folio": "...",
+            #       "schemes": [
+            #         {
+            #           "scheme": "...",
+            #           "transactions": [
+            #             { "date": "...", "description": "...", "amount": ..., "units": ..., "nav": ..., "balance": ..., "type": "..." }
+            #           ]
+            #         }
+            #       ]
+            #     }
+            #   ]
+            # }
+            data = casparser.read_cas_pdf(file_path, password, output="dict")
+            
+            # Force generic object handling because simple "dict" output seems unreliable across versions/envs
+            if not isinstance(data, dict):
+                if hasattr(data, "to_dict"):
+                    data = data.to_dict()
+                elif hasattr(data, "dict"):
+                    data = data.dict()
+
+            # Helper to get attribute or dict item safely
+            def get_val(obj, key, default=None):
+                if isinstance(obj, dict):
+                    return obj.get(key, default)
+                return getattr(obj, key, default)
+
+            folios = get_val(data, "folios", [])
+            cas_type = get_val(data, "cas_type", "UNKNOWN")
+            
+            print(f"[CASParser Debug] Parse type: {cas_type}. Folios found: {len(folios)}")
+
+            # Check if it's a Summary statement with no data
+            if len(folios) == 0 and cas_type == "SUMMARY":
+                 raise ValueError("The uploaded file appears to be a 'Summary Statement'. Please upload a 'Detailed Transaction Statement' (e.g., from date of inception) to import your full history.")
+                 
+            # Fallback: If 0 folios and NOT explicitly summary (or maybe misidentified), try force_pdfminer
+            if len(folios) == 0:
+                print("[CASParser] No folios found. Retrying with force_pdfminer=True...")
+                try:
+                    data = casparser.read_cas_pdf(file_path, password, output="dict", force_pdfminer=True)
+                    if not isinstance(data, dict):
+                         if hasattr(data, "to_dict"):
+                            data = data.to_dict()
+                         elif hasattr(data, "dict"):
+                            data = data.dict()
+                    
+                    folios = get_val(data, "folios", [])
+                    print(f"[CASParser Debug] Retry parse type: {type(data)}. Folios found: {len(folios)}")
+                except Exception as e:
+                    print(f"[CASParser Debug] Retry failed: {e}")
+
+            # Debug: Print raw keys if still empty
+            if len(folios) == 0:
+                print(f"[CASParser] RAW DATA DUMP: {data}")
+            print(f"[CASParser Debug] Found {len(folios)} folios in CAS data.")
+            
+            for folio in folios:
+                folio_number = get_val(folio, "folio", "Unknown")
+                schemes = get_val(folio, "schemes", [])
+                print(f"[CASParser Debug] Folio {folio_number} has {len(schemes)} schemes.")
                 
-                # Basic parsing logic (This is highly simplified and needs robust regex for real CAS)
-                # We look for lines that might look like transactions
-                # Date       Scheme                     Amount      Units      NAV      Type
-                # 01-Jan-24  HDFC Top 100 Fund ...      5000.00     10.23      245.20   Purchase
+                for scheme in schemes:
+                    scheme_name = get_val(scheme, "scheme", "Unknown Scheme")
+                    amfi = get_val(scheme, "amfi", None)
+                    isin = get_val(scheme, "isin", None)
+                    
+                    transactions = get_val(scheme, "transactions", [])
+                    print(f"[CASParser Debug] Scheme '{scheme_name}' has {len(transactions)} transactions.")
+                    
+                    for txn in transactions:
+                        # Convert date string to datetime object
+                        # casparser returns date in 'YYYY-MM-DD' usually OR a date object
+                        raw_date = get_val(txn, "date")
+                        txn_date = None
+
+                        if isinstance(raw_date, (datetime, date)):
+                             txn_date = raw_date
+                        elif isinstance(raw_date, str):
+                            try:
+                                txn_date = datetime.strptime(raw_date, "%Y-%m-%d")
+                            except ValueError:
+                                # Fallback or keep string? The Service expects datetime usually
+                                try:
+                                    txn_date = datetime.strptime(raw_date, "%d-%b-%Y")
+                                except:
+                                    pass
+
+                        if not txn_date:
+                            continue # Skip invalid dates
+
+                        # SKIP non-investment transactions (Taxes, Stamp Duty)
+                        description = get_val(txn, "description", "")
+                        if "Stamp Duty" in description or "STT" in description or "Tax" in description:
+                             continue
+
+                        # Map casparser transaction type to our system's type if needed
+                        # casparser transactions usually have type
+                        t_type = get_val(txn, "type", "").upper()
+                        final_type = "BUY"
+                        amount = get_val(txn, "amount", 0) or 0
+                        if "REDEMPTION" in t_type or "SWITCH OUT" in t_type or amount < 0:
+                            final_type = "SELL"
+                        
+                        # Handle specific purchase types
+                        if "PURCHASE" in t_type or "SWITCH IN" in t_type:
+                            final_type = "BUY"
+                            
+                        units = get_val(txn, "units")
+                        nav = get_val(txn, "nav")
+
+                        flattened_transactions.append({
+                            "date": txn_date,
+                            "scheme_name": scheme_name,
+                            "amfi": amfi,
+                            "isin": isin,
+                            "folio_number": folio_number,
+                            "type": final_type,
+                            "amount": abs(float(amount)),
+                            "units": float(units or 0.0),
+                            "nav": float(nav or 0.0),
+                            "raw_line": get_val(txn, "description", ""),
+                            "external_id": get_val(txn, "external_id") 
+                        })
                 
-                # Regex to find Scheme Name (heuristic: line starts with specific words or formatting)
-                # Then regex to find transaction rows below it
-                
-                # Placeholder for actual complex parsing logic
-                print(f"[CASParser] Extracted {len(full_text)} chars.")
-                transactions = CASParser._extract_transactions_from_text(full_text)
+            print(f"[CASParser] Extracted {len(flattened_transactions)} transactions using casparser.")
                 
         except Exception as e:
-            print(f"[CASParser] Error parsing PDF: {e}")
+            print(f"[CASParser] Error parsing PDF with casparser: {e}")
             raise e
             
-        return transactions
+        return flattened_transactions
 
     @staticmethod
     def _extract_transactions_from_text(text: str) -> List[Dict[str, Any]]:
-        extracted = []
-        lines = text.split('\n')
-        current_scheme = None
-        current_folio = None
-        
-        # Regex patterns (Examples - need refinement based on actual CAS format)
-        scheme_pattern = re.compile(r"Folio No:\s*(\S+).+Scheme:\s*(.+)") 
-        # CAMS CAS often has "Folio No: 123456 / ... Scheme: HDFC ..."
-        
-        # Date pattern: DD-Mon-YYYY or DD/MM/YYYY
-        date_pattern = re.compile(r"(\d{2}-[A-Za-z]{3}-\d{4})")
-        
-        for line in lines:
-            # 1. Detect Scheme/Folio
-            # This is tricky in text dump. Often Folio is on one line, Scheme on another.
-            # Simplified assumption for prototype:
-            if "Folio No" in line:
-                # Try to grab folio
-                parts = line.split("Folio No")
-                if len(parts) > 1:
-                    # simplistic extraction
-                    current_folio = parts[1].split()[0].replace(":", "").strip()
-            
-            if "Scheme" in line or ("Fund" in line and "Plan" in line):
-                 # simplistic scheme detection
-                 current_scheme = line.strip()
-
-            # 2. Detect Transaction Line
-            # Look for Date + Amount + Units
-            date_match = date_pattern.search(line)
-            if date_match:
-                # It's a potential transaction line
-                try:
-                    # Parse parts
-                    # 02-Jan-2023   SIP Purchase    1,000.00    12.234    145.23
-                    parts = line.split()
-                    date_str = date_match.group(1)
-                    date = datetime.strptime(date_str, "%d-%b-%Y")
-                    
-                    # Heuristic: Find amount (look for numbers with decimals)
-                    # This is fragile without column extraction, but okay for V1 prototype
-                    numbers = [float(p.replace(",", "")) for p in parts if re.match(r"^-?\d{1,3}(,\d{3})*(\.\d+)?$", p)]
-                    
-                    if len(numbers) >= 3:
-                        # Assume: Amount, Units, NAV (order varies)
-                        # Usually: Amount, Price(NAV), Units -> CAMS
-                        # Let's assume standard CAMS ordering or just take distinct values
-                        
-                        # Logic: Amount is usually the nice round number or largest? 
-                        # NAV is roughly 10-1000. Units depends.
-                        # Validate against Amount ~= Units * NAV
-                        
-                        amount = numbers[0]
-                        nav = numbers[1]
-                        units = numbers[2]
-                        
-                        # Verify math
-                        if abs(amount - (units * nav)) > 1.0:
-                             # Try other permutations
-                             if abs(numbers[0] - (numbers[1] * numbers[2])) < 1.0:
-                                 amount = numbers[0]
-                                 units = numbers[1]
-                                 nav = numbers[2]
-                        
-                        # Determine Type
-                        trans_type = "BUY"
-                        if "Redemption" in line or "Switch Out" in line or amount < 0:
-                            trans_type = "SELL"
-                            amount = abs(amount)
-                        
-                        if current_scheme:
-                            extracted.append({
-                                "date": date,
-                                "scheme_name": current_scheme, # We need to map this to Scheme Code later!
-                                "folio_number": current_folio,
-                                "type": trans_type,
-                                "amount": amount,
-                                "units": units,
-                                "nav": nav,
-                                "raw_line": line
-                            })
-                except:
-                    pass
-                    
-        return extracted
+        # Deprecated: usage of casparser library replaces this method
+        return []
 
     @staticmethod
     def find_and_process_cas_emails(

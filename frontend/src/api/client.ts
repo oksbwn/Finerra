@@ -137,9 +137,14 @@ export const financeApi = {
     updateUser: (id: string, data: any) => apiClient.put(`/auth/users/${id}`, data),
 
     // Mutual Funds
-    searchFunds: (query: string) => apiClient.get('/finance/mutual-funds/search', { params: { q: query } }),
+    searchFunds: (query?: string, category?: string, amc?: string, limit: number = 20, offset: number = 0, sortBy: string = 'relevance') =>
+        apiClient.get('/finance/mutual-funds/search', { params: { q: query, category, amc, limit, offset, sort_by: sortBy } }),
+
+    getMarketIndices: () => apiClient.get('/finance/mutual-funds/indices'),
     getPortfolio: () => apiClient.get('/finance/mutual-funds/portfolio'),
     createFundTransaction: (data: any) => apiClient.post('/finance/mutual-funds/transaction', data),
+    delete: (url: string) => apiClient.delete(url), // Generic delete helper or specific method
+    deleteHolding: (id: string) => apiClient.delete(`/finance/mutual-funds/holdings/${id}`),
     importCAS: (formData: FormData) => apiClient.post('/finance/mutual-funds/import-cas', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
