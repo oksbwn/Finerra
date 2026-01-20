@@ -135,6 +135,16 @@ export const financeApi = {
     getUsers: () => apiClient.get<any[]>('/auth/users'),
     createUser: (data: any) => apiClient.post('/auth/users', data),
     updateUser: (id: string, data: any) => apiClient.put(`/auth/users/${id}`, data),
+
+    // Mutual Funds
+    searchFunds: (query: string) => apiClient.get('/finance/mutual-funds/search', { params: { q: query } }),
+    getPortfolio: () => apiClient.get('/finance/mutual-funds/portfolio'),
+    createFundTransaction: (data: any) => apiClient.post('/finance/mutual-funds/transaction', data),
+    importCAS: (formData: FormData) => apiClient.post('/finance/mutual-funds/import-cas', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    importCASEmail: (data: any) => apiClient.post('/finance/mutual-funds/import-cas-email', data),
+    getNav: (schemeCode: string) => apiClient.get(`/finance/mutual-funds/${schemeCode}/nav`),
 }
 
 export const aiApi = {

@@ -7,6 +7,7 @@ import {
     Wallet, 
     PieChart, 
     Sparkles, 
+    TrendingUp,
     Settings, 
     Bell, 
     LogOut,
@@ -134,6 +135,10 @@ onUnmounted(() => {
                     <router-link to="/insights" class="nav-item" active-class="active">
                         <span class="icon"><Sparkles :size="20" /></span>
                         <span class="label" v-if="!isSidebarCollapsed">Insights</span>
+                    </router-link>
+                    <router-link to="/mutual-funds" class="nav-item" active-class="active">
+                        <span class="icon"><TrendingUp :size="20" /></span>
+                        <span class="label" v-if="!isSidebarCollapsed">Mutual Funds</span>
                     </router-link>
                     <router-link to="/settings" class="nav-item" active-class="active">
                         <span class="icon"><Settings :size="20" /></span>
