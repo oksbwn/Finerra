@@ -82,6 +82,34 @@
                 />
             </g>
 
+            <!-- Transaction Markers -->
+            <g v-if="markers" class="transaction-markers">
+                <g v-for="(marker, index) in markerPoints" :key="`marker-${index}`">
+                    <circle
+                        :cx="marker.x"
+                        :cy="marker.y"
+                        :r="6"
+                        :fill="marker.type === 'SELL' ? '#ef4444' : '#10b981'"
+                        :stroke="marker.type === 'SELL' ? '#dc2626' : '#059669'"
+                        stroke-width="2"
+                        class="transaction-marker"
+                        @mouseenter="showMarkerTooltip(index, $event)"
+                        @mouseleave="hideTooltip"
+                    />
+                    <text
+                        :x="marker.x"
+                        :y="marker.y + 1"
+                        text-anchor="middle"
+                        font-size="10"
+                        fill="white"
+                        font-weight="bold"
+                        pointer-events="none"
+                    >
+                        {{ marker.type === 'SELL' ? '↓' : '↑' }}
+                    </text>
+                </g>
+            </g>
+
             <!-- Y-axis labels -->
             <g class="y-axis-labels">
                 <text
@@ -101,7 +129,7 @@
                 <text
                     v-for="(label, i) in xAxisLabels"
                     :key="`x-${i}`"
-                    :x="padding.left + (chartWidth / (xAxisLabels.length - 1)) * i"
+                    :x="xAxisLabels.length > 1 ? padding.left + (chartWidth / (xAxisLabels.length - 1)) * i : padding.left + chartWidth / 2"
                     :y="height - padding.bottom + 20"
                     text-anchor="middle"
                     class="axis-label"
@@ -112,14 +140,14 @@
         </svg>
 
         <!-- Legend -->
-        <div class="chart-legend">
+        <div v-if="!hideLegend" class="chart-legend">
             <div class="legend-item">
                 <div class="legend-line" style="background: #3b82f6;"></div>
-                <span>Portfolio Value</span>
+                <span>{{ props.valueLabel || 'Portfolio Value' }}</span>
             </div>
             <div class="legend-item">
                 <div class="legend-line dashed" style="background: #94a3b8;"></div>
-                <span>Invested Amount</span>
+                <span>{{ props.investedLabel || 'Invested Amount' }}</span>
             </div>
             <div v-if="props.benchmark && props.benchmark.length > 0" class="legend-item">
                 <div class="legend-line dotted" style="background: #f59e0b;"></div>
@@ -131,11 +159,11 @@
         <div v-if="tooltip.visible" class="chart-tooltip" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }">
             <div class="tooltip-date">{{ tooltip.date }}</div>
             <div class="tooltip-row">
-                <span>Value:</span>
+                <span>{{ props.valueLabel || 'Value' }}:</span>
                 <strong>{{ formatAmount(tooltip.value) }}</strong>
             </div>
             <div class="tooltip-row">
-                <span>Invested:</span>
+                <span>{{ props.investedLabel || 'Invested' }}:</span>
                 <strong>{{ formatAmount(tooltip.invested) }}</strong>
             </div>
             <div class="tooltip-row gain" :class="tooltip.gain >= 0 ? 'positive' : 'negative'">
@@ -145,6 +173,14 @@
             <div v-if="tooltip.benchmark" class="tooltip-row benchmark">
                 <span>Nifty 50:</span>
                 <strong>{{ formatAmount(tooltip.benchmark) }}</strong>
+            </div>
+            <div v-if="tooltip.transaction" class="tooltip-row transaction">
+                <span>{{ tooltip.transaction.type }}:</span>
+                <strong>{{ formatAmount(tooltip.transaction.amount) }}</strong>
+            </div>
+            <div v-if="tooltip.transaction" class="tooltip-row">
+                <span>Units:</span>
+                <strong>{{ tooltip.transaction.units.toFixed(3) }}</strong>
             </div>
         </div>
     </div>
@@ -156,7 +192,12 @@ import { ref, computed } from 'vue'
 const props = defineProps<{
     data: Array<{ date: string; value: number; invested: number }>
     benchmark?: Array<{ date: string; value: number }>
+    markers?: Array<{ date: string; type: 'BUY' | 'SELL' | 'SIP'; amount: number; units: number }>
     height?: number
+    hideLegend?: boolean
+    yMin?: 'zero' | 'auto'
+    valueLabel?: string
+    investedLabel?: string
 }>()
 
 const width = 800
@@ -174,7 +215,8 @@ const tooltip = ref({
     value: 0,
     invested: 0,
     gain: 0,
-    benchmark: 0
+    benchmark: 0,
+    transaction: null as { type: string; amount: number; units: number } | null
 })
 
 // Calculate scales
@@ -191,7 +233,18 @@ const maxValue = computed(() => {
     return max
 })
 
-const minValue = computed(() => 0)
+const minValue = computed(() => {
+    if (props.yMin === 'auto' && props.data && props.data.length > 0) {
+        let min = Math.min(...props.data.map(d => Math.min(d.value, d.invested || d.value)))
+        if (props.benchmark && props.benchmark.length > 0) {
+            const bMin = Math.min(...props.benchmark.map(b => b.value))
+            min = Math.min(min, bMin)
+        }
+        // Add some padding below so line isn't waiting on the axis
+        return Math.max(0, min * 0.95)
+    }
+    return 0
+})
 
 const yScale = (value: number) => {
     const range = maxValue.value - minValue.value
@@ -343,10 +396,11 @@ const xAxisLabels = computed(() => {
 })
 
 function formatAmount(value: number): string {
+    if (value === undefined || value === null || isNaN(value)) return '₹0'
     if (value >= 10000000) return `₹${(value / 10000000).toFixed(2)}Cr`
     if (value >= 100000) return `₹${(value / 100000).toFixed(2)}L`
     if (value >= 1000) return `₹${(value / 1000).toFixed(1)}K`
-    return `₹${value.toFixed(0)}`
+    return `₹${value.toFixed(2)}`
 }
 
 function showTooltip(index: number, event: MouseEvent) {
@@ -363,12 +417,61 @@ function showTooltip(index: number, event: MouseEvent) {
         value: dataPoint.value,
         invested: dataPoint.invested,
         gain: dataPoint.value - dataPoint.invested,
-        benchmark: props.benchmark ? props.benchmark[index]?.value : 0
+        benchmark: props.benchmark ? props.benchmark[index]?.value : 0,
+        transaction: null
     }
 }
 
 function hideTooltip() {
     tooltip.value.visible = false
+}
+
+// Calculate marker positions
+const markerPoints = computed(() => {
+    if (!props.markers || !props.data) return []
+    
+    return props.markers.map(marker => {
+        // Find the index in data that matches this marker's date
+        const dataIndex = props.data.findIndex(d => d.date === marker.date)
+        if (dataIndex === -1) return null
+        
+        return {
+            x: padding.left + xScale(dataIndex),
+            y: padding.top + yScale(props.data[dataIndex].value),
+            type: marker.type,
+            amount: marker.amount,
+            units: marker.units,
+            date: marker.date
+        }
+    }).filter(m => m !== null)
+})
+
+function showMarkerTooltip(index: number, event: MouseEvent) {
+    const marker = markerPoints.value[index]
+    if (!marker) return
+    
+    const dataIndex = props.data.findIndex(d => d.date === marker.date)
+    const dataPoint = props.data[dataIndex]
+    
+    tooltip.value = {
+        visible: true,
+        x: event.clientX + 10,
+        y: event.clientY - 100,
+        date: new Date(marker.date).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric' 
+        }),
+        value: dataPoint.value,
+        invested: dataPoint.invested,
+        gain: dataPoint.value - dataPoint.invested,
+        benchmark: props.benchmark ? props.benchmark[dataIndex]?.value : 0,
+        transaction: {
+            type: marker.type,
+            amount: marker.amount,
+            units: marker.units
+        }
+    }
 }
 </script>
 
@@ -435,10 +538,11 @@ svg {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     padding: 0.75rem;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     pointer-events: none;
-    z-index: 1000;
+    z-index: 9999;
     min-width: 160px;
+    color: #1e293b;
 }
 
 .tooltip-date {
@@ -465,5 +569,22 @@ svg {
 
 .tooltip-row.gain.negative strong {
     color: #ef4444;
+}
+
+.tooltip-row.transaction {
+    border-top: 1px solid #f1f5f9;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    font-weight: 600;
+}
+
+.transaction-marker {
+    cursor: pointer;
+    transition: r 0.2s, opacity 0.2s;
+}
+
+.transaction-marker:hover {
+    r: 8;
+    opacity: 0.8;
 }
 </style>

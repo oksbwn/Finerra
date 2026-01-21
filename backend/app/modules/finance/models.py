@@ -162,6 +162,7 @@ class MutualFundHolding(Base):
     average_price = Column(Numeric(15, 4), default=0)
     current_value = Column(Numeric(15, 2), nullable=True)
     last_nav = Column(Numeric(15, 4), nullable=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
     last_updated_at = Column(DateTime, default=datetime.utcnow)
 
 class MutualFundOrder(Base):
@@ -179,6 +180,7 @@ class MutualFundOrder(Base):
     status = Column(String, default="COMPLETED")
     external_id = Column(String, nullable=True)
     import_source = Column(String, default="MANUAL")
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class PortfolioTimelineCache(Base):
