@@ -1,13 +1,33 @@
+import threading
+import time
 import httpx
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List, Optional
-from backend.app.modules.finance import models as finance_models
 from backend.app.modules.finance.models import MutualFundsMeta, MutualFundHolding, MutualFundOrder
 
 MFAPI_BASE_URL = "https://api.mfapi.in/mf"
 
+# Global lock for DuckDB writes to prevent Conflict on Update within this process
+_db_write_lock = threading.Lock()
+
 class MutualFundService:
+    
+    @staticmethod
+    def _safe_commit(db: Session, max_retries: int = 5):
+        """Helper to commit with retries. With global lock, this is mostly a fallback."""
+        for i in range(max_retries):
+            try:
+                db.commit()
+                return
+            except Exception as e:
+                if "Conflict" in str(e) and i < max_retries - 1:
+                    import time
+                    time.sleep(0.1 * (2 ** i))
+                    db.rollback()
+                    # CRITICAL: We don't continue because rollback cleared the session.
+                    # This should now be prevented by the global lock.
+                raise e
     
     @staticmethod
     def get_mock_returns(scheme_code: str) -> float:
@@ -91,9 +111,174 @@ class MutualFundService:
             return None
 
     @staticmethod
+    def map_transactions_to_schemes(transactions: List[dict]):
+        """Map raw transaction names/AMFI codes to MFAPI scheme codes."""
+        if not transactions:
+            return []
+            
+        all_funds = []
+        amfi_map = {}
+        try:
+            print("[MutualFundService] Fetching master fund list for mapping...")
+            import httpx
+            resp = httpx.get("https://api.mfapi.in/mf", timeout=10.0)
+            if resp.status_code == 200:
+                all_funds = resp.json()
+                amfi_map = {str(f['schemeCode']): f for f in all_funds}
+                print(f"[MutualFundService] Master list fetched: {len(all_funds)} schemes.")
+        except Exception as e:
+            print(f"[MutualFundService] Warning: Failed to fetch master fund list: {e}. Falling back to name search.")
+
+        mapped_results = []
+        for txn in transactions:
+            matched_scheme = None
+            amfi_code = txn.get('amfi')
+            
+            # 1. Try AMFI lookup
+            if amfi_code and str(amfi_code) in amfi_map:
+                matched_scheme = amfi_map[str(amfi_code)]
+            
+            # 2. Fallback to Name Search - Pass cache to avoid redundant fetches
+            if not matched_scheme:
+                results = MutualFundService.search_funds(txn['scheme_name'], all_funds_cache=all_funds)
+                if results:
+                    matched_scheme = results[0]
+            
+            if matched_scheme:
+                txn['scheme_code'] = matched_scheme['schemeCode']
+                txn['mapped_name'] = matched_scheme['schemeName']
+                txn['mapping_status'] = 'MAPPED'
+            else:
+                txn['mapping_status'] = 'UNMAPPED'
+                txn['error'] = "Could not map scheme to master list"
+            
+            # Mark as duplicate (will be checked by endpoints that have db access)
+            txn['is_duplicate'] = False  # Default, will be updated by endpoint
+            
+            mapped_results.append(txn)
+            
+        return mapped_results
+    
+    @staticmethod
+    def check_duplicates(db: Session, tenant_id: str, transactions: List[dict]) -> List[dict]:
+        """
+        Check which transactions are duplicates of existing orders.
+        Returns the same list with 'is_duplicate' flag set.
+        """
+        from sqlalchemy import func
+        from datetime import datetime, date
+        
+        for txn in transactions:
+            is_duplicate = False
+            
+            # Only check if successfully mapped
+            if txn.get('scheme_code'):
+                user_id = txn.get('user_id')
+                scheme_code = str(txn.get('scheme_code'))
+                external_id = txn.get('external_id')
+                
+                # Priority 1: Check by external_id
+                if external_id:
+                    existing = db.query(MutualFundOrder.id).filter(
+                        MutualFundOrder.tenant_id == tenant_id,
+                        MutualFundOrder.user_id == user_id,
+                        MutualFundOrder.external_id == external_id
+                    ).first()
+                    if existing:
+                        is_duplicate = True
+                
+                # Priority 2: Check by field match
+                if not is_duplicate:
+                    txn_date_raw = txn.get('date')
+                    if isinstance(txn_date_raw, str):
+                        # Parse string date
+                        for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+                            try:
+                                txn_date_raw = datetime.strptime(txn_date_raw, fmt)
+                                break
+                            except: continue
+                    
+                    if isinstance(txn_date_raw, (datetime, date)):
+                        txn_date = txn_date_raw.date() if isinstance(txn_date_raw, datetime) else txn_date_raw
+                        rounded_units = round(float(txn.get('units', 0)), 4)
+                        rounded_amount = round(float(txn.get('amount', 0)), 2)
+                        
+                        existing = db.query(MutualFundOrder.id).filter(
+                            MutualFundOrder.tenant_id == tenant_id,
+                            MutualFundOrder.user_id == user_id,
+                            MutualFundOrder.scheme_code == scheme_code,
+                            func.date(MutualFundOrder.order_date) == txn_date,
+                            MutualFundOrder.type == txn.get('type', 'BUY'),
+                            func.round(MutualFundOrder.units, 4) == rounded_units,
+                            func.round(MutualFundOrder.amount, 2) == rounded_amount
+                        ).first()
+                        
+                        if existing:
+                            is_duplicate = True
+            
+            txn['is_duplicate'] = is_duplicate
+        
+        return transactions
+
+    @staticmethod
+    def import_mapped_transactions(db: Session, tenant_id: str, transactions: List[dict]):
+        """Bulk ingest transactions under a global lock."""
+        stats = {"processed": 0, "failed": 0, "details": {"imported": [], "failed": []}}
+        
+        print(f"[MutualFundService] Starting bulk import of {len(transactions)} transactions")
+        
+        with _db_write_lock:
+            for idx, txn in enumerate(transactions):
+                try:
+                    # add_transaction_logic expects 'date' as datetime or date object
+                    # We might need to parse it if it comes from JSON
+                    if isinstance(txn.get('date'), str):
+                        try:
+                            # Try common formats
+                            from datetime import datetime
+                            for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+                                try:
+                                    txn['date'] = datetime.strptime(txn['date'], fmt)
+                                    break
+                                except: continue
+                        except: pass
+                    
+                    print(f"[MutualFundService] [{idx+1}/{len(transactions)}] Processing: {txn.get('scheme_name')} - {txn.get('units')} units")
+                    result = MutualFundService._add_transaction_logic(db, tenant_id, txn)
+                    
+                    if result and hasattr(result, 'id'):
+                        print(f"[MutualFundService] ✓ Transaction added/found: Order ID {result.id}")
+                        stats["processed"] += 1
+                        stats["details"]["imported"].append(txn)
+                    else:
+                        print(f"[MutualFundService] ✗ No result returned")
+                        stats["failed"] += 1
+                        txn['error'] = "No order returned"
+                        stats["details"]["failed"].append(txn)
+                except Exception as e:
+                    print(f"[MutualFundService] ✗ Import error: {e}")
+                    txn['error'] = str(e)
+                    stats["failed"] += 1
+                    stats["details"]["failed"].append(txn)
+            
+            print(f"[MutualFundService] Committing {stats['processed']} transactions")
+            MutualFundService._safe_commit(db)
+            print(f"[MutualFundService] Import complete: {stats['processed']} processed, {stats['failed']} failed")
+            
+        return stats
+
+    @staticmethod
     def add_transaction(db: Session, tenant_id: str, data: dict):
+        """Public method that wraps logic in a global lock for DuckDB safety."""
+        with _db_write_lock:
+            result = MutualFundService._add_transaction_logic(db, tenant_id, data)
+            MutualFundService._safe_commit(db)
+            return result
+
+    @staticmethod
+    def _add_transaction_logic(db: Session, tenant_id: str, data: dict):
         # 1. Ensure Meta exists
-        scheme_code = data['scheme_code']
+        scheme_code = str(data['scheme_code'])
         meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == scheme_code).first()
         
         if not meta:
@@ -108,27 +293,52 @@ class MutualFundService:
                     category=meta_info.get("scheme_category")
                 )
                 db.add(meta)
-                db.commit()
+                db.flush() # Use flush instead of commit to allow external batching
             else:
                 raise ValueError("Invalid Scheme Code or API Error")
 
         # 2. Check for duplicate order (Idempotency)
-        # Check if an identical order already exists for this tenant/user
         user_id = data.get('user_id')
+        external_id = data.get('external_id')
+        
+        # Priority 1: Check by External ID
+        if external_id:
+            existing_order = db.query(MutualFundOrder).filter(
+                MutualFundOrder.tenant_id == tenant_id,
+                MutualFundOrder.user_id == user_id,
+                MutualFundOrder.external_id == external_id
+            ).first()
+            if existing_order:
+                print(f"[MutualFundService] → DUPLICATE (external_id): {external_id}")
+                return existing_order
+
+        # Priority 2: Check by exact match with precision handling
+        # Use rounding to avoid float representation issues in DuckDB/Python
+        from sqlalchemy import func
+        from datetime import date
+        
+        txn_date = data['date'].date() if isinstance(data['date'], datetime) else data['date']
+        rounded_units = round(float(data['units']), 4)
+        rounded_amount = round(float(data['amount']), 2)
+        
         existing_order = db.query(MutualFundOrder).filter(
             MutualFundOrder.tenant_id == tenant_id,
             MutualFundOrder.user_id == user_id,
             MutualFundOrder.scheme_code == scheme_code,
-            MutualFundOrder.order_date == data['date'],
+            # Use func.date to ignore time part
+            func.date(MutualFundOrder.order_date) == txn_date,
             MutualFundOrder.type == data.get('type', 'BUY'),
-            MutualFundOrder.units == data['units'],
-            MutualFundOrder.amount == data['amount']
+            # Precision-safe comparison
+            func.round(MutualFundOrder.units, 4) == rounded_units,
+            func.round(MutualFundOrder.amount, 2) == rounded_amount
         ).first()
 
         if existing_order:
+            print(f"[MutualFundService] → DUPLICATE (field match): {scheme_code} on {txn_date}")
             return existing_order
 
-        # 2. Create Order
+        # 3. Create Order
+        print(f"[MutualFundService] → NEW TRANSACTION: Creating order for {scheme_code}")
         order = MutualFundOrder(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -138,12 +348,21 @@ class MutualFundService:
             units=data['units'],
             nav=data['nav'],
             order_date=data['date'],
-            import_source="MANUAL"
+            external_id=external_id,
+            import_source=data.get('import_source', 'MANUAL')
         )
         db.add(order)
         
-        # 3. Update/Create Holding
-        folio_number = data.get('folio_number')
+        # 3. Update Holding
+        return MutualFundService._update_holding_with_order(db, tenant_id, order, data.get('folio_number'))
+
+    @staticmethod
+    def _update_holding_with_order(db: Session, tenant_id: str, order: MutualFundOrder, folio_number: Optional[str] = None):
+        """Internal helper to shared between live ingestion and recalculation"""
+        user_id = order.user_id
+        scheme_code = order.scheme_code
+        
+        # Find/Create Holding
         query = db.query(MutualFundHolding).filter(
             MutualFundHolding.tenant_id == tenant_id,
             MutualFundHolding.user_id == user_id,
@@ -167,19 +386,16 @@ class MutualFundService:
                 average_price=0
             )
             db.add(holding)
-            db.flush() # Get ID for order
+            db.flush() 
         else:
-            # Overwrite if we somehow got a new folio for existing (should not happen with updated filter)
             if folio_number:
                 holding.folio_number = folio_number
         
-        # Update Holding Logic (Weighted Average Price for BUY, FIFO/Avg for SELL - keeping simple Avg for now)
+        # Update Balance
         if order.type == "BUY":
-            # Handle possible None types from DB and Decimal vs Float coercion
             current_units = float(holding.units or 0.0)
             current_avg = float(holding.average_price or 0.0)
             
-            # Use order.amount if available (more precise), fallback to units*nav
             order_units = float(order.units)
             order_amount = float(order.amount)
             txn_cost = order_amount if order_amount > 0 else (float(order.nav) * order_units)
@@ -190,40 +406,129 @@ class MutualFundService:
             holding.average_price = total_cost / total_units if total_units > 0 else 0.0
             holding.units = total_units
         elif order.type == "SELL":
-            # Simplify: Reduce units, keep avg price same (standard accounting)
             current_units = float(holding.units or 0.0)
             holding.units = max(0, current_units - float(order.units))
         
-        # Prevent historical imports from overwriting a newer or forced NAV
-        # Only update if current NAV is 0/None or if this order is very recent
+        # Update NAV Info
         if not holding.last_nav or float(holding.last_nav) == 0:
             holding.last_nav = order.nav
             holding.last_updated_at = order.order_date
         
         holding.current_value = float(holding.units) * float(holding.last_nav or 0.0)
 
+        # Ensure holding has an ID before linking
+        if not holding.id:
+            db.flush()  # Force ID generation
+        
         order.holding_id = holding.id
-        db.commit()
+        print(f"[MutualFundService] Updated holding {holding.id} for scheme {scheme_code}: {holding.units} units, value: {holding.current_value}")
+        db.flush() 
         return order
 
     @staticmethod
-    def delete_holding(db: Session, tenant_id: str, holding_id: str):
-        holding = db.query(MutualFundHolding).filter(
-            MutualFundHolding.id == holding_id,
-            MutualFundHolding.tenant_id == tenant_id
-        ).first()
-        
-        if not holding:
-            raise Exception("Holding not found")
+    def cleanup_duplicates(db: Session, tenant_id: str):
+        """Find and remove duplicate orders, then rebuild holdings."""
+        with _db_write_lock:
+            # 1. Find duplicate groups
+            from sqlalchemy import func
+            duplicates = db.query(
+                MutualFundOrder.scheme_code, 
+                MutualFundOrder.order_date, 
+                MutualFundOrder.units, 
+                MutualFundOrder.amount, 
+                MutualFundOrder.type
+            ).filter(MutualFundOrder.tenant_id == tenant_id).group_by(
+                MutualFundOrder.scheme_code, 
+                MutualFundOrder.order_date, 
+                MutualFundOrder.units, 
+                MutualFundOrder.amount, 
+                MutualFundOrder.type
+            ).having(func.count('*') > 1).all()
             
-        # Delete related orders too? Or keep them?
-        # Usually delete checks for safety, but user asked for delete.
-        # Let's delete the holding. Cascade should handle orders if configured, 
-        # but let's check models. MutualFundHolding doesn't seem to cascade orders in definitions above clearly.
-        # Let's just delete the holding row.
-        db.delete(holding)
-        db.commit()
-        return True
+            removed_count = 0
+            for sc, d, u, a, t in duplicates:
+                all_matches = db.query(MutualFundOrder).filter(
+                    MutualFundOrder.tenant_id == tenant_id,
+                    MutualFundOrder.scheme_code == sc,
+                    MutualFundOrder.order_date == d,
+                    MutualFundOrder.units == u,
+                    MutualFundOrder.amount == a,
+                    MutualFundOrder.type == t
+                ).order_by(MutualFundOrder.created_at).all()
+                
+                to_delete = all_matches[1:]
+                for order in to_delete:
+                    db.delete(order)
+                    removed_count += 1
+                    
+            MutualFundService._safe_commit(db)
+            
+            # 2. Recalculate holdings (nested call, same lock thread)
+            # Actually _update_holding_with_order is used inside recalculate_holdings
+            # We call the internal logic to avoid re-taking the lock if it's already held by us
+            # But threading.Lock() is NOT re-entrant. 
+            # I should use an RLock or call an internal method.
+            MutualFundService._recalculate_holdings_logic(db, tenant_id)
+            
+            return removed_count
+
+    @staticmethod
+    def recalculate_holdings(db: Session, tenant_id: str, user_id: Optional[str] = None):
+        with _db_write_lock:
+            return MutualFundService._recalculate_holdings_logic(db, tenant_id, user_id)
+
+    @staticmethod
+    def _recalculate_holdings_logic(db: Session, tenant_id: str, user_id: Optional[str] = None):
+        """Internal logic without lock for nested calls"""
+        # 1. Get all orders sorted by date
+        query = db.query(MutualFundOrder).filter(MutualFundOrder.tenant_id == tenant_id)
+        if user_id:
+            query = query.filter(MutualFundOrder.user_id == user_id)
+        
+        orders = query.order_by(MutualFundOrder.order_date).all()
+        
+        # 2. Delete existing holdings
+        h_query = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            h_query = h_query.filter(MutualFundHolding.user_id == user_id)
+        
+        h_query.delete(synchronize_session=False)
+        db.flush()
+        
+        # 3. Process each order
+        processed_orders = []
+        for order in orders:
+            folio = getattr(order, 'folio_number', None)
+            MutualFundService._update_holding_with_order(db, tenant_id, order, folio)
+            processed_orders.append(order)
+        
+        # 4. Special Commit
+        MutualFundService._safe_commit(db)
+        return len(processed_orders)
+
+    @staticmethod
+    def delete_holding(db: Session, tenant_id: str, holding_id: str):
+        with _db_write_lock:
+            holding = db.query(MutualFundHolding).filter(
+                MutualFundHolding.id == holding_id,
+                MutualFundHolding.tenant_id == tenant_id
+            ).first()
+            
+            if not holding:
+                raise Exception("Holding not found")
+            
+            # First, delete all associated orders
+            deleted_orders = db.query(MutualFundOrder).filter(
+                MutualFundOrder.holding_id == holding_id,
+                MutualFundOrder.tenant_id == tenant_id
+            ).delete(synchronize_session=False)
+            
+            print(f"[MutualFundService] Deleted {deleted_orders} orders for holding {holding_id}")
+            
+            # Then delete the holding itself
+            db.delete(holding)
+            MutualFundService._safe_commit(db)
+            return True
 
     @staticmethod
     def get_portfolio(db: Session, tenant_id: str, user_id: Optional[str] = None):
@@ -291,62 +596,71 @@ class MutualFundService:
         nav_data_list = asyncio.run(fetch_all_nav_data())
         
         # Process each holding with its NAV data
-        for h, nav_data in zip(holdings, nav_data_list):
-            latest_nav = nav_data["latest_nav"]
-            nav_date_str = nav_data["nav_date"]
-            sparkline = nav_data["sparkline"]
-            
-            # Update holding if we got valid NAV
-            if latest_nav > 0:
-                h.last_nav = latest_nav
-                current_units = float(h.units or 0.0)
-                h.current_value = current_units * latest_nav
+        # We wrap the update logic in a lock to prevent concurrent DuckDB writes
+        with _db_write_lock:
+            for h, nav_data in zip(holdings, nav_data_list):
+                latest_nav = nav_data["latest_nav"]
+                nav_date_str = nav_data["nav_date"]
+                sparkline = nav_data["sparkline"]
                 
-                def parse_date(d_str):
-                    try:
-                        return datetime.strptime(d_str, "%d-%m-%Y")
-                    except:
-                        return datetime.min
+                # Update holding if we got valid NAV and it's actually different
+                if latest_nav > 0:
+                    has_changed = False
+                    if not h.last_nav or abs(float(h.last_nav) - latest_nav) > 0.0001:
+                        h.last_nav = latest_nav
+                        has_changed = True
+                    
+                    current_units = float(h.units or 0.0)
+                    new_value = current_units * latest_nav
+                    # Use a small epsilon for float comparison to avoid noise updates
+                    if not h.current_value or abs(float(h.current_value) - new_value) > 0.01:
+                        h.current_value = new_value
+                        has_changed = True
+                    
+                    def parse_date_local(d_str):
+                        try:
+                            return datetime.strptime(d_str, "%d-%m-%Y")
+                        except:
+                            return None
+                    
+                    new_date = parse_date_local(nav_date_str)
+                    if new_date and (not h.last_updated_at or h.last_updated_at != new_date):
+                        h.last_updated_at = new_date
+                        has_changed = True
+                    
+                    if has_changed:
+                        updates_made = True
                 
-                h.last_updated_at = parse_date(nav_date_str)
-                updates_made = True
-            
-            # Enrich with Meta name
-            meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == h.scheme_code).first()
-            
-            # Safe float conversion handling None
-            units = float(h.units or 0.0)
-            avg_price = float(h.average_price or 0.0)
-            current_val = float(h.current_value or 0.0)
-            invested = units * avg_price
-            
-            # Profit/Loss Calculation
-            pl = 0.0
-            if current_val > 0:
-                pl = current_val - invested
-            
-            last_updated_str = h.last_updated_at.strftime("%d-%b-%Y") if h.last_updated_at else "N/A"
+                # Pre-calculate data for result list
+                units = float(h.units or 0.0)
+                avg_price = float(h.average_price or 0.0)
+                current_val = float(h.current_value or 0.0)
+                invested = units * avg_price
+                pl = (current_val - invested) if current_val > 0 else 0.0
+                last_updated_str = h.last_updated_at.strftime("%d-%b-%Y") if h.last_updated_at else "N/A"
+                
+                # Fetch meta for display
+                meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == h.scheme_code).first()
 
-            results.append({
-                "id": h.id,
-                "scheme_code": h.scheme_code,
-                "scheme_name": meta.scheme_name if meta else "Unknown Fund",
-                "category": meta.category if meta else "Other",
-                "folio_number": h.folio_number,
-                "units": units,
-                "average_price": avg_price,
-                "current_value": current_val,
-                "invested_value": invested,
-                "last_nav": float(h.last_nav or 0.0),
-                "profit_loss": pl,
-                "last_updated": last_updated_str,
-                "sparkline": sparkline,  # 30-day NAV trend
-                "user_id": h.user_id
-            })
-        
-        # Commit all updates in one transaction to avoid DuckDB conflicts
-        if updates_made:
-            db.commit()
+                results.append({
+                    "id": h.id,
+                    "scheme_code": h.scheme_code,
+                    "scheme_name": meta.scheme_name if meta else "Unknown Fund",
+                    "category": meta.category if meta else "Other",
+                    "folio_number": h.folio_number,
+                    "units": units,
+                    "average_price": avg_price,
+                    "current_value": current_val,
+                    "invested_value": invested,
+                    "last_nav": float(h.last_nav or 0.0),
+                    "profit_loss": pl,
+                    "last_updated": last_updated_str,
+                    "sparkline": sparkline,
+                    "user_id": h.user_id
+                })
+            
+            if updates_made:
+                MutualFundService._safe_commit(db)
             
         return results
 
@@ -481,24 +795,26 @@ class MutualFundService:
 
     @staticmethod
     def update_holding(db: Session, tenant_id: str, holding_id: str, data: dict):
-        holding = db.query(MutualFundHolding).filter(
-            MutualFundHolding.id == holding_id,
-            MutualFundHolding.tenant_id == tenant_id
-        ).first()
-        
-        if not holding:
-            return None
+        with _db_write_lock:
+            holding = db.query(MutualFundHolding).filter(
+                MutualFundHolding.id == holding_id,
+                MutualFundHolding.tenant_id == tenant_id
+            ).first()
             
-        if "user_id" in data:
-            holding.user_id = data["user_id"]
-            # Also update all orders for this holding to reflect the user change
-            db.query(MutualFundOrder).filter(
-                MutualFundOrder.holding_id == holding.id,
-                MutualFundOrder.tenant_id == tenant_id
-            ).update({"user_id": data["user_id"]})
+            if not holding:
+                return None
+                
+            if "user_id" in data:
+                holding.user_id = data["user_id"]
+                # Also update all orders for this holding to reflect the user change
+                db.query(MutualFundOrder).filter(
+                    MutualFundOrder.holding_id == holding.id,
+                    MutualFundOrder.tenant_id == tenant_id
+                ).update({"user_id": data["user_id"]})
             
-        db.commit()
-        return holding
+            db.flush()
+            MutualFundService._safe_commit(db)
+            return holding
 
     @staticmethod
     def get_market_indices():
@@ -899,9 +1215,10 @@ class MutualFundService:
         
         # Commit cache entries to database
         try:
-            db.commit()
+            with _db_write_lock:
+                MutualFundService._safe_commit(db)
         except Exception as e:
-                                # Silent fail or log properly
+            # Silent fail or log properly
             db.rollback()
         
         # Calculate Benchmark (Nifty 50 proxy: 120716)

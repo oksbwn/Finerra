@@ -4,6 +4,7 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import DonutChart from '@/components/DonutChart.vue'
 import LineChart from '@/components/LineChart.vue'
 import { financeApi, aiApi } from '@/api/client'
+import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
 import { 
     Search,
@@ -91,16 +92,28 @@ const transactionForm = ref({
     user_id: null as string | null
 })
 
-// CAS Import
+// CAS Import - PDF
 const fileInput = ref<HTMLInputElement | null>(null)
-const casFile = ref<File | null>(null)
-const casPassword = ref('')
-const importMemberId = ref<string | null>(null)
-const showCasPassword = ref(false)
+const pdfImportFile = ref<File | null>(null)
+const pdfImportPassword = ref('')
+const pdfImportMemberId = ref<string | null>(null)
+const showPdfPassword = ref(false)
 const isPdfImporting = ref(false)
+
+// CAS Import - Email
+const emailImportPassword = ref('')
+const emailImportMemberId = ref<string | null>(null)
+const emailSyncPeriod = ref('3m')
+const showEmailPassword = ref(false)
 const isEmailImporting = ref(false)
-const showImportSummary = ref(false)
-const importStats = ref<any>(null)
+
+const periodOptions = [
+    { label: '🔄 Since Last Sync', value: 'sync' },
+    { label: '🕒 Last 3 Months', value: '3m' },
+    { label: '📅 Last 6 Months', value: '6m' },
+    { label: '🗓️ Last 1 Year', value: '1y' },
+    { label: '♾️ All Time', value: 'all' }
+]
 
 // Helpers
 function getRandomColor(str: string) {
@@ -114,6 +127,28 @@ function getRandomColor(str: string) {
         hash = str.charCodeAt(i) + ((hash << 5) - hash)
     }
     return colors[Math.abs(hash) % colors.length]
+}
+
+// Review & Confirm
+const mappedTransactions = ref<any[]>([])
+const selectedTransactions = ref<Set<number>>(new Set())
+const isConfirmingImport = ref(false)
+const showReviewModal = ref(false)
+
+function toggleTransactionSelection(index: number) {
+    if (selectedTransactions.value.has(index)) {
+        selectedTransactions.value.delete(index)
+    } else {
+        selectedTransactions.value.add(index)
+    }
+}
+
+function selectAllTransactions() {
+    if (selectedTransactions.value.size === mappedTransactions.value.length) {
+        selectedTransactions.value.clear()
+    } else {
+        selectedTransactions.value = new Set(mappedTransactions.value.keys())
+    }
 }
 
 function getMockReturns(schemeCode: string | number) {
@@ -372,62 +407,93 @@ async function submitTransaction() {
 }
 
 async function handleCasUpload() {
-    if (!casFile.value) return
+    if (!pdfImportFile.value) return
+    
     isPdfImporting.value = true
-    const formData = new FormData()
-    formData.append('file', casFile.value)
-    if (casPassword.value) formData.append('password', casPassword.value)
-    if (importMemberId.value) formData.append('user_id', importMemberId.value)
-
+    mappedTransactions.value = []
+    selectedTransactions.value.clear()
+    
     try {
-        // Reset stats and show modal loading state
-        importStats.value = null
-        showImportSummary.value = true
+        const formData = new FormData()
+        formData.append('file', pdfImportFile.value)
+        formData.append('password', pdfImportPassword.value)
         
-        const res = await financeApi.importCAS(formData)
-        importStats.value = res.data
-        fetchPortfolio()
+        const res = await financeApi.previewCAS(formData)
+        mappedTransactions.value = res.data.transactions
+        // Pre-select only NEW transactions (not duplicates)
+        mappedTransactions.value.forEach((t, i) => {
+            if (t.scheme_code && !t.is_duplicate) selectedTransactions.value.add(i)
+        })
+        showReviewModal.value = true
     } catch (e: any) {
-        notify.error(e.response?.data?.detail || "Import failed")
+        console.error("CAS Preview failed", e)
+        notify.error(e.response?.data?.detail || 'Failed to process statement')
     } finally {
         isPdfImporting.value = false
     }
 }
 
 async function triggerEmailImport() {
-    if (!casPassword.value) {
-        notify.info("Please enter CAS password first")
+    if (!emailImportPassword.value) {
+        notify.error('Please enter the PDF password for your emails')
         return
     }
+
     isEmailImporting.value = true
-    // Reset stats and show modal loading state
-    importStats.value = null
-    showImportSummary.value = true
+    mappedTransactions.value = []
+    selectedTransactions.value.clear()
 
     try {
         const formData = new FormData()
-        formData.append('password', casPassword.value)
-        if (importMemberId.value) formData.append('user_id', importMemberId.value)
-        
-        const res = await financeApi.importCASEmail(formData)
-        
-        const stats = res.data.stats
-        if (stats.found > 0) {
-            importStats.value = {
-                status: 'success',
-                processed: stats.processed,
-                total_found: stats.found,
-                details: { failed: stats.errors?.map((e: string) => ({ error: e, scheme_name: 'Email Error', amount: 0, date: new Date() })) || [] }
-            }
-            showImportSummary.value = true
-            fetchPortfolio()
-        } else {
-            notify.info("No CAS emails found")
-        }
-    } catch (e) {
-        notify.error("Email import failed")
+        formData.append('password', emailImportPassword.value)
+        formData.append('period', emailSyncPeriod.value)
+
+        const res = await financeApi.previewCASEmail(formData)
+        mappedTransactions.value = res.data.transactions
+        // Pre-select only NEW transactions (not duplicates)
+        mappedTransactions.value.forEach((t, i) => {
+            if (t.scheme_code && !t.is_duplicate) selectedTransactions.value.add(i)
+        })
+        showReviewModal.value = true
+    } catch (e: any) {
+        console.error("Email Preview failed", e)
+        notify.error(e.response?.data?.detail || 'Failed to scan inbox')
     } finally {
         isEmailImporting.value = false
+    }
+}
+
+async function confirmImport() {
+    if (selectedTransactions.value.size === 0) {
+        notify.error("Please select at least one transaction to import")
+        return
+    }
+
+    isConfirmingImport.value = true
+    try {
+        const toImport = Array.from(selectedTransactions.value).map(idx => {
+            const txn = mappedTransactions.value[idx]
+            // Ensure attribution matches selection in modal if provided
+            const finalUserId = pdfImportFile.value ? pdfImportMemberId.value : emailImportMemberId.value
+            return {
+                ...txn,
+                user_id: finalUserId || txn.user_id,
+                import_source: pdfImportFile.value ? 'PDF' : 'EMAIL'
+            }
+        })
+
+        const res = await financeApi.confirmImport(toImport)
+        showReviewModal.value = false
+        fetchPortfolio()
+        
+        const processed = res.data?.processed || toImport.length
+        const failed = res.data?.failed || 0
+        notify.success(`Successfully imported ${processed} transaction${processed !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`)
+    } catch (e: any) {
+        console.error("Import failed", e)
+        notify.error(e.response?.data?.detail || 'Failed to import selected transactions')
+    } finally {
+        isConfirmingImport.value = false
     }
 }
 
@@ -470,8 +536,7 @@ async function generateAIAnalysis() {
 }
 
 function handleFileSelect(event: any) {
-    const file = event.target.files[0]
-    if (file) casFile.value = file
+    pdfImportFile.value = event.target.files[0]
 }
 
 onMounted(async () => {
@@ -489,9 +554,10 @@ onMounted(async () => {
             fetchPerformanceTimeline()
         ])
         
-        // Auto-generate password if available and currently empty
-        if (currentUser.value?.pan_number && !casPassword.value) {
-            casPassword.value = currentUser.value.pan_number.toUpperCase()
+        // Pre-fill PAN if available
+        if (currentUser.value?.pan_number) {
+            pdfImportPassword.value = currentUser.value.pan_number.toUpperCase()
+            emailImportPassword.value = currentUser.value.pan_number.toUpperCase()
         }
         
         // Fetch family members for attribution
@@ -1207,15 +1273,15 @@ function getSparklinePath(points: number[]): string {
                         <div 
                             class="upload-zone-premium"
                             @click="fileInput?.click()"
-                            :class="{ 'has-file': casFile }"
+                            :class="{ 'has-file': pdfImportFile }"
                         >
                             <input type="file" ref="fileInput" @change="handleFileSelect" accept=".pdf" hidden />
-                            <div v-if="casFile" class="upload-file-info animate-fade">
+                            <div v-if="pdfImportFile" class="upload-file-info animate-fade">
                                 <div class="file-icon-wrapper">
                                     <FileText :size="32" />
                                     <div class="file-check">✓</div>
                                 </div>
-                                <div class="text-lg font-bold text-gray-900 mt-2 truncate w-full px-4">{{ casFile.name }}</div>
+                                <div class="text-lg font-bold text-gray-900 mt-2 truncate w-full px-4">{{ pdfImportFile.name }}</div>
                             </div>
                             <div v-else class="upload-placeholder">
                                 <div class="upload-icon-circle">
@@ -1229,12 +1295,14 @@ function getSparklinePath(points: number[]): string {
 
                         <div class="mt-6">
                             <label class="field-label">Assign To Member</label>
-                            <select v-model="importMemberId" class="premium-input w-full">
-                                <option :value="null">Self (Default)</option>
-                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">
-                                    {{ user.full_name || user.email }}
-                                </option>
-                            </select>
+                            <CustomSelect 
+                                v-model="pdfImportMemberId as any" 
+                                :options="[
+                                    { label: '👤 Self (Default)', value: null },
+                                    ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: m.id }))
+                                ]"
+                                placeholder="Select attribution member"
+                            />
                         </div>
 
                         <div class="password-field-group mt-4">
@@ -1242,17 +1310,17 @@ function getSparklinePath(points: number[]): string {
                             <div class="premium-input-group">
                                 <Lock :size="16" class="input-icon-leading" />
                                 <input 
-                                    :type="showCasPassword ? 'text' : 'password'" 
-                                    v-model="casPassword" 
+                                    :type="showPdfPassword ? 'text' : 'password'" 
+                                    v-model="pdfImportPassword" 
                                     placeholder="e.g. PAN Number" 
                                     class="clean-input" 
                                 />
                                 <button 
                                     type="button"
                                     class="password-toggle-btn"
-                                    @click="showCasPassword = !showCasPassword"
+                                    @click="showPdfPassword = !showPdfPassword"
                                 >
-                                    <Eye v-if="!showCasPassword" :size="18" />
+                                    <Eye v-if="!showPdfPassword" :size="18" />
                                     <EyeOff v-else :size="18" />
                                 </button>
                             </div>
@@ -1262,7 +1330,7 @@ function getSparklinePath(points: number[]): string {
                              <button 
                                 class="btn-primary-large w-full" 
                                 @click="handleCasUpload" 
-                                :disabled="!casFile || isPdfImporting || isEmailImporting"
+                                :disabled="!pdfImportFile || isPdfImporting || isEmailImporting"
                             >
                                 <RefreshCw v-if="isPdfImporting" :size="18" class="spin mr-2" />
                                 {{ isPdfImporting ? 'Processing...' : 'Unlock & Import' }}
@@ -1286,41 +1354,44 @@ function getSparklinePath(points: number[]): string {
                         </div>
                         
                         <div class="mb-4">
-                            <label class="field-label">Assign To Member</label>
-                            <select v-model="importMemberId" class="premium-input w-full">
-                                <option :value="null">Self (Default)</option>
-                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">
-                                    {{ user.full_name || user.email }}
-                                </option>
-                            </select>
+                            <label class="field-label">Scan Inbox Of</label>
+                            <CustomSelect 
+                                v-model="emailImportMemberId as any" 
+                                :options="[
+                                    { label: '👤 Myself (Current User)', value: null },
+                                    ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: m.id }))
+                                ]"
+                                placeholder="Select inbox owner"
+                            />
+                            <p class="text-xs text-slate-500 mt-1">Select whose email inbox to scan for CAS statements</p>
                         </div>
 
                         <div class="mb-4">
-                            <label class="field-label">Assign To Member</label>
-                            <select v-model="importMemberId" class="premium-input w-full">
-                                <option :value="null">Self (Default)</option>
-                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">
-                                    {{ user.full_name || user.email }}
-                                </option>
-                            </select>
+                            <label class="field-label">Scan Period</label>
+                            <CustomSelect 
+                                v-model="emailSyncPeriod as any" 
+                                :options="periodOptions"
+                                placeholder="Select scan range"
+                            />
+                            <p class="text-xs text-slate-500 mt-1">Scan emails received since this period</p>
                         </div>
-
+                        
                         <div class="password-field-group mb-6">
                             <label class="field-label">Sync Password</label>
                              <div class="premium-input-group">
                                 <Lock :size="16" class="input-icon-leading" />
                                 <input 
-                                    :type="showCasPassword ? 'text' : 'password'" 
-                                    v-model="casPassword" 
+                                    :type="showEmailPassword ? 'text' : 'password'" 
+                                    v-model="emailImportPassword" 
                                     placeholder="Enter PDF password" 
                                     class="clean-input" 
                                 />
                                 <button 
                                     type="button"
                                     class="password-toggle-btn"
-                                    @click="showCasPassword = !showCasPassword"
+                                    @click="showEmailPassword = !showEmailPassword"
                                 >
-                                    <Eye v-if="!showCasPassword" :size="18" />
+                                    <Eye v-if="!showEmailPassword" :size="18" />
                                     <EyeOff v-else :size="18" />
                                 </button>
                             </div>
@@ -1414,84 +1485,123 @@ function getSparklinePath(points: number[]): string {
             </div>
         </div>
 
-        <!-- IMPORT SUMMARY MODAL -->
-        <div v-if="showImportSummary" class="modal-overlay" @click.self="!isPdfImporting && !isEmailImporting ? showImportSummary = false : null">
-            <div class="modal-content modal-lg">
+        <!-- REVIEW & CONFIRM MODAL -->
+        <div v-if="showReviewModal" class="modal-overlay" @click.self="showReviewModal = false">
+            <div class="modal-content modal-xl">
                 <div class="modal-header">
-                    <h2>{{ importStats ? 'Import Summary' : 'Importing...' }}</h2>
-                    <button class="close-btn" @click="showImportSummary = false">✕</button>
+                    <div class="header-with-badge">
+                        <h2>Review Transactions</h2>
+                        <span class="count-badge indigo">{{ mappedTransactions.length }} detected</span>
+                    </div>
+                    <button class="close-btn" @click="showReviewModal = false">✕</button>
                 </div>
                 
-                <div class="import-summary-content">
-                    <!-- LOADING STATE -->
-                    <div v-if="!importStats" class="search-loading-state py-12">
-                         <div class="loader-glass-mini">
-                            <RefreshCw :size="32" class="spin text-indigo-600 mb-4" />
-                            <p class="font-bold text-slate-700">Processing Statement...</p>
-                            <p class="text-xs text-slate-500 mt-1">Parsing PDF and mapping funds</p>
+                <div class="review-modal-body">
+                    <div class="review-meta-bar">
+                        <div class="selection-controls">
+                            <button class="btn-ghost-sm" @click="selectAllTransactions">
+                                {{ selectedTransactions.size === mappedTransactions.length ? 'Deselect All' : 'Select All' }}
+                            </button>
+                            <span class="selection-stats">{{ selectedTransactions.size }} selected</span>
+                        </div>
+                        <div class="attribution-shortcut">
+                            <label>Attribution:</label>
+                            <select v-if="pdfImportFile" v-model="pdfImportMemberId" class="inline-select">
+                                <option :value="null">Self</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name }}</option>
+                            </select>
+                            <select v-else v-model="emailImportMemberId" class="inline-select">
+                                <option :value="null">Self</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">{{ user.full_name }}</option>
+                            </select>
                         </div>
                     </div>
 
-                    <!-- RESULTS STATE -->
-                    <div v-else>
-                        <div class="summary-stats-row">
-                            <div class="summary-stat-box success">
-                                <span class="stat-count">{{ importStats.processed }}</span>
-                                <span class="stat-label">Imported Successfully</span>
-                            </div>
-                        <div class="summary-stat-box" :class="importStats.details?.failed?.length ? 'failed' : 'neutral'">
-                            <span class="stat-count">{{ importStats.details?.failed?.length || 0 }}</span>
-                            <span class="stat-label">Skipped</span>
-                        </div>
-                        <div class="summary-stat-box neutral">
-                            <span class="stat-count">{{ importStats.total_found }}</span>
-                            <span class="stat-label">Found</span>
-                        </div>
+                    <div class="review-table-wrapper custom-scrollbar">
+                        <table class="review-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px">
+                                        <input type="checkbox" :checked="selectedTransactions.size === mappedTransactions.length" @change="selectAllTransactions" />
+                                    </th>
+                                    <th>Date</th>
+                                    <th>Transaction Details</th>
+                                    <th>Status / Mapping</th>
+                                    <th class="text-right">Amount (₹)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(txn, idx) in mappedTransactions" :key="idx" :class="{ 'is-selected': selectedTransactions.has(idx), 'has-error': !txn.scheme_code }">
+                                    <td>
+                                        <input type="checkbox" :checked="selectedTransactions.has(idx)" @change="toggleTransactionSelection(idx)" />
+                                    </td>
+                                    <td class="text-xs text-slate-500 whitespace-nowrap">{{ new Date(txn.date).toLocaleDateString() }}</td>
+                                    <td>
+                                        <div class="txn-desc">
+                                            <span class="txn-type" :class="txn.type">{{ txn.type }}</span>
+                                            <span class="txn-name" :title="txn.scheme_name">{{ txn.scheme_name }}</span>
+                                        </div>
+                                        <div class="txn-meta">
+                                            <span>Units: {{ txn.units }}</span>
+                                            <span class="divider">•</span>
+                                            <span>NAV: {{ txn.nav }}</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div v-if="txn.is_duplicate" class="duplicate-badge-wrapper">
+                                            <div class="duplicate-badge">
+                                                <span class="badge-icon">⚠️</span>
+                                                <span class="badge-text">Already Imported</span>
+                                            </div>
+                                            <div class="mapped-fund-name text-xs text-slate-500">{{ txn.mapped_name }}</div>
+                                        </div>
+                                        <div v-else-if="txn.scheme_code" class="mapping-success">
+                                            <div class="mapped-fund-name">{{ txn.mapped_name }}</div>
+                                            <div class="mapped-fund-code">Code: {{ txn.scheme_code }}</div>
+                                        </div>
+                                        <div v-else class="mapping-error">
+                                            <div class="error-msg text-rose-600 font-bold text-xs">{{ txn.error || 'Could not map to a known scheme' }}</div>
+                                            <div class="error-tip text-[10px] text-slate-400">This transaction will be skipped if not mapped.</div>
+                                        </div>
+                                    </td>
+                                    <td class="text-right font-bold" :class="txn.type === 'BUY' ? 'text-emerald-600' : 'text-rose-600'">
+                                        {{ txn.type === 'BUY' ? '+' : '-' }}₹{{ txn.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 }) }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
+                </div>
 
-                    <div v-if="importStats.details?.failed?.length" class="failed-transactions-list custom-scrollbar mb-4">
-                        <h4 class="text-rose-600 font-bold mb-3 text-sm">Failed / Unmapped Transactions</h4>
-                        <div v-for="(txn, idx) in importStats.details.failed" :key="idx" class="failed-txn-item">
-                            <div class="txn-row-top">
-                                <span class="txn-scheme">{{ txn.scheme_name }}</span>
-                                <span class="txn-amount text-rose-600">₹{{ txn.amount }}</span>
-                            </div>
-                            <div class="txn-row-bot">
-                                <span class="txn-error">{{ txn.error }}</span>
-                                <span class="txn-date">{{ new Date(txn.date).toLocaleDateString() }}</span>
-                            </div>
+                <div class="modal-footer">
+                    <div class="footer-left">
+                        <div class="import-summary-stats">
+                            <span class="stat-item stat-new">
+                                <span class="stat-value">{{ mappedTransactions.filter(t => t.scheme_code && !t.is_duplicate).length }}</span>
+                                <span class="stat-label">New</span>
+                            </span>
+                            <span class="stat-divider">•</span>
+                            <span class="stat-item stat-duplicate">
+                                <span class="stat-value">{{ mappedTransactions.filter(t => t.is_duplicate).length }}</span>
+                                <span class="stat-label">Duplicate</span>
+                            </span>
+                            <span class="stat-divider">•</span>
+                            <span class="stat-item stat-unmapped">
+                                <span class="stat-value">{{ mappedTransactions.filter(t => !t.scheme_code).length }}</span>
+                                <span class="stat-label">Unmapped</span>
+                            </span>
                         </div>
                     </div>
-
-                    <div v-if="importStats.details?.imported?.length" class="failed-transactions-list custom-scrollbar success-border">
-                         <h4 class="text-emerald-600 font-bold mb-3 text-sm">Successfully Imported</h4>
-                         <div v-for="(txn, idx) in importStats.details.imported" :key="'imp'+idx" class="failed-txn-item">
-                            <div class="txn-row-top">
-                                <span class="txn-scheme truncate pr-4">{{ txn.mapped_name || txn.scheme_name }}</span>
-                                <span class="txn-amount text-emerald-600">{{ txn.type === 'BUY' ? '+' : '-' }}₹{{ txn.amount }}</span>
-                            </div>
-                            <div class="txn-row-bot">
-                                <span class="txn-error text-slate-500">{{ txn.type }} • {{ txn.units }} Units</span>
-                                <span class="txn-date">{{ new Date(txn.date).toLocaleDateString() }}</span>
-                            </div>
-                         </div>
-                    </div>
-                    
-                    <div v-if="!importStats.details?.failed?.length && !importStats.details?.imported?.length" class="success-message-box">
-                        <div class="success-icon">🎉</div>
-                        <h3>All transactions imported successfully!</h3>
-                        <p>Your portfolio has been updated.</p>
-                    </div>
-
-                    <div class="action-footer mt-6">
-                        <button class="btn-primary-large w-full" @click="showImportSummary = false">
-                            Back to Dashboard
+                    <div class="footer-actions">
+                        <button class="btn btn-text" @click="showReviewModal = false">Cancel</button>
+                        <button class="btn-primary-large" @click="confirmImport" :disabled="isConfirmingImport || selectedTransactions.size === 0">
+                            <RefreshCw v-if="isConfirmingImport" :size="16" class="spin mr-2" />
+                            Import {{ selectedTransactions.size }} Transaction{{ selectedTransactions.size !== 1 ? 's' : '' }}
                         </button>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-</div>
 
         <!-- DELETE CONFIRMATION MODAL - CLEAN MODERN DESIGN -->
         <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
@@ -3921,6 +4031,76 @@ function getSparklinePath(points: number[]): string {
     color: #ef4444;
 }
 
+/* Review Modal - Duplicate Badge */
+.duplicate-badge-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.duplicate-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #fbbf24;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #92400e;
+}
+
+.duplicate-badge .badge-icon {
+    font-size: 0.875rem;
+}
+
+.duplicate-badge .badge-text {
+    white-space: nowrap;
+}
+
+/* Review Modal - Summary Stats */
+.import-summary-stats {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+}
+
+.stat-value {
+    font-weight: 700;
+    font-size: 1.125rem;
+}
+
+.stat-label {
+    font-weight: 500;
+    color: #64748b;
+}
+
+.stat-divider {
+    color: #cbd5e1;
+    font-weight: 600;
+}
+
+.stat-new .stat-value {
+    color: #10b981;
+}
+
+.stat-duplicate .stat-value {
+    color: #f59e0b;
+}
+
+.stat-unmapped .stat-value {
+    color: #ef4444;
+}
+
 .empty-state {
     text-align: center;
     padding: 1.5rem;
@@ -3931,6 +4111,185 @@ function getSparklinePath(points: number[]): string {
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+/* Review Modal Styles */
+.modal-xl {
+    max-width: 1000px !important;
+    width: 95% !important;
+}
+
+.header-with-badge {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.count-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 2rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.count-badge.indigo {
+    background: #e0e7ff;
+    color: #4338ca;
+}
+
+.review-meta-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.selection-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.btn-ghost-sm {
+    padding: 0.375rem 0.75rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-ghost-sm:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.selection-stats {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #6366f1;
+}
+
+.attribution-shortcut {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.inline-select {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    background: white;
+    outline: none;
+}
+
+.review-table-wrapper {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.review-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.review-table th {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+    text-align: left;
+    padding: 0.75rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid #f1f5f9;
+}
+
+.review-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+
+.review-table tr:hover {
+    background: #f8fafc;
+}
+
+.review-table tr.is-selected {
+    background: #f5f7ff;
+}
+
+.review-table tr.has-error {
+    background: #fffafa;
+}
+
+.txn-desc {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.txn-type {
+    font-size: 0.625rem;
+    font-weight: 800;
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.txn-type.BUY { background: #dcfce7; color: #166534; }
+.txn-type.SELL { background: #fee2e2; color: #991b1b; }
+.txn-type.SIP { background: #e0f2fe; color: #075985; }
+
+.txn-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #1e293b;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.txn-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.mapping-success .mapped-fund-name {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #059669;
+}
+
+.mapping-success .mapped-fund-code {
+    font-size: 0.625rem;
+    color: #64748b;
+    font-family: monospace;
+}
+
+.footer-actions {
+    display: flex;
+    gap: 1rem;
 }
 
 </style>
