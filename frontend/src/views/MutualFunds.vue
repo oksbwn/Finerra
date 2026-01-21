@@ -16,7 +16,8 @@ import {
     EyeOff,
     Mail,
     ChevronDown,
-    Trash2
+    Trash2,
+    Eye as EyeIconMain
 } from 'lucide-vue-next'
 import { useCurrency } from '@/composables/useCurrency'
 import { marked } from 'marked'
@@ -34,6 +35,8 @@ const isAnalyzing = ref(false)
 const aiAnalysis = ref('')
 const currentUser = ref<any>(null)
 const isNavLoading = ref(false)
+const familyMembers = ref<any[]>([])
+const selectedMember = ref<string | null>(null)
 
 const marketIndices = ref<{ name: string; value: string; change: string; percent: string; isUp: boolean; sparkline?: number[] }[]>([
     { name: 'NIFTY 50', value: 'Loading...', change: '0.00', percent: '0.00%', isUp: true },
@@ -84,13 +87,15 @@ const transactionForm = ref({
     units: 0,
     nav: 0,
     date: new Date().toISOString().split('T')[0],
-    folio_number: ''
+    folio_number: '',
+    user_id: null as string | null
 })
 
 // CAS Import
 const fileInput = ref<HTMLInputElement | null>(null)
 const casFile = ref<File | null>(null)
 const casPassword = ref('')
+const importMemberId = ref<string | null>(null)
 const showCasPassword = ref(false)
 const isPdfImporting = ref(false)
 const isEmailImporting = ref(false)
@@ -151,7 +156,7 @@ function generateSparklinePoints(data: number[], width: number, height: number):
 async function fetchPortfolio() {
     isLoading.value = true
     try {
-        const res = await financeApi.getPortfolio()
+        const res = await financeApi.getPortfolio(selectedMember.value || undefined)
         portfolio.value = res.data
     } catch (e) {
         console.error(e)
@@ -321,7 +326,8 @@ function openBuyModal(fund: any) {
         units: 0,
         nav: 0, // Ideally fetch latest NAV here
         date: new Date().toISOString().split('T')[0],
-        folio_number: ''
+        folio_number: '',
+        user_id: fund.user_id || currentUser.value?.id || null
     }
     // Try to fetch latest NAV for this fund
     fetchLatestNav(fund.schemeCode)
@@ -371,6 +377,7 @@ async function handleCasUpload() {
     const formData = new FormData()
     formData.append('file', casFile.value)
     if (casPassword.value) formData.append('password', casPassword.value)
+    if (importMemberId.value) formData.append('user_id', importMemberId.value)
 
     try {
         // Reset stats and show modal loading state
@@ -400,6 +407,8 @@ async function triggerEmailImport() {
     try {
         const formData = new FormData()
         formData.append('password', casPassword.value)
+        if (importMemberId.value) formData.append('user_id', importMemberId.value)
+        
         const res = await financeApi.importCASEmail(formData)
         
         const stats = res.data.stats
@@ -419,6 +428,15 @@ async function triggerEmailImport() {
         notify.error("Email import failed")
     } finally {
         isEmailImporting.value = false
+    }
+}
+
+async function fetchFamilyMembers() {
+    try {
+        const res = await financeApi.getUsers()
+        familyMembers.value = res.data
+    } catch (e) {
+        console.error('Failed to fetch family members:', e)
     }
 }
 
@@ -475,6 +493,9 @@ onMounted(async () => {
         if (currentUser.value?.pan_number && !casPassword.value) {
             casPassword.value = currentUser.value.pan_number.toUpperCase()
         }
+        
+        // Fetch family members for attribution
+        fetchFamilyMembers()
     } catch (e) {
         console.error("Failed to fetch user profile", e)
     }
@@ -614,10 +635,17 @@ function getSparklinePath(points: number[]): string {
                 <span class="transaction-count ml-4">{{ portfolio.length }} funds</span>
             </div>
             <div class="header-actions">
-                <button v-if="activeTab === 'portfolio'" @click="fetchPortfolio" class="btn-premium-secondary" :disabled="isLoading">
-                    <RefreshCw :size="16" :class="{ 'spin': isLoading }" />
-                    <span>Refresh</span>
-                </button>
+                <!-- Member Filter -->
+                <div v-if="activeTab === 'portfolio'" class="member-filter-wrapper ml-auto mr-4">
+                    <select v-model="selectedMember" class="premium-select-small">
+                        <option :value="null">All Members</option>
+                        <option v-for="user in familyMembers" :key="user.id" :value="user.id">
+                            {{ user.full_name || user.email }}
+                        </option>
+                    </select>
+                </div>
+
+
                 <button v-if="activeTab === 'portfolio'" @click="activeTab = 'search'" class="btn-premium-primary">
                     <div class="btn-glow"></div>
                     <Plus :size="16" />
@@ -729,7 +757,8 @@ function getSparklinePath(points: number[]): string {
                         <table v-else class="modern-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 35%">Fund Name</th>
+                                    <th style="width: 32%">Fund Name</th>
+                                    <th>Member</th>
                                     <th>Units</th>
                                     <th>Avg Price</th>
                                     <th>Current NAV</th>
@@ -740,12 +769,12 @@ function getSparklinePath(points: number[]): string {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="holding in portfolio" :key="holding.id">
+                                <tr v-for="holding in portfolio" :key="holding.id" class="clickable-row">
                                     <td style="position: relative;">
                                         <!-- Color Accent Bar -->
                                         <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 0 4px 4px 0;" 
                                              :style="{ background: getRandomColor(holding.scheme_name) }"></div>
-                                        <div style="padding-left: 1rem;">
+                                        <div style="padding-left: 1rem;" @click="$router.push(`/mutual-funds/${holding.id}`)">
                                                 <div class="font-medium text-gray-900 line-clamp-1" :title="holding.scheme_name">{{ holding.scheme_name }}</div>
                                                 <div style="display: flex; align-items: center; gap: 0.375rem; margin-top: 0.25rem;">
                                                     <span style="display: inline-flex; align-items: center; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 600; background-color: #f1f5f9; color: #334155;">
@@ -768,14 +797,24 @@ function getSparklinePath(points: number[]): string {
                                                 </div>
                                         </div>
                                     </td>
-                                    <td class="tabular-nums font-medium text-gray-700">{{ holding.units.toFixed(3) }}</td>
+                                    <td class="tabular-nums font-medium text-gray-700" @click="$router.push(`/mutual-funds/${holding.id}`)">
+                                        <div class="flex items-center gap-2">
+                                            <div v-if="holding.user_id && familyMembers.find(u => u.id === holding.user_id)" 
+                                                 class="member-avatar-mini" 
+                                                 :title="familyMembers.find(u => u.id === holding.user_id)?.full_name">
+                                                {{ familyMembers.find(u => u.id === holding.user_id)?.avatar || '👤' }}
+                                            </div>
+                                            <span v-else class="text-[10px] text-gray-400">Self</span>
+                                        </div>
+                                    </td>
+                                    <td class="tabular-nums font-medium text-gray-700" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ holding.units.toFixed(3) }}</td>
                                     <td class="tabular-nums text-gray-500">{{ formatAmount(holding.average_price) }}</td>
-                                    <td class="tabular-nums">
+                                    <td class="tabular-nums" @click="$router.push(`/mutual-funds/${holding.id}`)">
                                         <div class="text-gray-900 font-medium">{{ formatAmount(holding.last_nav) }}</div>
                                         <div class="text-[9px] text-gray-400 font-medium">{{ holding.last_updated }}</div>
                                     </td>
-                                    <td class="tabular-nums font-medium text-gray-700">{{ formatAmount(holding.invested_value) }}</td>
-                                    <td class="tabular-nums font-bold text-gray-900">{{ formatAmount(holding.current_value) }}</td>
+                                    <td class="tabular-nums font-medium text-gray-700" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ formatAmount(holding.invested_value) }}</td>
+                                    <td class="tabular-nums font-bold text-gray-900" @click="$router.push(`/mutual-funds/${holding.id}`)">{{ formatAmount(holding.current_value) }}</td>
                                     <td>
                                         <div :class="holding.profit_loss >= 0 ? 'text-emerald-600' : 'text-rose-600'">
                                             <div class="font-bold text-xs">{{ holding.profit_loss >= 0 ? '+' : '' }}{{ formatAmount(holding.profit_loss) }}</div>
@@ -789,8 +828,8 @@ function getSparklinePath(points: number[]): string {
                                             <button class="icon-btn text-rose-500 hover:text-rose-700 hover:bg-rose-50 border-rose-100" @click="confirmDelete(holding)" title="Remove Holding">
                                                 <Trash2 :size="14" />
                                             </button>
-                                            <button class="icon-btn" @click="openBuyModal(holding)" title="Add Transaction">
-                                                <Plus :size="14" />
+                                            <button class="icon-btn text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100" @click="$router.push(`/mutual-funds/${holding.id}`)" title="View Details">
+                                                <EyeIconMain :size="14" />
                                             </button>
                                         </div>
                                     </td>
@@ -1188,7 +1227,17 @@ function getSparklinePath(points: number[]): string {
                             <div class="upload-mesh mesh-1"></div>
                         </div>
 
-                        <div class="password-field-group mt-6">
+                        <div class="mt-6">
+                            <label class="field-label">Assign To Member</label>
+                            <select v-model="importMemberId" class="premium-input w-full">
+                                <option :value="null">Self (Default)</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">
+                                    {{ user.full_name || user.email }}
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="password-field-group mt-4">
                             <label class="field-label">PDF Password</label>
                             <div class="premium-input-group">
                                 <Lock :size="16" class="input-icon-leading" />
@@ -1236,6 +1285,26 @@ function getSparklinePath(points: number[]): string {
                             <p>We securely search for recent emails and process the attachments using the password provided below.</p>
                         </div>
                         
+                        <div class="mb-4">
+                            <label class="field-label">Assign To Member</label>
+                            <select v-model="importMemberId" class="premium-input w-full">
+                                <option :value="null">Self (Default)</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">
+                                    {{ user.full_name || user.email }}
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="field-label">Assign To Member</label>
+                            <select v-model="importMemberId" class="premium-input w-full">
+                                <option :value="null">Self (Default)</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">
+                                    {{ user.full_name || user.email }}
+                                </option>
+                            </select>
+                        </div>
+
                         <div class="password-field-group mb-6">
                             <label class="field-label">Sync Password</label>
                              <div class="premium-input-group">
@@ -1301,9 +1370,19 @@ function getSparklinePath(points: number[]): string {
                             </select>
                         </div>
                         <div class="form-group">
-                            <label class="field-label">Date</label>
-                            <input type="date" v-model="transactionForm.date" class="premium-input" />
+                            <label class="field-label">Assign To Member</label>
+                            <select v-model="transactionForm.user_id" class="premium-input">
+                                <option :value="null">Self (Default)</option>
+                                <option v-for="user in familyMembers" :key="user.id" :value="user.id">
+                                    {{ user.full_name || user.email }}
+                                </option>
+                            </select>
                         </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="field-label">Date</label>
+                        <input type="date" v-model="transactionForm.date" class="premium-input" />
                     </div>
                     
                     <div class="grid grid-cols-2 gap-5">
@@ -2000,6 +2079,51 @@ function getSparklinePath(points: number[]): string {
     text-align: center;
     padding: 6rem 2rem;
     width: 100%;
+}
+
+/* Member Filtering & Avatars */
+.member-filter-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.premium-select-small {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #475569;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.premium-select-small:hover {
+    border-color: #cbd5e1;
+    background: white;
+}
+
+.member-avatar-mini {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.5rem;
+    background: #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    border: 1px solid #e2e8f0;
+}
+
+.clickable-row {
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+}
+
+.clickable-row:hover {
+    background-color: #f8fafc !important;
 }
 
 .empty-glass-icon {
