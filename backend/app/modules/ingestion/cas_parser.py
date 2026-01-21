@@ -170,7 +170,8 @@ class CASParser:
         db: Session, 
         tenant_id: str,
         email_config: object, # SQLAlchemy object
-        password: str
+        password: str,
+        user_id: str = None
     ):
         """
         Connects to email, searches for CAS emails, downloads attachment, parses, and ingests.
@@ -232,6 +233,8 @@ class CASParser:
                                 if results:
                                     best_match = results[0] # Naive
                                     txn['scheme_code'] = best_match['schemeCode']
+                                    if user_id:
+                                        txn['user_id'] = user_id
                                     
                                     MutualFundService.add_transaction(db, tenant_id, txn)
                                     stats["processed"] += 1
