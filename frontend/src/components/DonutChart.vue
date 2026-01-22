@@ -1,5 +1,5 @@
 <template>
-    <div class="donut-chart-container">
+    <div class="donut-chart-container" :class="`legend-${legendPosition}`">
         <svg :width="size" :height="size" viewBox="0 0 100 100">
             <!-- Background circle -->
             <circle cx="50" cy="50" :r="radius" fill="none" stroke="#f1f5f9" :stroke-width="strokeWidth" />
@@ -43,12 +43,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     data: Record<string, number>
     size?: number
-}>()
+    legendPosition?: 'bottom' | 'right'
+}>(), {
+    size: 160,
+    legendPosition: 'bottom'
+})
 
-const size = props.size || 160
+const size = props.size
 const strokeWidth = 12
 const radius = (100 - strokeWidth) / 2
 
@@ -154,6 +158,13 @@ const largestValue = computed(() => {
     gap: 1rem;
 }
 
+.donut-chart-container.legend-right {
+    flex-direction: row;
+    align-items: center; /* Center chart and legend vertically */
+    justify-content: center;
+    gap: 1.5rem;
+}
+
 .donut-segment {
     transition: opacity 0.2s;
 }
@@ -182,6 +193,11 @@ const largestValue = computed(() => {
     width: 100%;
 }
 
+.legend-right .legend {
+    width: auto;
+    min-width: 140px; /* Ensure enough space for text */
+}
+
 .legend-item {
     display: flex;
     align-items: center;
@@ -200,6 +216,7 @@ const largestValue = computed(() => {
     flex: 1;
     color: #475569;
     font-weight: 500;
+    white-space: nowrap; /* Prevent wrapping in side legend */
 }
 
 .legend-value {

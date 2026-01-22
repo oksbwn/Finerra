@@ -989,13 +989,13 @@ function getSparklinePath(points: number[]): string {
                     <!-- Asset Allocation Donut Chart -->
                     <div class="analytics-card allocation-card">
                         <h4 class="card-header">Asset Allocation</h4>
-                        <DonutChart :data="analytics.asset_allocation" :size="180" />
+                        <DonutChart :data="analytics.asset_allocation" :size="180" legend-position="right" />
                     </div>
 
                     <!-- Sector/Category Distribution -->
                     <div class="analytics-card allocation-card">
                         <h4 class="card-header">Sector / Category Distribution</h4>
-                        <DonutChart :data="analytics.category_allocation || {}" :size="180" />
+                        <DonutChart :data="analytics.category_allocation || {}" :size="180" legend-position="right" />
                     </div>
                 </div>
 
