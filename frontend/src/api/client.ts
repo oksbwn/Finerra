@@ -73,8 +73,8 @@ export const financeApi = {
     smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean }) =>
         apiClient.post('/finance/transactions/smart-categorize', data),
     bulkDeleteTransactions: (ids: string[]) => apiClient.post('/finance/transactions/bulk-delete', { transaction_ids: ids }),
-    getMetrics: (accountId?: string, startDate?: string, endDate?: string) =>
-        apiClient.get('/finance/metrics', { params: { account_id: accountId, start_date: startDate, end_date: endDate } }),
+    getMetrics: (accountId?: string, startDate?: string, endDate?: string, userId?: string) =>
+        apiClient.get('/finance/metrics', { params: { account_id: accountId, start_date: startDate, end_date: endDate, user_id: userId } }),
     getRules: () => apiClient.get('/finance/rules'),
     getRuleSuggestions: () => apiClient.get('/finance/rules/suggestions'),
     createRule: (data: any) => apiClient.post('/finance/rules', data),
@@ -98,10 +98,10 @@ export const financeApi = {
     processRecurring: () => apiClient.post('/finance/recurring/process'),
     getForecast: (accountId?: string, days: number = 30) =>
         apiClient.get('/finance/forecast', { params: { account_id: accountId, days } }),
-    getNetWorthTimeline: (days: number = 30) =>
-        apiClient.get('/finance/net-worth-timeline', { params: { days } }),
-    getSpendingTrend: () =>
-        apiClient.get('/finance/spending-trend'),
+    getNetWorthTimeline: (days: number = 30, userId?: string) =>
+        apiClient.get('/finance/net-worth-timeline', { params: { days, user_id: userId } }),
+    getSpendingTrend: (userId?: string) =>
+        apiClient.get('/finance/spending-trend', { params: { user_id: userId } }),
     getBudgetHistory: (months: number = 6) =>
         apiClient.get('/finance/budget-history', { params: { months } }),
 

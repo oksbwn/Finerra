@@ -7,10 +7,15 @@ from backend.app.modules.finance.services.transaction_service import Transaction
 
 class AnalyticsService:
     @staticmethod
-    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT", account_id: str = None, start_date: datetime = None, end_date: datetime = None):
+    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT", account_id: str = None, start_date: datetime = None, end_date: datetime = None, user_id: str = None):
         
-        # 1. Accounts & Net Worth
+        # 1. Accounts & Net Worth (Accounts are filtered by owner_id if user_id is provided)
         accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
+        if user_id:
+            from sqlalchemy import or_
+            # Show accounts owned by this user OR shared accounts (owner_id is null)
+            accounts_query = accounts_query.filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+        
         if account_id:
             accounts_query = accounts_query.filter(models.Account.id == account_id)
         if user_role == "CHILD":
@@ -64,6 +69,14 @@ class AnalyticsService:
             monthly_spending_query = monthly_spending_query.filter(models.Transaction.date <= end_date)
         if account_id:
             monthly_spending_query = monthly_spending_query.filter(models.Transaction.account_id == account_id)
+        if user_id:
+            # Filter by account ownership: show user's accounts OR shared accounts (owner_id is NULL)
+            from sqlalchemy import or_
+            monthly_spending_query = monthly_spending_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
         if user_role == "CHILD":
             monthly_spending_query = monthly_spending_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
                                                            .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
@@ -83,8 +96,30 @@ class AnalyticsService:
             "percentage": (float(monthly_spending) / total_budget_limit * 100) if total_budget_limit > 0 else 0
         }
         
-        # 4. Recent Transactions
-        recent_txns = TransactionService.get_transactions(db, tenant_id, limit=5, user_role=user_role)
+        # 4. Recent Transactions (with owner names)
+        recent_txns = TransactionService.get_transactions(db, tenant_id, limit=5, user_role=user_role, user_id=user_id)
+        
+        # Enrich with account owner names
+        enriched_txns = []
+        for txn in recent_txns:
+            txn_dict = {
+                "id": txn.id,
+                "date": txn.date,
+                "description": txn.description,
+                "amount": float(txn.amount),
+                "category": txn.category,
+                "account_id": txn.account_id
+            }
+            
+            # Get account owner name
+            account = db.query(models.Account).filter(models.Account.id == txn.account_id).first()
+            if account and account.owner_id:
+                from backend.app.modules.auth.models import User
+                owner = db.query(User).filter(User.id == account.owner_id).first()
+                if owner:
+                    txn_dict["account_owner_name"] = owner.full_name or owner.email.split('@')[0]
+            
+            enriched_txns.append(txn_dict)
 
         # 5. Top Spending Category this month
         top_cat_query = db.query(
@@ -100,6 +135,14 @@ class AnalyticsService:
             top_cat_query = top_cat_query.filter(models.Transaction.date >= start_date)
         if end_date:
             top_cat_query = top_cat_query.filter(models.Transaction.date <= end_date)
+        if user_id:
+            # Filter by account ownership
+            from sqlalchemy import or_
+            top_cat_query = top_cat_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
             
         top_cat_query = top_cat_query.group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).asc()).first()
         
@@ -150,17 +193,22 @@ class AnalyticsService:
             "top_spending_category": top_spending_category,
             "budget_health": budget_health,
             "credit_intelligence": credit_intelligence,
-            "recent_transactions": recent_txns,
+            "recent_transactions": enriched_txns,
             "currency": accounts[0].currency if accounts else "INR"
         }
 
     @staticmethod
-    def get_net_worth_timeline(db: Session, tenant_id: str, days: int = 30):
+    def get_net_worth_timeline(db: Session, tenant_id: str, days: int = 30, user_id: str = None):
         from datetime import date, timedelta
         from .mutual_funds import MutualFundService
         
         # 1. Get current static balances (Bank + Cash - Credit Debt - Loans)
-        accounts = db.query(models.Account).filter(models.Account.tenant_id == tenant_id).all()
+        accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
+        if user_id:
+            from sqlalchemy import or_
+            accounts_query = accounts_query.filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+            
+        accounts = accounts_query.all()
         current_liquid_assets = 0
         for acc in accounts:
             bal = float(acc.balance or 0)
@@ -171,16 +219,27 @@ class AnalyticsService:
         
         # 2. Get net transactions grouped by date
         start_history = datetime.utcnow() - timedelta(days=days)
-        transactions_grouped = db.query(
+        transactions_grouped_query = db.query(
             func.date(models.Transaction.date).label('d'),
             func.sum(models.Transaction.amount).label('total')
         ).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_history
-        ).group_by(func.date(models.Transaction.date)).all()
+        )
+        
+        if user_id:
+            # Filter by account ownership
+            from sqlalchemy import or_
+            transactions_grouped_query = transactions_grouped_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
+            
+        transactions_grouped = transactions_grouped_query.group_by(func.date(models.Transaction.date)).all()
         
         # 3. Get MF timeline (which already handles historical valuation)
-        mf_res = MutualFundService.get_performance_timeline(db, tenant_id, period='1m', granularity='1d')
+        mf_res = MutualFundService.get_performance_timeline(db, tenant_id, period='1m', granularity='1d', user_id=user_id)
         mf_timeline = mf_res.get("timeline", [])
         mf_map = {datetime.fromisoformat(p["date"]).date(): p["value"] for p in mf_timeline}
         
@@ -218,14 +277,14 @@ class AnalyticsService:
         return timeline[::-1] # Chronological
 
     @staticmethod
-    def get_spending_trend(db: Session, tenant_id: str):
+    def get_spending_trend(db: Session, tenant_id: str, user_id: str = None):
         from datetime import date, timedelta
         
         now = datetime.utcnow()
         start_date = datetime(now.year, now.month, 1)
         
         # Daily spending
-        spending = db.query(
+        query = db.query(
             func.date(models.Transaction.date).label('day'),
             func.sum(models.Transaction.amount).label('total')
         ).filter(
@@ -233,7 +292,15 @@ class AnalyticsService:
             models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
-        ).group_by(func.date(models.Transaction.date)).order_by('day').all()
+        )
+        
+        if user_id:
+            # Filter by account ownership
+            from sqlalchemy import or_
+            query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                         .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+            
+        spending = query.group_by(func.date(models.Transaction.date)).order_by('day').all()
         
         # Fill gaps with 0
         trend = []

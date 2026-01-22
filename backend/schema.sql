@@ -33,6 +33,8 @@ CREATE TABLE accounts (
 	account_mask VARCHAR,
 	balance NUMERIC(15, 2),
 	credit_limit NUMERIC(15, 2),
+	billing_day NUMERIC(2, 0),
+	due_day NUMERIC(2, 0),
 	is_verified BOOLEAN DEFAULT TRUE NOT NULL,
 	import_config VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
@@ -46,6 +48,7 @@ CREATE TABLE categories (
 	tenant_id VARCHAR NOT NULL, 
 	name VARCHAR NOT NULL, 
 	icon VARCHAR, 
+	color VARCHAR DEFAULT '#3B82F6',
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -134,10 +137,12 @@ CREATE TABLE mutual_fund_holdings (
 	average_price NUMERIC(15, 4) DEFAULT 0, 
 	current_value NUMERIC(15, 2), 
 	last_nav NUMERIC(15, 4), 
+	user_id VARCHAR,
 	last_updated_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
-	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code)
+	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code),
+	FOREIGN KEY(user_id) REFERENCES users (id)
 );
 
 CREATE TABLE mutual_fund_orders (
@@ -154,10 +159,12 @@ CREATE TABLE mutual_fund_orders (
 	status VARCHAR DEFAULT 'COMPLETED', 
 	external_id VARCHAR, 
 	import_source VARCHAR DEFAULT 'MANUAL', 
+	user_id VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
-	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code)
+	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code),
+	FOREIGN KEY(user_id) REFERENCES users (id)
 );
 
 CREATE TABLE portfolio_timeline_cache (

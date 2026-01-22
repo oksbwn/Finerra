@@ -13,6 +13,7 @@ def get_metrics(
     account_id: str = None,
     start_date: datetime = None,
     end_date: datetime = None,
+    user_id: str = None,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -22,7 +23,8 @@ def get_metrics(
         user_role=current_user.role,
         account_id=account_id,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        user_id=user_id
     )
 
 @router.get("/forecast")
@@ -63,10 +65,12 @@ def get_net_worth_timeline(
 
 @router.get("/spending-trend")
 def get_spending_trend(
+    user_id: str = None,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     return AnalyticsService.get_spending_trend(
         db, 
-        str(current_user.tenant_id)
+        str(current_user.tenant_id),
+        user_id=user_id
     )

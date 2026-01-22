@@ -1,14 +1,49 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { useCurrency } from '@/composables/useCurrency'
 import Sparkline from '@/components/Sparkline.vue'
+import { ChevronDown, ChevronUp, Users } from 'lucide-vue-next'
 
 const router = useRouter()
+const auth = useAuthStore()
 const { formatAmount } = useCurrency()
 const loading = ref(true)
+
+// Member Selection
+const selectedMember = ref<string | null>(null)
+const familyMembers = ref<any[]>([])
+const showMemberDropdown = ref(false)
+const memberDropdownRef = ref<HTMLElement | null>(null)
+
+const selectedMemberName = computed(() => {
+    if (!selectedMember.value) return 'All Members'
+    const member = familyMembers.value.find(m => m.id === selectedMember.value)
+    return member ? (member.full_name || member.email) : 'All Members'
+})
+
+function toggleMemberDropdown() { showMemberDropdown.value = !showMemberDropdown.value }
+function selectMember(id: string | null) {
+    selectedMember.value = id
+    showMemberDropdown.value = false
+}
+
+function handleDropdownOutside(event: MouseEvent) {
+    if (memberDropdownRef.value && !memberDropdownRef.value.contains(event.target as Node)) {
+        showMemberDropdown.value = false
+    }
+}
+onMounted(() => {
+    document.addEventListener('click', handleDropdownOutside)
+})
+import { onUnmounted } from 'vue'
+onUnmounted(() => {
+    document.removeEventListener('click', handleDropdownOutside)
+})
+
 const mfPortfolio = ref({
     invested: 0,
     current: 0,
@@ -55,10 +90,6 @@ const budgetPulse = computed(() => {
         .slice(0, 3)
 })
 
-
-
-
-
 const netWorth = computed(() => {
     const liquid = (metrics.value.breakdown.bank_balance || 0) + (metrics.value.breakdown.cash_balance || 0)
     const totalInvestments = mfPortfolio.value.current || 0
@@ -72,9 +103,6 @@ const upcomingBills = computed(() => {
         .slice(0, 3)
 })
 
-// Computed
-
-
 const getGreeting = () => {
     const hour = new Date().getHours()
     if (hour < 12) return 'Good morning'
@@ -87,114 +115,124 @@ function formatDate(dateStr: string) {
     return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
+// Helper to get category details including color
+function getCategoryDetails(name: string) {
+    if (!name || name === 'Uncategorized') return { icon: '🏷️', color: '#f3f4f6' }
+    const cat = categories.value.find(c => c.name === name)
+    return cat ? { icon: cat.icon || '🏷️', color: cat.color || '#3B82F6' } : { icon: '🏷️', color: '#f3f4f6' }
+}
 
-    // Helper to get category details including color
-    function getCategoryDetails(name: string) {
-        if (!name || name === 'Uncategorized') return { icon: '🏷️', color: '#f3f4f6' }
-        const cat = categories.value.find(c => c.name === name)
-        return cat ? { icon: cat.icon || '🏷️', color: cat.color || '#3B82F6' } : { icon: '🏷️', color: '#f3f4f6' }
-    }
-
-    onMounted(async () => {
-        try {
-            const [res, catRes, budgetRes] = await Promise.all([
-                financeApi.getMetrics(),
-                financeApi.getCategories(),
-                financeApi.getBudgets()
-            ])
-            metrics.value = res.data
-            categories.value = catRes.data
-            budgets.value = budgetRes.data
-        } catch (e) {
-            console.error("Failed to load dashboard data", e)
-        } finally {
-            loading.value = false
-        }
-        
-        // Load Mutual Funds Data (Non-blocking)
-        try {
-            // 1. Portfolio
-            try {
-                const pfRes = await financeApi.getPortfolio()
-                if (pfRes && pfRes.data && Array.isArray(pfRes.data)) {
-                    let invested = 0
-                    let current = 0
-                    pfRes.data.forEach((h: any) => {
-                        const inv = Number(h.invested_value || h.investedValue || h.invested_amount || 0)
-                        const cur = Number(h.current_value || h.currentValue || h.value || 0)
-                        invested += inv
-                        current += cur
-                    })
-                    mfPortfolio.value.invested = invested
-                    mfPortfolio.value.current = current
-                    mfPortfolio.value.pl = current - invested
-                    mfPortfolio.value.plPercent = invested > 0 ? ((current - invested) / invested) * 100 : 0
-                }
-            } catch (e) {
-                console.error("PF Fetch Error", e)
+async function fetchAllData() {
+    // Show skeleton initially
+    loading.value = true
+    mfPortfolio.value.loading = true
+    
+    const userId = selectedMember.value || undefined
+    
+    // Hide main skeleton after a brief moment (data will populate progressively)
+    setTimeout(() => { loading.value = false }, 300)
+    
+    // 1. Metrics - highest priority
+    financeApi.getMetrics(undefined, undefined, undefined, userId)
+        .then(res => { metrics.value = res.data })
+        .catch(e => console.warn("Metrics fetch failed", e))
+    
+    // 2. Portfolio
+    financeApi.getPortfolio(userId)
+        .then(pfRes => {
+            if (pfRes && pfRes.data && Array.isArray(pfRes.data)) {
+                let invested = 0
+                let current = 0
+                pfRes.data.forEach((h: any) => {
+                    const inv = Number(h.invested_value || h.investedValue || h.invested_amount || 0)
+                    const cur = Number(h.current_value || h.currentValue || h.value || 0)
+                    invested += inv
+                    current += cur
+                })
+                mfPortfolio.value.invested = invested
+                mfPortfolio.value.current = current
+                mfPortfolio.value.pl = current - invested
+                mfPortfolio.value.plPercent = invested > 0 ? ((current - invested) / invested) * 100 : 0
             }
-
-            // 2. Analytics
-            try {
-                const anRes = await financeApi.getAnalytics()
-                if (anRes && anRes.data) {
-                    mfPortfolio.value.xirr = Number(anRes.data.xirr || 0)
-                    mfPortfolio.value.allocation = anRes.data.asset_allocation || { equity: 0, debt: 0, hybrid: 0, other: 0 }
-                    if (anRes.data.top_gainers && anRes.data.top_gainers.length > 0) {
-                        const top = anRes.data.top_gainers[0]
-                        mfPortfolio.value.topPerformer = {
-                            schemeName: top.scheme_name || top.schemeName || top.scheme,
-                            plPercent: Number(top.pl_percent || top.plPercent || top.returns || 0)
-                        }
+        })
+        .catch(e => console.warn("Portfolio fetch failed", e))
+    
+    // 3. Analytics
+    financeApi.getAnalytics(userId)
+        .then(anRes => {
+            if (anRes && anRes.data) {
+                mfPortfolio.value.xirr = Number(anRes.data.xirr || 0)
+                mfPortfolio.value.allocation = anRes.data.asset_allocation || { equity: 0, debt: 0, hybrid: 0, other: 0 }
+                if (anRes.data.top_gainers && anRes.data.top_gainers.length > 0) {
+                    const top = anRes.data.top_gainers[0]
+                    mfPortfolio.value.topPerformer = {
+                        schemeName: top.scheme_name || top.schemeName || top.scheme,
+                        plPercent: Number(top.pl_percent || top.plPercent || top.returns || 0)
                     }
                 }
-            } catch (e) {
-                console.warn("Analytics fetch failed", e)
+                mfPortfolio.value.loading = false
             }
-
-            // 3. Timeline
-            try {
-                const timelineRes = await financeApi.getPerformanceTimeline('1m', '1d')
-                if (timelineRes && timelineRes.data && (Array.isArray(timelineRes.data.timeline) || Array.isArray(timelineRes.data))) {
-                    const timelineArr = Array.isArray(timelineRes.data) ? timelineRes.data : timelineRes.data.timeline
-                    mfPortfolio.value.trend = timelineArr.map((p: any) => Number(p.value || 0))
-                }
-            } catch (e) {
-                console.warn("Timeline fetch failed", e)
-            }
-
-            // 4. Recurring
-            try {
-                const recurringRes = await financeApi.getRecurringTransactions()
-                if (recurringRes && recurringRes.data) {
-                    recurringTransactions.value = recurringRes.data
-                }
-            } catch (e) {
-                console.warn("Recurring fetch failed", e)
-            }
-            
+        })
+        .catch(e => {
+            console.warn("Analytics fetch failed", e)
             mfPortfolio.value.loading = false
-            
-            // 5. Rich Trends
-            try {
-                const [nwRes, spendRes] = await Promise.all([
-                    financeApi.getNetWorthTimeline(30),
-                    financeApi.getSpendingTrend()
-                ])
-                if (nwRes && nwRes.data) {
-                    netWorthTrend.value = nwRes.data.map((p: any) => Number(p.total || 0))
-                }
-                if (spendRes && spendRes.data) {
-                    spendingTrend.value = spendRes.data.map((p: any) => Number(p.amount || 0))
-                }
-            } catch (e) {
-                console.warn("Trend data failed", e)
+        })
+    
+    // 4. Timeline
+    financeApi.getPerformanceTimeline('1m', '1d', userId)
+        .then(timelineRes => {
+            if (timelineRes && timelineRes.data && (Array.isArray(timelineRes.data.timeline) || Array.isArray(timelineRes.data))) {
+                const timelineArr = Array.isArray(timelineRes.data) ? timelineRes.data : timelineRes.data.timeline
+                mfPortfolio.value.trend = timelineArr.map((p: any) => Number(p.value || 0))
             }
-        } catch (e) {
-            console.error("Critical MF data failed to load", e)
-            mfPortfolio.value.loading = false
-        }
-    })
+        })
+        .catch(e => console.warn("Timeline fetch failed", e))
+    
+    // 5. Recurring
+    financeApi.getRecurringTransactions()
+        .then(recurringRes => { recurringTransactions.value = recurringRes.data })
+        .catch(e => console.warn("Recurring fetch failed", e))
+    
+    // 6. Net Worth Trend
+    financeApi.getNetWorthTimeline(30, userId)
+        .then(nwRes => {
+            if (nwRes && nwRes.data) {
+                netWorthTrend.value = nwRes.data.map((p: any) => Number(p.total || 0))
+            }
+        })
+        .catch(e => console.warn("Net worth trend failed", e))
+    
+    // 7. Spending Trend
+    financeApi.getSpendingTrend(userId)
+        .then(spendRes => {
+            if (spendRes && spendRes.data) {
+                spendingTrend.value = spendRes.data.map((p: any) => Number(p.amount || 0))
+            }
+        })
+        .catch(e => console.warn("Spending trend failed", e))
+}
+
+onMounted(async () => {
+    // Fetch common data (once)
+    try {
+        const [usersRes, catRes, budgetRes] = await Promise.all([
+            financeApi.getUsers(),
+            financeApi.getCategories(),
+            financeApi.getBudgets()
+        ])
+        familyMembers.value = usersRes.data
+        categories.value = catRes.data
+        budgets.value = budgetRes.data
+    } catch (e) {
+        console.error("Failed to fetch initial dashboard metadata", e)
+    }
+
+    await fetchAllData()
+})
+
+watch(selectedMember, () => {
+    fetchAllData()
+})
 </script>
 
 <template>
@@ -206,14 +244,67 @@ function formatDate(dateStr: string) {
                 <span class="greeting-pre">{{ getGreeting() }},</span>
                 <h1 class="user-name">Welcome Back</h1>
             </div>
-            <div class="date-badge">
-                {{ new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) }}
+            
+            <div class="header-right-actions">
+                <!-- Custom Member Filter -->
+                <div class="member-selector-container" v-if="auth.user?.role !== 'CHILD'" ref="memberDropdownRef">
+                    <button class="member-selector-trigger" @click.stop="toggleMemberDropdown">
+                        <Users :size="16" class="mr-2" />
+                        <span class="selected-label">{{ selectedMemberName }}</span>
+                        <component :is="showMemberDropdown ? ChevronUp : ChevronDown" :size="16" class="ml-2" />
+                    </button>
+                    
+                    <transition name="fade-slide">
+                        <div v-if="showMemberDropdown" class="premium-dropdown">
+                            <div class="dropdown-item" :class="{ 'active': selectedMember === null }" @click="selectMember(null)">
+                                <Users :size="14" class="mr-2" /> All Members
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <div v-for="user in familyMembers" 
+                                 :key="user.id" 
+                                 class="dropdown-item" 
+                                 :class="{ 'active': selectedMember === user.id }"
+                                 @click="selectMember(user.id)">
+                                <span class="avatar-mini">{{ user.full_name?.charAt(0) || user.email.charAt(0) }}</span>
+                                <div class="member-info">
+                                    <div class="name">{{ user.full_name || user.email.split('@')[0] }}</div>
+                                    <div class="role">{{ user.role }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </transition>
+                </div>
+
+                <div class="date-badge">
+                    {{ new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) }}
+                </div>
             </div>
         </div>
 
-        <div v-if="loading" class="loading-state">
-            <div class="spinner"></div>
-            <p>Gathering financial intelligence...</p>
+
+        <div v-if="loading" class="dashboard-grid skeleton-grid">
+            <!-- Skeleton Metric Cards -->
+            <div class="skeleton-card" v-for="i in 4" :key="`metric-${i}`">
+                <div class="skeleton-header">
+                    <div class="skeleton-circle"></div>
+                    <div class="skeleton-text skeleton-text-sm"></div>
+                </div>
+                <div class="skeleton-text skeleton-text-lg"></div>
+                <div class="skeleton-text skeleton-text-xs"></div>
+            </div>
+
+            <!-- Skeleton Chart Cards -->
+            <div class="skeleton-card skeleton-card-wide" v-for="i in 2" :key="`chart-${i}`">
+                <div class="skeleton-text skeleton-text-md"></div>
+                <div class="skeleton-chart"></div>
+            </div>
+
+            <!-- Skeleton Budget Cards -->
+            <div class="skeleton-card" v-for="i in 3" :key="`budget-${i}`">
+                <div class="skeleton-text skeleton-text-sm"></div>
+                <div class="skeleton-bar"></div>
+                <div class="skeleton-text skeleton-text-xs"></div>
+            </div>
         </div>
 
         <div v-else class="dashboard-grid animate-in">
@@ -421,7 +512,12 @@ function formatDate(dateStr: string) {
                             </div>
                             <div class="recent-meta">
                                 <span class="recent-desc">{{ txn.description || 'Unknown' }}</span>
-                                <span class="recent-date">{{ formatDate(txn.date) }}</span>
+                                <div class="recent-date-row">
+                                    <span class="recent-date">{{ formatDate(txn.date) }}</span>
+                                    <span v-if="txn.account_owner_name" class="owner-badge">
+                                        {{ txn.account_owner_name }}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                         <span class="recent-amount" :class="{ 'credit': txn.amount > 0 }">
@@ -490,8 +586,14 @@ function formatDate(dateStr: string) {
 .dashboard-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: flex-start;
     margin-bottom: 2rem;
+}
+
+.header-right-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
 }
 
 .header-left { display: flex; flex-direction: column; }
@@ -509,12 +611,224 @@ function formatDate(dateStr: string) {
     box-shadow: var(--shadow-sm);
 }
 
-/* Loader */
+.member-selector-container {
+    position: relative;
+}
+
+.member-selector-trigger {
+    display: flex;
+    align-items: center;
+    background: white;
+    border: 1px solid var(--color-border);
+    padding: 0.5rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-text-main);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-sm);
+}
+
+.member-selector-trigger:hover {
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.premium-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.75rem;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    box-shadow: var(--shadow-lg);
+    width: 240px;
+    padding: 0.5rem;
+    z-index: 200;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.9rem;
+    color: var(--color-text-main);
+}
+
+.dropdown-item:hover {
+    background: var(--color-background);
+    color: var(--color-primary);
+}
+
+.dropdown-item.active {
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--color-border);
+    margin: 0.5rem;
+}
+
+.avatar-mini {
+    width: 24px;
+    height: 24px;
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-right: 0.75rem;
+    text-transform: uppercase;
+}
+
+.member-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.member-info .name {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.member-info .role {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+    text-transform: capitalize;
+}
+
+/* Transitions */
+.fade-slide-enter-active, .fade-slide-leave-active {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-slide-enter-from, .fade-slide-leave-to {
+    opacity: 0;
+    transform: translateY(-10px);
+}
+
+
+/* Skeleton Loading */
+.skeleton-grid {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.skeleton-card {
+    background: white;
+    border-radius: 1.25rem;
+    padding: 1.5rem;
+    border: 1px solid var(--color-border);
+    overflow: hidden;
+    position: relative;
+}
+
+.skeleton-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.6) 50%,
+        transparent 100%
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+.skeleton-card-wide {
+    grid-column: span 2;
+}
+
+.skeleton-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.skeleton-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--color-background);
+}
+
+.skeleton-text {
+    background: var(--color-background);
+    border-radius: 0.5rem;
+    height: 12px;
+    margin-bottom: 0.75rem;
+}
+
+.skeleton-text-xs {
+    width: 40%;
+    height: 10px;
+}
+
+.skeleton-text-sm {
+    width: 60%;
+    height: 12px;
+}
+
+.skeleton-text-md {
+    width: 50%;
+    height: 16px;
+    margin-bottom: 1.5rem;
+}
+
+.skeleton-text-lg {
+    width: 70%;
+    height: 24px;
+    margin-bottom: 0.5rem;
+}
+
+.skeleton-chart {
+    width: 100%;
+    height: 180px;
+    background: var(--color-background);
+    border-radius: 0.75rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.skeleton-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--color-background);
+    border-radius: 1rem;
+    margin: 0.75rem 0;
+}
+
+/* Old loader (kept for compatibility) */
 .loading-state { padding: 4rem; text-align: center; color: var(--color-text-muted); }
 .spinner { width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top: 3px solid #4f46e5; border-radius: 50%; margin: 0 auto 1rem; animation: spin 1s linear infinite; }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-@keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
-.pulse { animation: pulse 1.5s infinite ease-in-out; }
 
 /* Grid Layout */
 .dashboard-grid {
@@ -800,7 +1114,17 @@ function formatDate(dateStr: string) {
 
 .recent-meta { display: flex; flex-direction: column; }
 .recent-desc { font-weight: 600; font-size: 0.9rem; color: var(--color-text-main); }
+.recent-date-row { display: flex; align-items: center; gap: 0.5rem; }
 .recent-date { font-size: 0.7rem; color: var(--color-text-muted); }
+.owner-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    background: var(--color-primary-light);
+    padding: 0.125rem 0.5rem;
+    border-radius: 1rem;
+    text-transform: capitalize;
+}
 
 .recent-amount { font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); }
 .recent-amount.credit { color: #10b981; }
