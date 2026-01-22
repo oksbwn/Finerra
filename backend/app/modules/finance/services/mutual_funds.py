@@ -1052,14 +1052,17 @@ class MutualFundService:
         return asyncio.run(fetch_all())
 
     @staticmethod
-    def get_portfolio_analytics(db: Session, tenant_id: str):
+    def get_portfolio_analytics(db: Session, tenant_id: str, user_id: Optional[str] = None):
         """
         Calculate portfolio analytics: allocation, top performers, XIRR
         """
         from backend.app.modules.finance.utils.financial_math import xirr, categorize_fund
         
         # Get portfolio data
-        holdings = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        query = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            query = query.filter(MutualFundHolding.user_id == user_id)
+        holdings = query.all()
         
         if not holdings:
             return {
@@ -1098,7 +1101,7 @@ class MutualFundService:
             category_allocation = {k: round((v / total_value) * 100, 2) for k, v in category_allocation.items()}
         
         # Get portfolio with P/L for top performers
-        portfolio_data = MutualFundService.get_portfolio(db, tenant_id)
+        portfolio_data = MutualFundService.get_portfolio(db, tenant_id, user_id)
         
         # Calculate P/L percentage for sorting
         for item in portfolio_data:
@@ -1116,13 +1119,19 @@ class MutualFundService:
         
         # Calculate XIRR
         # Get all transactions for EXISTING holdings only (Same as timeline)
-        holdings_query = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
-        active_holding_ids = [h.id for h in holdings_query]
+        h_q = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            h_q = h_q.filter(MutualFundHolding.user_id == user_id)
+        active_holding_ids = [h.id for h in h_q.all()]
         
-        orders = db.query(MutualFundOrder).filter(
+        o_q = db.query(MutualFundOrder).filter(
             MutualFundOrder.tenant_id == tenant_id,
             MutualFundOrder.holding_id.in_(active_holding_ids)
-        ).all()
+        )
+        if user_id:
+            o_q = o_q.filter(MutualFundOrder.user_id == user_id)
+        
+        orders = o_q.all()
         
         xirr_value = None
         total_invested = 0.0
@@ -1193,7 +1202,7 @@ class MutualFundService:
         return deleted_count
     
     @staticmethod
-    def get_performance_timeline(db: Session, tenant_id: str, period: str = "1y", granularity: str = "1w"):
+    def get_performance_timeline(db: Session, tenant_id: str, period: str = "1y", granularity: str = "1w", user_id: Optional[str] = None):
         """
         Calculate portfolio value over time with smart caching.
         
@@ -1207,13 +1216,20 @@ class MutualFundService:
         
         # Get all transactions for EXISTING holdings only
         # This prevents orphaned orders from deleted holdings from inflating the timeline
-        holdings = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        holdings_query = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            holdings_query = holdings_query.filter(MutualFundHolding.user_id == user_id)
+        holdings = holdings_query.all()
         active_holding_ids = [h.id for h in holdings]
         
-        orders = db.query(MutualFundOrder).filter(
+        orders_query = db.query(MutualFundOrder).filter(
             MutualFundOrder.tenant_id == tenant_id,
             MutualFundOrder.holding_id.in_(active_holding_ids)
-        ).order_by(MutualFundOrder.order_date.asc()).all()
+        )
+        if user_id:
+            orders_query = orders_query.filter(MutualFundOrder.user_id == user_id)
+        
+        orders = orders_query.order_by(MutualFundOrder.order_date.asc()).all()
         
         if not orders:
             return {
@@ -1222,9 +1238,13 @@ class MutualFundService:
                 "total_return_percent": 0
             }
         
-        # Calculate portfolio hash (sorted scheme codes)
+        # Calculate portfolio hash (sorted scheme codes + user_id)
         unique_schemes = sorted(set(str(o.scheme_code) for o in orders))
-        portfolio_hash = hashlib.md5(",".join(unique_schemes).encode()).hexdigest()
+        hash_input = ",".join(unique_schemes)
+        if user_id:
+            hash_input += f"|user:{user_id}"
+            
+        portfolio_hash = hashlib.md5(hash_input.encode()).hexdigest()
         
         # Determine date range and granularity
         end_date = date.today() - timedelta(days=1)
