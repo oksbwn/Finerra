@@ -220,11 +220,7 @@ class UniversalParser:
             
             # Log skipped rows for debugging
             if skipped_rows:
-                print(f"⚠️  Skipped {len(skipped_rows)} rows during parsing:")
-                for skip_msg in skipped_rows[:10]:  # Show first 10
-                    print(f"  - {skip_msg}")
-                if len(skipped_rows) > 10:
-                    print(f"  ... and {len(skipped_rows) - 10} more")
+                pass
             
             return parsed_rows
 

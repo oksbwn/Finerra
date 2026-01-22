@@ -93,7 +93,7 @@ def create_family_member(
     # Create user
     new_user = auth_models.User(
         email=payload.email,
-        password_hash=services.AuthService.get_password_hash(payload.password),
+        password_hash=security.get_password_hash(payload.password),
         tenant_id=current_user.tenant_id,
         role=payload.role,
         full_name=payload.full_name,
@@ -132,7 +132,7 @@ def update_family_member(
     if payload.pan_number is not None:
         member.pan_number = payload.pan_number
     if payload.password:
-        member.password_hash = services.AuthService.get_password_hash(payload.password)
+        member.password_hash = security.get_password_hash(payload.password)
         
     db.commit()
     db.refresh(member)

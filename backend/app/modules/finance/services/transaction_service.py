@@ -40,7 +40,7 @@ class TransactionService:
                         final_category = rule.category
                         break
                 except Exception as e:
-                    print(f"Error parsing rule keywords: {e}")
+                    pass
         # ---------------------------------
         
         txn_type = models.TransactionType.DEBIT if transaction.amount < 0 else models.TransactionType.CREDIT

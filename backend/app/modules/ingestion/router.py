@@ -537,9 +537,9 @@ def label_message(
                 description=f"Auto-learned from: {payload.recipient or 'Unknown'}"
             )
             db.add(new_pattern)
-            print(f"[Training] Generated new pattern: {pattern_str}")
+            pass
         except Exception as e:
-            print(f"[Training] Failed to generate pattern: {e}")
+            pass
         
     db.delete(msg)
     db.commit()

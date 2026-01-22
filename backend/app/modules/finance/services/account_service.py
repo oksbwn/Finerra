@@ -57,7 +57,7 @@ class AccountService:
         except Exception as e:
             db.rollback()
             # DuckDB limitation: Cannot update accounts that have transactions
-            print(f"Account update error (likely DuckDB FK limitation): {e}")
+            pass
             raise
 
     @staticmethod

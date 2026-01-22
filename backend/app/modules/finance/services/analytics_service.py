@@ -53,25 +53,21 @@ class AnalyticsService:
                 elif acc.type == 'WALLET': breakdown["cash_balance"] += bal
 
         # 2. Monthly Spending (or Filtered Spending)
-        if not start_date:
-            now = datetime.utcnow()
-            start_date = datetime(now.year, now.month, 1)
-        
-        txns_query = db.query(models.Transaction).filter(
+        monthly_spending_query = db.query(func.sum(models.Transaction.amount)).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
         )
         if end_date:
-            txns_query = txns_query.filter(models.Transaction.date <= end_date)
+            monthly_spending_query = monthly_spending_query.filter(models.Transaction.date <= end_date)
         if account_id:
-            txns_query = txns_query.filter(models.Transaction.account_id == account_id)
+            monthly_spending_query = monthly_spending_query.filter(models.Transaction.account_id == account_id)
         if user_role == "CHILD":
-             txns_query = txns_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
-                                    .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+            monthly_spending_query = monthly_spending_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                                                           .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
         
-        monthly_spending = abs(sum(txn.amount for txn in txns_query.all()))
+        monthly_spending = abs(float(monthly_spending_query.scalar() or 0))
         
         # 3. Overall Budget Health
         all_budgets = db.query(models.Budget).filter(models.Budget.tenant_id == tenant_id).all()
@@ -166,12 +162,15 @@ class AnalyticsService:
             elif acc.type in ['CREDIT_CARD', 'LOAN']:
                 current_liquid_assets -= bal
         
-        # 2. Get all transactions for these accounts in the last 'days' days
+        # 2. Get net transactions grouped by date
         start_history = datetime.utcnow() - timedelta(days=days)
-        transactions = db.query(models.Transaction).filter(
+        transactions_grouped = db.query(
+            func.date(models.Transaction.date).label('d'),
+            func.sum(models.Transaction.amount).label('total')
+        ).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_history
-        ).order_by(models.Transaction.date.desc()).all()
+        ).group_by(func.date(models.Transaction.date)).all()
         
         # 3. Get MF timeline (which already handles historical valuation)
         mf_res = MutualFundService.get_performance_timeline(db, tenant_id, period='1m', granularity='1d')
@@ -184,11 +183,7 @@ class AnalyticsService:
         cursor_balance = current_liquid_assets
         
         # Group transactions by date
-        from collections import defaultdict
-        txn_by_date = defaultdict(float)
-        for t in transactions:
-            d = t.date.date()
-            txn_by_date[d] += float(t.amount)
+        txn_by_date = {row.d: float(row.total) for row in transactions_grouped}
             
         for i in range(days):
             target_date = (now - timedelta(days=i)).date()
@@ -330,8 +325,65 @@ class AnalyticsService:
             return []
 
         now = datetime.utcnow()
-        history = []
+        # Calculate start of the first month in range
+        first_month_offset = months - 1
+        current_m = now.month
+        current_y = now.year
         
+        for _ in range(first_month_offset):
+            current_m -= 1
+            if current_m == 0:
+                current_m = 12
+                current_y -= 1
+        
+        start_range = datetime(current_y, current_m, 1)
+        
+        # Query spending for ALL categories for the WHOLE period in one go
+        # Group by category and month
+        # Note: func.date_trunc('month', ...) is supported by DuckDB
+        monthly_stats = db.query(
+            models.Transaction.category,
+            func.date_trunc('month', models.Transaction.date).label('month_start'),
+            func.sum(models.Transaction.amount).label('total')
+        ).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_range,
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False
+        ).group_by(
+            models.Transaction.category,
+            func.date_trunc('month', models.Transaction.date)
+        ).all()
+        
+        # Organize statistics into a map for easy lookup: {month_start_date: {category: amount}}
+        stats_map = {}
+        for row in monthly_stats:
+            m_date = row.month_start.date() if hasattr(row.month_start, 'date') else row.month_start
+            if m_date not in stats_map:
+                stats_map[m_date] = {}
+            stats_map[m_date][row.category] = abs(float(row.total))
+            
+        # Handle 'OVERALL' special case if it exists in categories
+        if 'OVERALL' in categories:
+            overall_stats = db.query(
+                func.date_trunc('month', models.Transaction.date).label('month_start'),
+                func.sum(models.Transaction.amount).label('total')
+            ).filter(
+                models.Transaction.tenant_id == tenant_id,
+                models.Transaction.date >= start_range,
+                models.Transaction.amount < 0,
+                models.Transaction.is_transfer == False
+            ).group_by(
+                func.date_trunc('month', models.Transaction.date)
+            ).all()
+            
+            for row in overall_stats:
+                m_date = row.month_start.date() if hasattr(row.month_start, 'date') else row.month_start
+                if m_date not in stats_map:
+                    stats_map[m_date] = {}
+                stats_map[m_date]['OVERALL'] = abs(float(row.total))
+
+        history = []
         for i in range(months):
             # Calculate target month and year
             target_month = now.month - i
@@ -340,38 +392,7 @@ class AnalyticsService:
                 target_month += 12
                 target_year -= 1
             
-            m_start = datetime(target_year, target_month, 1)
-            if target_month == 12:
-                m_end = datetime(target_year + 1, 1, 1)
-            else:
-                m_end = datetime(target_year, target_month + 1, 1)
-            
-            # Query spending for these categories in this month
-            spendings = db.query(
-                models.Transaction.category,
-                func.sum(models.Transaction.amount).label('total')
-            ).filter(
-                models.Transaction.tenant_id == tenant_id,
-                models.Transaction.date >= m_start,
-                models.Transaction.date < m_end,
-                models.Transaction.amount < 0,
-                models.Transaction.is_transfer == False,
-                models.Transaction.category.in_(categories)
-            ).group_by(models.Transaction.category).all()
-            
-            spend_map = {s.category: abs(float(s.total)) for s in spendings}
-            
-            # Special case for OVERALL: ignore category and sum all
-            if 'OVERALL' in categories:
-                overall_spend = db.query(func.sum(models.Transaction.amount)).filter(
-                    models.Transaction.tenant_id == tenant_id,
-                    models.Transaction.date >= m_start,
-                    models.Transaction.date < m_end,
-                    models.Transaction.amount < 0,
-                    models.Transaction.is_transfer == False
-                ).scalar() or 0
-                spend_map['OVERALL'] = abs(float(overall_spend))
-            
+            m_start = datetime(target_year, target_month, 1).date()
             month_label = m_start.strftime("%b %Y")
             
             entry = {
@@ -379,11 +400,12 @@ class AnalyticsService:
                 "data": []
             }
             
+            month_data = stats_map.get(m_start, {})
             for b in budgets:
                 entry["data"].append({
                     "category": b.category,
                     "limit": float(b.amount_limit),
-                    "spent": spend_map.get(b.category, 0.0)
+                    "spent": month_data.get(b.category, 0.0)
                 })
             
             history.append(entry)
