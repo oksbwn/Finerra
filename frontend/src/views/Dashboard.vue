@@ -4,10 +4,25 @@ import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import { useRouter } from 'vue-router'
 import { useCurrency } from '@/composables/useCurrency'
+import Sparkline from '@/components/Sparkline.vue'
 
 const router = useRouter()
 const { formatAmount } = useCurrency()
 const loading = ref(true)
+const mfPortfolio = ref({
+    invested: 0,
+    current: 0,
+    pl: 0,
+    plPercent: 0,
+    xirr: 0,
+    trend: [] as number[],
+    allocation: { equity: 0, debt: 0, hybrid: 0, other: 0 } as any,
+    topPerformer: null as any,
+    loading: true
+})
+const netWorthTrend = ref<number[]>([])
+const spendingTrend = ref<number[]>([])
+const recurringTransactions = ref<any[]>([])
 const metrics = ref({
     breakdown: {
         net_worth: 0,
@@ -19,11 +34,13 @@ const metrics = ref({
         available_credit: 0
     },
     monthly_spending: 0,
+    top_spending_category: null as { name: string, amount: number } | null,
     budget_health: {
         limit: 0,
         spent: 0,
         percentage: 0
     },
+    credit_intelligence: [] as any[],
     recent_transactions: [] as any[],
     currency: 'INR'
 })
@@ -38,13 +55,25 @@ const budgetPulse = computed(() => {
         .slice(0, 3)
 })
 
-// Computed
-const creditUtilPercent = computed(() => {
-    const limit = metrics.value.breakdown.total_credit_limit
-    const debt = metrics.value.breakdown.credit_debt
-    if (!limit || limit === 0) return 0
-    return Math.min((debt / limit) * 100, 100)
+
+
+
+
+const netWorth = computed(() => {
+    const liquid = (metrics.value.breakdown.bank_balance || 0) + (metrics.value.breakdown.cash_balance || 0)
+    const totalInvestments = mfPortfolio.value.current || 0
+    const totalDebt = metrics.value.breakdown.credit_debt || 0
+    return liquid + totalInvestments - totalDebt
 })
+
+const upcomingBills = computed(() => {
+    return recurringTransactions.value
+        .filter(t => t.status === 'ACTIVE')
+        .slice(0, 3)
+})
+
+// Computed
+
 
 const getGreeting = () => {
     const hour = new Date().getHours()
@@ -81,6 +110,90 @@ function formatDate(dateStr: string) {
         } finally {
             loading.value = false
         }
+        
+        // Load Mutual Funds Data (Non-blocking)
+        try {
+            // 1. Portfolio
+            try {
+                const pfRes = await financeApi.getPortfolio()
+                if (pfRes && pfRes.data && Array.isArray(pfRes.data)) {
+                    let invested = 0
+                    let current = 0
+                    pfRes.data.forEach((h: any) => {
+                        const inv = Number(h.invested_value || h.investedValue || h.invested_amount || 0)
+                        const cur = Number(h.current_value || h.currentValue || h.value || 0)
+                        invested += inv
+                        current += cur
+                    })
+                    mfPortfolio.value.invested = invested
+                    mfPortfolio.value.current = current
+                    mfPortfolio.value.pl = current - invested
+                    mfPortfolio.value.plPercent = invested > 0 ? ((current - invested) / invested) * 100 : 0
+                }
+            } catch (e) {
+                console.error("PF Fetch Error", e)
+            }
+
+            // 2. Analytics
+            try {
+                const anRes = await financeApi.getAnalytics()
+                if (anRes && anRes.data) {
+                    mfPortfolio.value.xirr = Number(anRes.data.xirr || 0)
+                    mfPortfolio.value.allocation = anRes.data.asset_allocation || { equity: 0, debt: 0, hybrid: 0, other: 0 }
+                    if (anRes.data.top_gainers && anRes.data.top_gainers.length > 0) {
+                        const top = anRes.data.top_gainers[0]
+                        mfPortfolio.value.topPerformer = {
+                            schemeName: top.scheme_name || top.schemeName || top.scheme,
+                            plPercent: Number(top.pl_percent || top.plPercent || top.returns || 0)
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Analytics fetch failed", e)
+            }
+
+            // 3. Timeline
+            try {
+                const timelineRes = await financeApi.getPerformanceTimeline('1m', '1d')
+                if (timelineRes && timelineRes.data && (Array.isArray(timelineRes.data.timeline) || Array.isArray(timelineRes.data))) {
+                    const timelineArr = Array.isArray(timelineRes.data) ? timelineRes.data : timelineRes.data.timeline
+                    mfPortfolio.value.trend = timelineArr.map((p: any) => Number(p.value || 0))
+                }
+            } catch (e) {
+                console.warn("Timeline fetch failed", e)
+            }
+
+            // 4. Recurring
+            try {
+                const recurringRes = await financeApi.getRecurringTransactions()
+                if (recurringRes && recurringRes.data) {
+                    recurringTransactions.value = recurringRes.data
+                }
+            } catch (e) {
+                console.warn("Recurring fetch failed", e)
+            }
+            
+            mfPortfolio.value.loading = false
+            
+            // 5. Rich Trends
+            try {
+                const [nwRes, spendRes] = await Promise.all([
+                    financeApi.getNetWorthTimeline(30),
+                    financeApi.getSpendingTrend()
+                ])
+                if (nwRes && nwRes.data) {
+                    netWorthTrend.value = nwRes.data.map((p: any) => Number(p.total || 0))
+                }
+                if (spendRes && spendRes.data) {
+                    spendingTrend.value = spendRes.data.map((p: any) => Number(p.amount || 0))
+                }
+            } catch (e) {
+                console.warn("Trend data failed", e)
+            }
+        } catch (e) {
+            console.error("Critical MF data failed to load", e)
+            mfPortfolio.value.loading = false
+        }
     })
 </script>
 
@@ -104,13 +217,16 @@ function formatDate(dateStr: string) {
         </div>
 
         <div v-else class="dashboard-grid animate-in">
-            
             <!-- ROW 1: Key Metrics (Net Worth, Spending, Budget, Credit) -->
             <div class="metric-card net-worth-card h-glow-primary">
                 <div class="card-icon-bg purple">🏦</div>
                 <div class="card-data">
-                    <span class="label">Net Worth</span>
-                    <span class="value">{{ formatAmount(metrics.breakdown.net_worth, metrics.currency) }}</span>
+                    <span class="label">Balance Sheet Net Worth</span>
+                    <span class="value">{{ formatAmount(netWorth) }}</span>
+                    <!-- Sparkline -->
+                    <div v-if="netWorthTrend.length > 1" class="card-sparkline" style="margin-top: 8px;">
+                        <Sparkline :data="netWorthTrend" color="#8b5cf6" :height="20" />
+                    </div>
                 </div>
             </div>
 
@@ -119,6 +235,15 @@ function formatDate(dateStr: string) {
                 <div class="card-data">
                     <span class="label">Monthly Spending</span>
                     <span class="value">{{ formatAmount(metrics.monthly_spending, metrics.currency) }}</span>
+                    
+                    <div v-if="metrics.top_spending_category" class="sub-text" style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 4px;">
+                        Top: <span style="font-weight: 600; color: var(--color-text-main);">{{ metrics.top_spending_category.name }}</span>
+                    </div>
+
+                    <!-- Sparkline -->
+                    <div v-if="spendingTrend.length > 1" class="card-sparkline" style="margin-top: 8px;">
+                        <Sparkline :data="spendingTrend" color="#ef4444" :height="20" />
+                    </div>
                 </div>
             </div>
 
@@ -145,20 +270,48 @@ function formatDate(dateStr: string) {
                 </div>
             </div>
 
-            <div class="metric-card credit-card h-glow-blue" @click="router.push('/settings')">
-                <div class="card-top-row">
-                    <div class="card-icon-bg blue">💳</div>
-                    <span class="mini-percent">{{ creditUtilPercent.toFixed(0) }}%</span>
-                </div>
-                <div class="card-data">
-                    <span class="label">Credit Utilization</span>
-                    <div class="progress-bar-xs">
-                        <div class="fill blue" :style="{ width: creditUtilPercent + '%' }"></div>
-                    </div>
-                    <span class="sub-text">
-                        {{ formatAmount(metrics.breakdown.available_credit, metrics.currency) }} available
+            <!-- Investment Pulse Card (New) -->
+            <div class="metric-card investment-card h-glow-green" @click="router.push('/mutual-funds')" style="grid-column: span 1;">
+                 <div class="card-top-row">
+                    <div class="card-icon-bg green">🚀</div>
+                    <span v-if="!mfPortfolio.loading && mfPortfolio.invested > 0" class="mini-percent" :class="mfPortfolio.xirr >= 0 ? 'success' : 'danger'">
+                        {{ mfPortfolio.xirr.toFixed(1) }}% XIRR
                     </span>
-                </div>
+                 </div>
+                 <div class="card-data">
+                    <span class="label">Investments</span>
+                    <div v-if="mfPortfolio.loading">
+                        <div style="height: 24px; background: #f3f4f6; border-radius: 4px; width: 60%; margin-bottom: 4px;" class="pulse"></div>
+                    </div>
+                    <div v-else>
+                         <span class="value">{{ formatAmount(mfPortfolio.current) }}</span>
+                         <div style="font-size: 0.75rem; font-weight: 600; margin-top: 0.25rem;" :class="mfPortfolio.pl >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                            {{ mfPortfolio.pl >= 0 ? '+' : '' }}{{ formatAmount(mfPortfolio.pl) }} ({{ mfPortfolio.plPercent.toFixed(1) }}%)
+                         </div>
+
+                         <!-- Asset Allocation Mini Bar -->
+                         <div v-if="mfPortfolio.current > 0" class="mini-allocation-bar">
+                            <div v-if="mfPortfolio.allocation.equity > 0" class="allocation-segment equity" :style="{ width: mfPortfolio.allocation.equity + '%' }" title="Equity"></div>
+                            <div v-if="mfPortfolio.allocation.debt > 0" class="allocation-segment debt" :style="{ width: mfPortfolio.allocation.debt + '%' }" title="Debt"></div>
+                            <div v-if="mfPortfolio.allocation.hybrid > 0" class="allocation-segment hybrid" :style="{ width: mfPortfolio.allocation.hybrid + '%' }" title="Hybrid"></div>
+                            <div v-if="!(mfPortfolio.allocation.equity || mfPortfolio.allocation.debt || mfPortfolio.allocation.hybrid)" class="allocation-segment" style="width: 100%; background: #e2e8f0; border-radius: 3px;" title="No allocation data"></div>
+                         </div>
+
+                         <!-- Trend -->
+                         <div v-if="mfPortfolio.trend.length > 1" class="card-sparkline">
+                            <Sparkline :data="mfPortfolio.trend" :color="mfPortfolio.pl >= 0 ? '#10b981' : '#ef4444'" :height="24" />
+                         </div>
+                         <div v-else class="sub-text" style="font-size: 0.6rem; opacity: 0.5; margin: 4px 0;">
+                            Trend: {{ mfPortfolio.trend.length > 0 ? 'Insufficient data' : 'No data' }}
+                         </div>
+
+                         <!-- Top Performer Info -->
+                         <div v-if="mfPortfolio.topPerformer" class="tp-info animate-in">
+                            <span class="tp-label">Top: {{ mfPortfolio.topPerformer.schemeName }}</span>
+                            <span class="tp-val success">+{{ mfPortfolio.topPerformer.plPercent }}%</span>
+                         </div>
+                    </div>
+                 </div>
             </div>
 
             <!-- ROW 2: Budget Pulse (Surfacing category limits) -->
@@ -210,12 +363,43 @@ function formatDate(dateStr: string) {
                             <span class="snap-val">{{ formatAmount(metrics.breakdown.cash_balance, metrics.currency) }}</span>
                         </div>
                     </div>
-                    <div class="snapshot-item">
+                    <div class="snapshot-item" @click="router.push('/mutual-funds')" style="cursor: pointer;">
                         <span class="snap-icon">📈</span>
                         <div class="snap-info">
                             <span class="snap-label">Investments</span>
-                            <span class="snap-val">{{ formatAmount(metrics.breakdown.investment_value, metrics.currency) }}</span>
+                            <span class="snap-val" :class="{'text-emerald-600': mfPortfolio.current > 0}">
+                                {{ formatAmount(mfPortfolio.current) }}
+                            </span>
                         </div>
+                    </div>
+                    <div class="snapshot-item" @click="router.push('/settings')" style="cursor: pointer;">
+                        <span class="snap-icon">💳</span>
+                        <div class="snap-info">
+                            <span class="snap-label">Avail. Credit</span>
+                            <span class="snap-val">{{ formatAmount(metrics.breakdown.available_credit, metrics.currency) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upcoming Bills Subsection -->
+                <div class="upcoming-bills-section">
+                    <div class="sub-section-header">
+                        <h4>Upcoming Bills</h4>
+                    </div>
+                    <div v-if="upcomingBills.length > 0" class="upcoming-list">
+                        <div v-for="bill in upcomingBills" :key="bill.id" class="bill-row">
+                            <div class="bill-left">
+                                <span class="bill-icon">{{ getCategoryDetails(bill.category).icon }}</span>
+                                <div class="bill-info">
+                                    <span class="bill-name">{{ bill.description }}</span>
+                                    <span class="bill-date">Due on {{ formatDate(bill.next_date) }}</span>
+                                </div>
+                            </div>
+                            <div class="bill-amount">{{ formatAmount(bill.amount) }}</div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-state-diag">
+                         No active recurring bills found.
                     </div>
                 </div>
             </div>
@@ -247,6 +431,50 @@ function formatDate(dateStr: string) {
                 </div>
             </div>
 
+            <!-- Credit Intelligence -->
+            <div class="dashboard-section credit-intel-section glass-panel">
+                <div class="section-header">
+                    <div class="header-with-badge">
+                        <h3>Credit Intelligence</h3>
+                        <span class="pulse-status-badge" style="background: #eef2ff; color: #4f46e5;">Cycles</span>
+                    </div>
+                </div>
+                <div v-if="metrics.credit_intelligence.length > 0" class="credit-list">
+                    <div v-for="card in metrics.credit_intelligence" :key="card.id" class="card-intel-item">
+                        <div class="card-intel-top">
+                            <span class="card-intel-name">💳 {{ card.name }}</span>
+                            <span v-if="card.days_until_due !== null" class="card-intel-status" :class="{'danger': card.days_until_due < 5, 'warning': card.days_until_due < 10}">
+                                {{ card.days_until_due }} days left
+                            </span>
+                            <span v-else class="card-intel-status muted">No due date</span>
+                        </div>
+                        <div class="card-intel-util">
+                            <div class="util-bar-bg">
+                                <div class="util-bar-fill" :style="{ width: Math.min(card.utilization, 100) + '%', backgroundColor: card.utilization > 50 ? '#f59e0b' : '#6366f1' }"></div>
+                            </div>
+                            <span class="util-text">{{ card.utilization.toFixed(0) }}% Limit Used</span>
+                        </div>
+                        <div class="card-intel-footer">
+                            <div class="intel-stat">
+                                <span class="stat-label">Billing Day</span>
+                                <span class="stat-value">{{ card.billing_day || '—' }}</span>
+                            </div>
+                            <div class="intel-stat">
+                                <span class="stat-label">Due Day</span>
+                                <span class="stat-value">{{ card.due_day || '—' }}</span>
+                            </div>
+                            <div class="intel-stat" style="text-align: right;">
+                                <span class="stat-label">Balance</span>
+                                <span class="stat-value">{{ formatAmount(card.balance) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div v-else class="empty-state-diag">
+                    No credit accounts with limits configured.
+                </div>
+            </div>
+
         </div>
     </div>
   </MainLayout>
@@ -254,7 +482,7 @@ function formatDate(dateStr: string) {
 
 <style scoped>
 .dashboard-container {
-    max-width: 1200px;
+    width: 100%;
     margin: 0 auto;
     padding-bottom: 3rem;
 }
@@ -285,6 +513,8 @@ function formatDate(dateStr: string) {
 .loading-state { padding: 4rem; text-align: center; color: var(--color-text-muted); }
 .spinner { width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top: 3px solid #4f46e5; border-radius: 50%; margin: 0 auto 1rem; animation: spin 1s linear infinite; }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+@keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+.pulse { animation: pulse 1.5s infinite ease-in-out; }
 
 /* Grid Layout */
 .dashboard-grid {
@@ -295,6 +525,28 @@ function formatDate(dateStr: string) {
 
 .animate-in { animation: slideUp 0.4s ease-out forwards; }
 @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Sync Monitor */
+.sync-monitor-banner {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    background: #f8fafc;
+    border: 1px dashed #e2e8f0;
+    border-radius: 12px;
+}
+.sync-pill {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #64748b;
+    padding: 0.25rem 0.6rem;
+    background: white;
+    border-radius: 20px;
+    border: 1px solid #f1f5f9;
+}
 
 /* Metric Cards */
 .metric-card {
@@ -316,6 +568,7 @@ function formatDate(dateStr: string) {
 .h-glow-danger:hover { box-shadow: 0 8px 20px rgba(239, 68, 68, 0.15); border-color: #fca5a5; }
 .h-glow-warning:hover { box-shadow: 0 8px 20px rgba(245, 158, 11, 0.15); border-color: #fcd34d; cursor: pointer; }
 .h-glow-blue:hover { box-shadow: 0 8px 20px rgba(59, 130, 246, 0.15); border-color: #93c5fd; cursor: pointer; }
+.h-glow-green:hover { box-shadow: 0 8px 20px rgba(16, 185, 129, 0.15); border-color: #6ee7b7; cursor: pointer; }
 
 .card-icon-bg {
     width: 40px; height: 40px;
@@ -329,6 +582,8 @@ function formatDate(dateStr: string) {
 .red { background: #fef2f2; color: #ef4444; }
 .orange { background: #fffbeb; color: #f59e0b; }
 .blue { background: #eff6ff; color: #3b82f6; }
+.green { background: #ecfdf5; color: #10b981; }
+.indigo { background: #e0e7ff; color: #6366f1; }
 
 .card-data { display: flex; flex-direction: column; }
 .label { font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
@@ -339,6 +594,7 @@ function formatDate(dateStr: string) {
 .card-top-row .card-icon-bg { margin-bottom: 0; }
 .mini-percent { font-size: 0.8rem; font-weight: 700; color: #374151; background: #f3f4f6; padding: 0.1rem 0.4rem; border-radius: 4px; }
 .mini-percent.danger { color: #dc2626; background: #fef2f2; }
+.mini-percent.success { color: #059669; background: #ecfdf5; }
 
 .progress-bar-xs {
     height: 6px;
@@ -352,6 +608,138 @@ function formatDate(dateStr: string) {
 
 .sub-text { font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; }
 
+/* Investment Specifics */
+.card-sparkline {
+    margin-top: 0.75rem;
+    margin-bottom: 0.5rem;
+    height: 24px;
+}
+
+.tp-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed #e2e8f0;
+    margin-top: 0.5rem;
+}
+
+.tp-label {
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    font-weight: 600;
+    max-width: 70%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tp-val {
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+.tp-val.success { color: #10b981; }
+
+.empty-state-diag {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+    padding: 0.5rem;
+    background: #f8fafc;
+    border-radius: 6px;
+    text-align: center;
+}
+
+/* Asset Allocation Bar */
+.mini-allocation-bar {
+    display: flex;
+    height: 6px;
+    border-radius: 3px;
+    background: #f1f5f9;
+    overflow: hidden;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.allocation-segment {
+    height: 100%;
+}
+.allocation-segment.equity { background: #6366f1; }
+.allocation-segment.debt { background: #10b981; }
+.allocation-segment.hybrid { background: #f59e0b; }
+
+/* Upcoming Bills */
+.upcoming-bills-section {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #f1f5f9;
+}
+
+.sub-section-header h4 {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+}
+
+.upcoming-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.bill-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 8px;
+    background: rgba(248, 250, 252, 0.5);
+    transition: background 0.2s;
+}
+
+.bill-row:hover {
+    background: #f1f5f9;
+}
+
+.bill-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.bill-icon {
+    font-size: 1.25rem;
+    padding: 0.4rem;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.bill-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.bill-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-text-dark);
+}
+
+.bill-date {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+}
+
+.bill-amount {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--color-text-dark);
+}
+
 /* Sections */
 .dashboard-section {
     background: white;
@@ -363,6 +751,7 @@ function formatDate(dateStr: string) {
 .snapshot-section { grid-column: span 2; }
 .activity-section { grid-column: span 2; }
 .pulse-section { grid-column: span 4; }
+.credit-intel-section { grid-column: span 4; }
 
 .header-with-badge { display: flex; align-items: center; gap: 0.75rem; }
 .pulse-status-badge { 
@@ -444,6 +833,27 @@ function formatDate(dateStr: string) {
     70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
     100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
+
+/* Credit Intelligence List */
+.credit-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+.card-intel-item { 
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.875rem; padding: 1rem;
+}
+.card-intel-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.card-intel-name { font-weight: 700; font-size: 0.9rem; color: #1e293b; }
+.card-intel-status { font-size: 0.7rem; font-weight: 700; padding: 0.125rem 0.5rem; border-radius: 1rem; background: #f1f5f9; color: #475569; }
+.card-intel-status.warning { background: #fff7ed; color: #ea580c; }
+.card-intel-status.danger { background: #fef2f2; color: #dc2626; }
+
+.card-intel-util { margin-bottom: 0.75rem; }
+.util-bar-bg { height: 6px; background: #e2e8f0; border-radius: 3px; margin-bottom: 0.25rem; overflow: hidden; }
+.util-bar-fill { height: 100%; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+.util-text { font-size: 0.65rem; font-weight: 600; color: #64748b; }
+
+.card-intel-footer { display: flex; justify-content: space-between; gap: 0.5rem; border-top: 1px dashed #e2e8f0; padding-top: 0.75rem; margin-top: 0.25rem; }
+.intel-stat { display: flex; flex-direction: column; }
+.stat-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.025em; color: #94a3b8; font-weight: 700; }
+.stat-value { font-size: 0.8rem; font-weight: 700; color: #334155; }
 
 /* Mobile Responsive */
 @media (max-width: 1024px) {

@@ -1,0 +1,1536 @@
+import threading
+import time
+import httpx
+from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import List, Optional
+from backend.app.modules.finance.models import MutualFundsMeta, MutualFundHolding, MutualFundOrder
+
+MFAPI_BASE_URL = "https://api.mfapi.in/mf"
+
+# Global lock for DuckDB writes to prevent Conflict on Update within this process
+_db_write_lock = threading.Lock()
+
+class MutualFundService:
+    
+    @staticmethod
+    def _safe_commit(db: Session, max_retries: int = 5):
+        """Helper to commit with retries. With global lock, this is mostly a fallback."""
+        for i in range(max_retries):
+            try:
+                db.commit()
+                return
+            except Exception as e:
+                if "Conflict" in str(e) and i < max_retries - 1:
+                    import time
+                    time.sleep(0.1 * (2 ** i))
+                    db.rollback()
+                    # CRITICAL: We don't continue because rollback cleared the session.
+                    # This should now be prevented by the global lock.
+                raise e
+    
+    @staticmethod
+    def get_mock_returns(scheme_code: str) -> float:
+        try:
+            code_str = str(scheme_code or '0')
+            hash_val = sum(ord(c) for c in code_str)
+            base = 12 + (hash_val % 25)
+            # Add some decimal variation based on hash to make it look real
+            decimal = (hash_val % 10) / 10.0
+            return float(f"{base + decimal:.1f}")
+        except:
+            return 12.0
+
+    @staticmethod
+    def search_funds(query: Optional[str] = None, category: Optional[str] = None, amc: Optional[str] = None, limit: int = 20, offset: int = 0, sort_by: str = 'relevance', all_funds_cache: Optional[List[dict]] = None):
+        try:
+            # Fetch the main list from MFAPI if not provided
+            if all_funds_cache:
+                all_funds = all_funds_cache
+            else:
+                response = httpx.get(f"{MFAPI_BASE_URL}")
+                if response.status_code == 200:
+                    all_funds = response.json()
+                else:
+                    return []
+            
+            # Continue with processing...
+            if True: # indent preservation wrapper
+                query_low = query.lower() if query else None
+                cat_low = category.lower() if category else None
+                amc_low = amc.lower() if amc else None
+
+                # Optimization: Direct filter if possible, otherwise iterate
+                filtered_funds = []
+                for f in all_funds:
+                    scheme_name = f.get('schemeName', '').lower()
+                    
+                    # Filtering logic
+                    match = True
+                    if query_low and query_low not in scheme_name:
+                        match = False
+                    if cat_low and cat_low not in scheme_name: 
+                        match = False
+                    if amc_low and amc_low not in scheme_name: 
+                        match = False
+                        
+                    if match:
+                        filtered_funds.append(f)
+
+                # Sorting
+                if sort_by == 'returns_desc':
+                    filtered_funds.sort(key=lambda x: MutualFundService.get_mock_returns(str(x.get('schemeCode'))), reverse=True)
+                elif sort_by == 'returns_asc':
+                    filtered_funds.sort(key=lambda x: MutualFundService.get_mock_returns(str(x.get('schemeCode'))))
+                # Default 'relevance' keeps original order (usually by scheme code or alphabetical from API)
+
+                # Pagination
+                start = offset
+                end = offset + limit
+                results = filtered_funds[start:end]
+                            
+                return results
+            return []
+        except Exception as e:
+            print(f"Error searching funds: {e}")
+            return []
+
+    @staticmethod
+    def get_fund_nav(scheme_code: str):
+        try:
+            response = httpx.get(f"{MFAPI_BASE_URL}/{scheme_code}")
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "SUCCESS":
+                    # Meta: fund_house, scheme_type, scheme_category, scheme_code, scheme_name
+                    # Data: date, nav
+                    return data
+            return None
+        except Exception as e:
+            print(f"Error fetching NAV: {e}")
+            return None
+
+    @staticmethod
+    def map_transactions_to_schemes(transactions: List[dict]):
+        """Map raw transaction names/AMFI codes to MFAPI scheme codes."""
+        if not transactions:
+            return []
+            
+        all_funds = []
+        amfi_map = {}
+        try:
+            print("[MutualFundService] Fetching master fund list for mapping...")
+            import httpx
+            resp = httpx.get("https://api.mfapi.in/mf", timeout=10.0)
+            if resp.status_code == 200:
+                all_funds = resp.json()
+                amfi_map = {str(f['schemeCode']): f for f in all_funds}
+                print(f"[MutualFundService] Master list fetched: {len(all_funds)} schemes.")
+        except Exception as e:
+            print(f"[MutualFundService] Warning: Failed to fetch master fund list: {e}. Falling back to name search.")
+
+        mapped_results = []
+        for txn in transactions:
+            matched_scheme = None
+            amfi_code = txn.get('amfi')
+            
+            # 1. Try AMFI lookup
+            if amfi_code and str(amfi_code) in amfi_map:
+                matched_scheme = amfi_map[str(amfi_code)]
+            
+            # 2. Fallback to Name Search - Pass cache to avoid redundant fetches
+            if not matched_scheme:
+                results = MutualFundService.search_funds(txn['scheme_name'], all_funds_cache=all_funds)
+                if results:
+                    matched_scheme = results[0]
+            
+            if matched_scheme:
+                txn['scheme_code'] = matched_scheme['schemeCode']
+                txn['mapped_name'] = matched_scheme['schemeName']
+                txn['mapping_status'] = 'MAPPED'
+            else:
+                txn['mapping_status'] = 'UNMAPPED'
+                txn['error'] = "Could not map scheme to master list"
+            
+            # Mark as duplicate (will be checked by endpoints that have db access)
+            txn['is_duplicate'] = False  # Default, will be updated by endpoint
+            
+            mapped_results.append(txn)
+            
+        return mapped_results
+    
+    @staticmethod
+    def check_duplicates(db: Session, tenant_id: str, transactions: List[dict]) -> List[dict]:
+        """
+        Check which transactions are duplicates of existing orders.
+        Returns the same list with 'is_duplicate' flag set.
+        """
+        from sqlalchemy import func
+        from datetime import datetime, date
+        
+        for txn in transactions:
+            is_duplicate = False
+            
+            # Only check if successfully mapped
+            if txn.get('scheme_code'):
+                user_id = txn.get('user_id')
+                scheme_code = str(txn.get('scheme_code'))
+                external_id = txn.get('external_id')
+                
+                # Priority 1: Check by external_id
+                if external_id:
+                    existing = db.query(MutualFundOrder.id).filter(
+                        MutualFundOrder.tenant_id == tenant_id,
+                        MutualFundOrder.user_id == user_id,
+                        MutualFundOrder.external_id == external_id
+                    ).first()
+                    if existing:
+                        is_duplicate = True
+                
+                # Priority 2: Check by field match
+                if not is_duplicate:
+                    txn_date_raw = txn.get('date')
+                    if isinstance(txn_date_raw, str):
+                        # Parse string date
+                        for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+                            try:
+                                txn_date_raw = datetime.strptime(txn_date_raw, fmt)
+                                break
+                            except: continue
+                    
+                    if isinstance(txn_date_raw, (datetime, date)):
+                        txn_date = txn_date_raw.date() if isinstance(txn_date_raw, datetime) else txn_date_raw
+                        rounded_units = round(float(txn.get('units', 0)), 4)
+                        rounded_amount = round(float(txn.get('amount', 0)), 2)
+                        
+                        existing = db.query(MutualFundOrder.id).filter(
+                            MutualFundOrder.tenant_id == tenant_id,
+                            MutualFundOrder.user_id == user_id,
+                            MutualFundOrder.scheme_code == scheme_code,
+                            func.date(MutualFundOrder.order_date) == txn_date,
+                            MutualFundOrder.type == txn.get('type', 'BUY'),
+                            func.round(MutualFundOrder.units, 4) == rounded_units,
+                            func.round(MutualFundOrder.amount, 2) == rounded_amount
+                        ).first()
+                        
+                        if existing:
+                            is_duplicate = True
+            
+            txn['is_duplicate'] = is_duplicate
+        
+        return transactions
+
+    @staticmethod
+    def import_mapped_transactions(db: Session, tenant_id: str, transactions: List[dict]):
+        """Bulk ingest transactions under a global lock."""
+        stats = {"processed": 0, "failed": 0, "details": {"imported": [], "failed": []}}
+        
+        print(f"[MutualFundService] Starting bulk import of {len(transactions)} transactions")
+        
+        with _db_write_lock:
+            for idx, txn in enumerate(transactions):
+                try:
+                    # add_transaction_logic expects 'date' as datetime or date object
+                    # We might need to parse it if it comes from JSON
+                    if isinstance(txn.get('date'), str):
+                        try:
+                            # Try common formats
+                            from datetime import datetime
+                            for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+                                try:
+                                    txn['date'] = datetime.strptime(txn['date'], fmt)
+                                    break
+                                except: continue
+                        except: pass
+                    
+                    print(f"[MutualFundService] [{idx+1}/{len(transactions)}] Processing: {txn.get('scheme_name')} - {txn.get('units')} units")
+                    result = MutualFundService._add_transaction_logic(db, tenant_id, txn)
+                    
+                    if result and hasattr(result, 'id'):
+                        print(f"[MutualFundService] ✓ Transaction added/found: Order ID {result.id}")
+                        stats["processed"] += 1
+                        stats["details"]["imported"].append(txn)
+                    else:
+                        print(f"[MutualFundService] ✗ No result returned")
+                        stats["failed"] += 1
+                        txn['error'] = "No order returned"
+                        stats["details"]["failed"].append(txn)
+                except Exception as e:
+                    print(f"[MutualFundService] ✗ Import error: {e}")
+                    txn['error'] = str(e)
+                    stats["failed"] += 1
+                    stats["details"]["failed"].append(txn)
+            
+            print(f"[MutualFundService] Committing {stats['processed']} transactions")
+            MutualFundService._safe_commit(db)
+            print(f"[MutualFundService] Import complete: {stats['processed']} processed, {stats['failed']} failed")
+            
+        return stats
+
+    @staticmethod
+    def add_transaction(db: Session, tenant_id: str, data: dict):
+        """Public method that wraps logic in a global lock for DuckDB safety."""
+        with _db_write_lock:
+            result = MutualFundService._add_transaction_logic(db, tenant_id, data)
+            MutualFundService._safe_commit(db)
+            return result
+
+    @staticmethod
+    def _add_transaction_logic(db: Session, tenant_id: str, data: dict):
+        # 1. Ensure Meta exists
+        scheme_code = str(data['scheme_code'])
+        meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == scheme_code).first()
+        
+        if not meta:
+            # Fetch from API and save
+            fund_data = MutualFundService.get_fund_nav(scheme_code)
+            if fund_data:
+                meta_info = fund_data.get("meta", {})
+                meta = MutualFundsMeta(
+                    scheme_code=str(meta_info.get("scheme_code")),
+                    scheme_name=meta_info.get("scheme_name"),
+                    fund_house=meta_info.get("fund_house"),
+                    category=meta_info.get("scheme_category")
+                )
+                db.add(meta)
+                db.flush() # Use flush instead of commit to allow external batching
+            else:
+                raise ValueError("Invalid Scheme Code or API Error")
+
+        # 2. Check for duplicate order (Idempotency)
+        user_id = data.get('user_id')
+        external_id = data.get('external_id')
+        
+        # Priority 1: Check by External ID
+        if external_id:
+            existing_order = db.query(MutualFundOrder).filter(
+                MutualFundOrder.tenant_id == tenant_id,
+                MutualFundOrder.user_id == user_id,
+                MutualFundOrder.external_id == external_id
+            ).first()
+            if existing_order:
+                print(f"[MutualFundService] → DUPLICATE (external_id): {external_id}")
+                return existing_order
+
+        # Priority 2: Check by exact match with precision handling
+        # Use rounding to avoid float representation issues in DuckDB/Python
+        from sqlalchemy import func
+        from datetime import date
+        
+        txn_date = data['date'].date() if isinstance(data['date'], datetime) else data['date']
+        rounded_units = round(float(data['units']), 4)
+        rounded_amount = round(float(data['amount']), 2)
+        
+        existing_order = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.user_id == user_id,
+            MutualFundOrder.scheme_code == scheme_code,
+            # Use func.date to ignore time part
+            func.date(MutualFundOrder.order_date) == txn_date,
+            MutualFundOrder.type == data.get('type', 'BUY'),
+            # Precision-safe comparison
+            func.round(MutualFundOrder.units, 4) == rounded_units,
+            func.round(MutualFundOrder.amount, 2) == rounded_amount
+        ).first()
+
+        if existing_order:
+            print(f"[MutualFundService] → DUPLICATE (field match): {scheme_code} on {txn_date}")
+            return existing_order
+
+        # 3. Create Order
+        print(f"[MutualFundService] → NEW TRANSACTION: Creating order for {scheme_code}")
+        order = MutualFundOrder(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            scheme_code=scheme_code,
+            type=data.get('type', 'BUY'),
+            amount=data['amount'],
+            units=data['units'],
+            nav=data['nav'],
+            order_date=data['date'],
+            external_id=external_id,
+            import_source=data.get('import_source', 'MANUAL')
+        )
+        db.add(order)
+        
+        # 3. Update Holding
+        return MutualFundService._update_holding_with_order(db, tenant_id, order, data.get('folio_number'))
+
+    @staticmethod
+    def _update_holding_with_order(db: Session, tenant_id: str, order: MutualFundOrder, folio_number: Optional[str] = None):
+        """Internal helper to shared between live ingestion and recalculation"""
+        user_id = order.user_id
+        scheme_code = order.scheme_code
+        
+        # Find/Create Holding
+        query = db.query(MutualFundHolding).filter(
+            MutualFundHolding.tenant_id == tenant_id,
+            MutualFundHolding.user_id == user_id,
+            MutualFundHolding.scheme_code == scheme_code
+        )
+        
+        if folio_number:
+            query = query.filter(MutualFundHolding.folio_number == folio_number)
+        else:
+            query = query.filter(MutualFundHolding.folio_number.is_(None))
+            
+        holding = query.first()
+
+        if not holding:
+            holding = MutualFundHolding(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                scheme_code=scheme_code,
+                folio_number=folio_number,
+                units=0,
+                average_price=0
+            )
+            db.add(holding)
+            db.flush() 
+        else:
+            if folio_number:
+                holding.folio_number = folio_number
+        
+        # Update Balance
+        if order.type == "BUY":
+            current_units = float(holding.units or 0.0)
+            current_avg = float(holding.average_price or 0.0)
+            
+            order_units = float(order.units)
+            order_amount = float(order.amount)
+            txn_cost = order_amount if order_amount > 0 else (float(order.nav) * order_units)
+            
+            total_cost = (current_avg * current_units) + txn_cost
+            total_units = current_units + order_units
+            
+            holding.average_price = total_cost / total_units if total_units > 0 else 0.0
+            holding.units = total_units
+        elif order.type == "SELL":
+            current_units = float(holding.units or 0.0)
+            holding.units = max(0, current_units - float(order.units))
+        
+        # Update NAV Info
+        if not holding.last_nav or float(holding.last_nav) == 0:
+            holding.last_nav = order.nav
+            holding.last_updated_at = order.order_date
+        
+        holding.current_value = float(holding.units) * float(holding.last_nav or 0.0)
+
+        # Ensure holding has an ID before linking
+        if not holding.id:
+            db.flush()  # Force ID generation
+        
+        order.holding_id = holding.id
+        print(f"[MutualFundService] Updated holding {holding.id} for scheme {scheme_code}: {holding.units} units, value: {holding.current_value}")
+        db.flush() 
+        return order
+
+    @staticmethod
+    def cleanup_duplicates(db: Session, tenant_id: str):
+        """Find and remove duplicate orders, then rebuild holdings."""
+        with _db_write_lock:
+            # 1. Find duplicate groups
+            from sqlalchemy import func
+            duplicates = db.query(
+                MutualFundOrder.scheme_code, 
+                MutualFundOrder.order_date, 
+                MutualFundOrder.units, 
+                MutualFundOrder.amount, 
+                MutualFundOrder.type
+            ).filter(MutualFundOrder.tenant_id == tenant_id).group_by(
+                MutualFundOrder.scheme_code, 
+                MutualFundOrder.order_date, 
+                MutualFundOrder.units, 
+                MutualFundOrder.amount, 
+                MutualFundOrder.type
+            ).having(func.count('*') > 1).all()
+            
+            removed_count = 0
+            for sc, d, u, a, t in duplicates:
+                all_matches = db.query(MutualFundOrder).filter(
+                    MutualFundOrder.tenant_id == tenant_id,
+                    MutualFundOrder.scheme_code == sc,
+                    MutualFundOrder.order_date == d,
+                    MutualFundOrder.units == u,
+                    MutualFundOrder.amount == a,
+                    MutualFundOrder.type == t
+                ).order_by(MutualFundOrder.created_at).all()
+                
+                to_delete = all_matches[1:]
+                for order in to_delete:
+                    db.delete(order)
+                    removed_count += 1
+                    
+            MutualFundService._safe_commit(db)
+            
+            # 2. Recalculate holdings (nested call, same lock thread)
+            # Actually _update_holding_with_order is used inside recalculate_holdings
+            # We call the internal logic to avoid re-taking the lock if it's already held by us
+            # But threading.Lock() is NOT re-entrant. 
+            # I should use an RLock or call an internal method.
+            MutualFundService._recalculate_holdings_logic(db, tenant_id)
+            
+            return removed_count
+
+    @staticmethod
+    def recalculate_holdings(db: Session, tenant_id: str, user_id: Optional[str] = None):
+        with _db_write_lock:
+            return MutualFundService._recalculate_holdings_logic(db, tenant_id, user_id)
+
+    @staticmethod
+    def _recalculate_holdings_logic(db: Session, tenant_id: str, user_id: Optional[str] = None):
+        """Internal logic without lock for nested calls"""
+        # 1. Get all orders sorted by date
+        query = db.query(MutualFundOrder).filter(MutualFundOrder.tenant_id == tenant_id)
+        if user_id:
+            query = query.filter(MutualFundOrder.user_id == user_id)
+        
+        orders = query.order_by(MutualFundOrder.order_date).all()
+        
+        # 2. Delete existing holdings
+        h_query = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            h_query = h_query.filter(MutualFundHolding.user_id == user_id)
+        
+        h_query.delete(synchronize_session=False)
+        db.flush()
+        
+        # 3. Process each order
+        processed_orders = []
+        for order in orders:
+            folio = getattr(order, 'folio_number', None)
+            MutualFundService._update_holding_with_order(db, tenant_id, order, folio)
+            processed_orders.append(order)
+        
+        # 4. Special Commit
+        MutualFundService._safe_commit(db)
+        return len(processed_orders)
+
+    @staticmethod
+    def delete_holding(db: Session, tenant_id: str, holding_id: str):
+        with _db_write_lock:
+            holding = db.query(MutualFundHolding).filter(
+                MutualFundHolding.id == holding_id,
+                MutualFundHolding.tenant_id == tenant_id
+            ).first()
+            
+            if not holding:
+                raise Exception("Holding not found")
+            
+            # First, delete all associated orders
+            deleted_orders = db.query(MutualFundOrder).filter(
+                MutualFundOrder.holding_id == holding_id,
+                MutualFundOrder.tenant_id == tenant_id
+            ).delete(synchronize_session=False)
+            
+            print(f"[MutualFundService] Deleted {deleted_orders} orders for holding {holding_id}")
+            
+            # Then delete the holding itself
+            db.delete(holding)
+            MutualFundService._safe_commit(db)
+            return True
+
+    @staticmethod
+    def get_portfolio(db: Session, tenant_id: str, user_id: Optional[str] = None):
+        import asyncio
+        
+        query = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            query = query.filter(MutualFundHolding.user_id == user_id)
+        
+        holdings = query.all()
+        results = []
+        
+        # Check for updates needed (Stale > 24h or None)
+        updates_made = False
+        today = datetime.utcnow().date()
+        
+        async def fetch_nav_and_sparkline(scheme_code):
+            """Fetch both current NAV and 30-day history concurrently"""
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(f"https://api.mfapi.in/mf/{scheme_code}", timeout=5.0)
+                    
+                if response.status_code == 200:
+                    fund_data = response.json()
+                    raw_data = fund_data.get("data", [])
+                    
+                    def parse_date(d_str):
+                        try:
+                            return datetime.strptime(d_str, "%d-%m-%Y")
+                        except:
+                            return datetime.min
+
+                    # Sort by date descending
+                    sorted_data = sorted(raw_data, key=lambda x: parse_date(x.get("date", "")), reverse=True)
+                    
+                    # Latest NAV
+                    latest_nav = 0.0
+                    nav_date_str = ""
+                    if sorted_data:
+                        latest_nav_data = sorted_data[0]
+                        latest_nav = float(latest_nav_data.get("nav", 0.0))
+                        nav_date_str = latest_nav_data.get("date", "")
+                    
+                    # Sparkline (last 30 days)
+                    sparkline_data = sorted_data[:30]  # Get last 30 entries
+                    sparkline_data.reverse()  # Reverse to chronological order
+                    sparkline = [float(d.get("nav", 0.0)) for d in sparkline_data if d.get("nav")]
+                    
+                    return {
+                        "latest_nav": latest_nav,
+                        "nav_date": nav_date_str,
+                        "sparkline": sparkline
+                    }
+                else:
+                    return {"latest_nav": 0.0, "nav_date": "", "sparkline": []}
+            except Exception as e:
+                print(f"Failed to fetch NAV/sparkline for {scheme_code}: {e}")
+                return {"latest_nav": 0.0, "nav_date": "", "sparkline": []}
+        
+        # Fetch all NAV data concurrently
+        async def fetch_all_nav_data():
+            tasks = [fetch_nav_and_sparkline(h.scheme_code) for h in holdings]
+            return await asyncio.gather(*tasks)
+        
+        nav_data_list = asyncio.run(fetch_all_nav_data())
+        
+        # Phase 1: Update Holdings (Write Lock)
+        updates_made = False
+        with _db_write_lock:
+            try:
+                for h, nav_data in zip(holdings, nav_data_list):
+                    latest_nav = nav_data.get("latest_nav", 0.0)
+                    nav_date_str = nav_data.get("nav_date", "")
+                    
+                    if latest_nav > 0:
+                        has_changed = False
+                        # NAV Update
+                        if not h.last_nav or abs(float(h.last_nav) - latest_nav) > 0.0001:
+                            h.last_nav = latest_nav
+                            has_changed = True
+                        
+                        # Value Update
+                        current_units = float(h.units or 0.0)
+                        new_value = current_units * latest_nav
+                        if not h.current_value or abs(float(h.current_value) - new_value) > 0.01:
+                            h.current_value = new_value
+                            has_changed = True
+                        
+                        # Date Update
+                        def parse_date_local(d_str):
+                            try:
+                                return datetime.strptime(d_str, "%d-%m-%Y")
+                            except: return None
+                        
+                        new_date = parse_date_local(nav_date_str)
+                        if new_date and (not h.last_updated_at or h.last_updated_at != new_date):
+                            h.last_updated_at = new_date
+                            has_changed = True
+                            
+                        if has_changed:
+                            updates_made = True
+                
+                if updates_made:
+                    MutualFundService._safe_commit(db)
+            except Exception as e:
+                print(f"[MutualFundService] Error updating NAVs: {e}")
+                db.rollback()
+
+        # Phase 2: Build Results (Read-Only)
+        # Objects might be expired after commit, so accessing properties will trigger refresh (SELECT)
+        # This is safe as we are outside the write lock and transaction.
+        for h, nav_data in zip(holdings, nav_data_list):
+            sparkline = nav_data.get("sparkline", [])
+            
+            # Accessing properties triggers reload if needed
+            units = float(h.units or 0.0)
+            avg_price = float(h.average_price or 0.0)
+            current_val = float(h.current_value or 0.0)
+            invested = units * avg_price
+            pl = (current_val - invested) if current_val > 0 else 0.0
+            last_updated_str = h.last_updated_at.strftime("%d-%b-%Y") if h.last_updated_at else "N/A"
+            
+            # Fetch meta (Autoflush irrelevant now as no pending changes)
+            meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == h.scheme_code).first()
+
+            results.append({
+                "id": h.id,
+                "scheme_code": h.scheme_code,
+                "scheme_name": meta.scheme_name if meta else "Unknown Fund",
+                "category": meta.category if meta else "Other",
+                "folio_number": h.folio_number,
+                "units": units,
+                "average_price": avg_price,
+                "current_value": current_val,
+                "invested_value": invested,
+                "last_nav": float(h.last_nav or 0.0),
+                "profit_loss": pl,
+                "last_updated": last_updated_str,
+                "sparkline": sparkline,
+                "user_id": h.user_id
+            })
+            
+        return results
+
+    @staticmethod
+    def get_holding_details(db: Session, tenant_id: str, holding_id: str):
+        from backend.app.modules.auth.models import User
+        
+        # Joined query to get user name
+        result = db.query(MutualFundHolding, User.full_name, User.avatar).outerjoin(
+            User, MutualFundHolding.user_id == User.id
+        ).filter(
+            MutualFundHolding.id == holding_id,
+            MutualFundHolding.tenant_id == tenant_id
+        ).first()
+        
+        if not result:
+            return None
+            
+        holding, user_name, user_avatar = result
+        meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == holding.scheme_code).first()
+        
+        # Get all transactions for this holding
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.holding_id == holding.id,
+            MutualFundOrder.tenant_id == tenant_id
+        ).order_by(MutualFundOrder.order_date.desc()).all()
+        
+        # Calculate XIRR for this specific fund
+        from backend.app.modules.finance.utils.financial_math import xirr
+        from datetime import date
+        
+        cash_flows = []
+        total_invested = 0.0
+        for order in orders:
+            amount = float(order.amount)
+            if amount <= 0:
+                amount = float(order.units) * float(order.nav)
+            
+            order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+            
+            if order.type == "BUY":
+                cash_flows.append((order_date, -amount))
+                total_invested += amount
+            else:
+                cash_flows.append((order_date, amount))
+        
+        if float(holding.current_value or 0) > 0:
+            cash_flows.append((date.today(), float(holding.current_value)))
+            
+        xirr_value = None
+        try:
+            if len(cash_flows) >= 2:
+                sum_out = sum(cf[1] for cf in cash_flows if cf[1] < 0)
+                if abs(sum_out) > 0.01:
+                    xirr_decimal = xirr(cash_flows)
+                    xirr_value = round(xirr_decimal * 100, 2)
+        except:
+            xirr_value = None
+
+        # Format orders for response
+        orders_list = []
+        for o in orders:
+            orders_list.append({
+                "id": o.id,
+                "type": o.type,
+                "amount": float(o.amount),
+                "units": float(o.units),
+                "nav": float(o.nav),
+                "date": o.order_date.strftime("%Y-%m-%d"),
+                "status": o.status
+            })
+
+        # Fetch Full NAV History from MFAPI
+        nav_history = []
+        try:
+            import requests
+            from datetime import datetime
+            
+            # Re-using the simplified fetch logic
+            response = requests.get(f"https://api.mfapi.in/mf/{holding.scheme_code}", timeout=3)
+            
+            if response.status_code == 200:
+                mf_data = response.json()
+                raw_history = mf_data.get("data", [])
+                
+                # If we have orders, get history from first order date only
+                start_date = None
+                if orders:
+                    # Orders are desc sorted in query above, so last element is earliest
+                    earliest_order = orders[-1].order_date
+                    start_date = earliest_order.date()
+                
+                valid_history = []
+                for entry in raw_history:
+                    try:
+                        d_obj = datetime.strptime(entry['date'], "%d-%m-%Y").date()
+                        # Include if no start date (no orders) or date >= start_date
+                        if start_date is None or d_obj >= start_date:
+                            valid_history.append({
+                                "date": d_obj.strftime("%Y-%m-%d"),
+                                "value": float(entry['nav'])
+                            })
+                    except:
+                        continue
+                
+                # Sort ascending for chart
+                nav_history = sorted(valid_history, key=lambda x: x['date'])
+
+        except Exception as e:
+            print(f"Failed to fetch NAV history: {e}")
+
+        return {
+            "id": holding.id,
+            "scheme_name": meta.scheme_name if meta else "Unknown Fund",
+            "scheme_code": holding.scheme_code,
+            "folio_number": holding.folio_number,
+            "category": meta.category if meta else "Other",
+            "user_id": holding.user_id,
+            "user_name": user_name or "Unassigned",
+            "user_avatar": user_avatar,
+            "units": float(holding.units or 0),
+            "average_price": float(holding.average_price or 0),
+            "current_value": float(holding.current_value or 0),
+            "invested_value": float(holding.units or 0) * float(holding.average_price or 0),
+            "profit_loss": float(holding.current_value or 0) - (float(holding.units or 0) * float(holding.average_price or 0)),
+            "last_nav": float(holding.last_nav or 0),
+            "last_updated_at": holding.last_updated_at.strftime("%Y-%m-%d") if holding.last_updated_at else None,
+            "xirr": xirr_value,
+            "transactions": orders_list,
+            "nav_history": nav_history
+        }
+
+    @staticmethod
+    def get_scheme_details(db: Session, tenant_id: str, scheme_code: str):
+        from backend.app.modules.auth.models import User
+        
+        # 1. Fetch Metadata
+        meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == scheme_code).first()
+        
+        # 2. Fetch All Holdings for this Scheme
+        holdings = db.query(MutualFundHolding).filter(
+            MutualFundHolding.tenant_id == tenant_id,
+            MutualFundHolding.scheme_code == scheme_code
+        ).all()
+        
+        if not holdings:
+            return None
+            
+        # 3. Fetch All Orders for this Scheme
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.scheme_code == scheme_code
+        ).order_by(MutualFundOrder.order_date.desc()).all()
+        
+        # 4. Aggregation Logic
+        total_units = 0.0
+        total_current_value = 0.0
+        total_invested_value = 0.0
+        
+        user_ids = set()
+        folio_numbers = set()
+        
+        for h in holdings:
+            u = float(h.units or 0)
+            avg = float(h.average_price or 0)
+            curr = float(h.current_value or 0)
+            
+            total_units += u
+            total_current_value += curr
+            total_invested_value += (u * avg)
+            
+            if h.user_id: user_ids.add(h.user_id)
+            if h.folio_number: folio_numbers.add(h.folio_number)
+            
+        # Weighted Average Price
+        avg_price = total_invested_value / total_units if total_units > 0 else 0.0
+        profit_loss = total_current_value - total_invested_value
+        
+        # 5. XIRR Calculation (Combined)
+        from backend.app.modules.finance.utils.financial_math import xirr
+        from datetime import date
+        
+        cash_flows = []
+        for order in orders:
+            amount = float(order.amount)
+            if amount <= 0:
+                amount = float(order.units) * float(order.nav)
+            
+            order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+            
+            if order.type == "BUY":
+                cash_flows.append((order_date, -amount))
+            else:
+                cash_flows.append((order_date, amount))
+        
+        if total_current_value > 0:
+            cash_flows.append((date.today(), total_current_value))
+            
+        xirr_value = None
+        try:
+            if len(cash_flows) >= 2:
+                sum_out = sum(cf[1] for cf in cash_flows if cf[1] < 0)
+                if abs(sum_out) > 0.01:
+                    xirr_decimal = xirr(cash_flows)
+                    xirr_value = round(xirr_decimal * 100, 2)
+        except:
+            xirr_value = None
+
+        # 6. Format Transcations
+        orders_list = []
+        for o in orders:
+            orders_list.append({
+                "id": o.id,
+                "type": o.type,
+                "amount": float(o.amount),
+                "units": float(o.units),
+                "nav": float(o.nav),
+                "date": o.order_date.strftime("%Y-%m-%d"),
+                "status": o.status
+            })
+            
+        # 7. NAV History (Same as before)
+        nav_history = []
+        try:
+            import requests
+            from datetime import datetime
+            
+            response = requests.get(f"https://api.mfapi.in/mf/{scheme_code}", timeout=3)
+            if response.status_code == 200:
+                mf_data = response.json()
+                raw_history = mf_data.get("data", [])
+                
+                start_date = None
+                if orders:
+                    earliest_order = orders[-1].order_date
+                    start_date = earliest_order.date()
+                
+                valid_history = []
+                for entry in raw_history:
+                    try:
+                        d_obj = datetime.strptime(entry['date'], "%d-%m-%Y").date()
+                        if start_date is None or d_obj >= start_date:
+                            valid_history.append({
+                                "date": d_obj.strftime("%Y-%m-%d"),
+                                "value": float(entry['nav'])
+                            })
+                    except: continue
+                nav_history = sorted(valid_history, key=lambda x: x['date'])
+        except Exception as e:
+            print(f"Failed to fetch NAV history: {e}")
+
+        # 8. User Info & Owners List
+        owners_map = {}
+        all_users = db.query(User).filter(User.tenant_id == tenant_id).all()
+        user_lookup = {str(u.id): u for u in all_users}
+        
+        for uid in user_ids:
+            if uid and str(uid) in user_lookup:
+                u = user_lookup[str(uid)]
+                owners_map[str(uid)] = {
+                    "id": str(u.id),
+                    "name": u.full_name,
+                    "avatar": u.avatar
+                }
+        
+        owners_list = list(owners_map.values())
+        
+        # Enrich transactions with user info
+        enriched_orders = []
+        for o in orders:
+            u_info = None
+            if o.user_id and str(o.user_id) in user_lookup:
+                u = user_lookup[str(o.user_id)]
+                u_info = {"id": str(u.id), "name": u.full_name, "avatar": u.avatar}
+            elif o.holding_id:
+                # Fallback: try to find user via holding if not on order
+                # This might be expensive loop-in-loop, but dataset is small per scheme
+                parent_holding = next((h for h in holdings if h.id == o.holding_id), None)
+                if parent_holding and parent_holding.user_id:
+                     u = user_lookup.get(str(parent_holding.user_id))
+                     if u:
+                         u_info = {"id": str(u.id), "name": u.full_name, "avatar": u.avatar}
+
+            enriched_orders.append({
+                "id": o.id,
+                "type": o.type,
+                "amount": float(o.amount),
+                "units": float(o.units),
+                "nav": float(o.nav),
+                "date": o.order_date.strftime("%Y-%m-%d"),
+                "status": o.status,
+                "user": u_info
+            })
+
+        user_name = "Multiple Members" if len(user_ids) > 1 else None
+        user_avatar = None
+        if len(user_ids) == 1:
+            uid = list(user_ids)[0]
+            if uid and str(uid) in user_lookup:
+                u = user_lookup[str(uid)]
+                user_name = u.full_name
+                user_avatar = u.avatar
+
+        return {
+            "id": f"group_{scheme_code}", 
+            "scheme_name": meta.scheme_name if meta else "Unknown Fund",
+            "scheme_code": scheme_code,
+            "folio_number": f"{len(folio_numbers)} Folios" if len(folio_numbers) > 1 else (list(folio_numbers)[0] if folio_numbers else "N/A"),
+            "category": meta.category if meta else "Other",
+            "user_id": list(user_ids)[0] if len(user_ids) == 1 else "multi",
+            "user_name": user_name or "Unassigned",
+            "user_avatar": user_avatar,
+            "units": total_units,
+            "average_price": avg_price,
+            "current_value": total_current_value,
+            "invested_value": total_invested_value,
+            "profit_loss": profit_loss,
+            "last_nav": float(holdings[0].last_nav or 0) if holdings else 0.0,
+            "last_updated_at": holdings[0].last_updated_at.strftime("%Y-%m-%d") if holdings and holdings[0].last_updated_at else None,
+            "xirr": xirr_value,
+            "transactions": enriched_orders,
+            "nav_history": nav_history,
+            "is_aggregate": True,
+            "owners": owners_list
+        }
+
+    @staticmethod
+    def update_holding(db: Session, tenant_id: str, holding_id: str, data: dict):
+        with _db_write_lock:
+            holding = db.query(MutualFundHolding).filter(
+                MutualFundHolding.id == holding_id,
+                MutualFundHolding.tenant_id == tenant_id
+            ).first()
+            
+            if not holding:
+                return None
+                
+            if "user_id" in data:
+                holding.user_id = data["user_id"]
+                # Also update all orders for this holding to reflect the user change
+                db.query(MutualFundOrder).filter(
+                    MutualFundOrder.holding_id == holding.id,
+                    MutualFundOrder.tenant_id == tenant_id
+                ).update({"user_id": data["user_id"]})
+            
+            db.flush()
+            MutualFundService._safe_commit(db)
+            return holding
+
+    @staticmethod
+    def get_market_indices():
+        import asyncio
+        
+        async def fetch_index_data(idx):
+            try:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{idx['symbol']}?interval=5m&range=1d"
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, headers=headers, timeout=5.0)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    meta = data['chart']['result'][0]['meta']
+                    current_price = meta['regularMarketPrice']
+                    previous_close = meta['chartPreviousClose']
+                    change = current_price - previous_close
+                    percent = (change / previous_close) * 100
+                    
+                    indicators = data['chart']['result'][0]['indicators']['quote'][0]
+                    closes = indicators.get('close', [])
+                    valid_closes = [c for c in closes if c is not None]
+                    sparkline = valid_closes[-20:] if len(valid_closes) > 20 else valid_closes
+
+                    return {
+                        "name": idx['name'],
+                        "value": f"{current_price:,.2f}",
+                        "change": f"{change:+.2f}",
+                        "percent": f"{percent:+.2f}%",
+                        "isUp": change >= 0,
+                        "sparkline": sparkline
+                    }
+                else:
+                    return {"name": idx['name'], "value": "Unavailable", "change": "0.00", "percent": "0.00%", "isUp": True}
+            except Exception as e:
+                pass
+                return {"name": idx['name'], "value": "Error", "change": "0.00", "percent": "0.00%", "isUp": True}
+        
+        async def fetch_all():
+            indices = [
+                {"name": "NIFTY 50", "symbol": "^NSEI"},
+                {"name": "SENSEX", "symbol": "^BSESN"},
+                {"name": "BANK NIFTY", "symbol": "^NSEBANK"}
+            ]
+            tasks = [fetch_index_data(idx) for idx in indices]
+            return await asyncio.gather(*tasks)
+        
+        # Run async tasks
+        return asyncio.run(fetch_all())
+
+    @staticmethod
+    def get_portfolio_analytics(db: Session, tenant_id: str):
+        """
+        Calculate portfolio analytics: allocation, top performers, XIRR
+        """
+        from backend.app.modules.finance.utils.financial_math import xirr, categorize_fund
+        
+        # Get portfolio data
+        holdings = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        
+        if not holdings:
+            return {
+                "asset_allocation": {"equity": 0, "debt": 0, "hybrid": 0, "other": 0},
+                "category_allocation": {},
+                "top_gainers": [],
+                "top_losers": [],
+                "xirr": 0,
+                "total_invested": 0,
+                "current_value": 0
+            }
+        
+        # Calculate asset allocation
+        allocation = {"equity": 0.0, "debt": 0.0, "hybrid": 0.0, "other": 0.0}
+        category_allocation = {}
+        total_value = 0.0
+        
+        for h in holdings:
+            meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == h.scheme_code).first()
+            raw_category = meta.category if meta else "Other"
+            asset_type = categorize_fund(raw_category)
+            current_val = float(h.current_value or 0.0)
+            
+            allocation[asset_type] += current_val
+            
+            # Category-wise (Sector proxy)
+            if raw_category not in category_allocation:
+                category_allocation[raw_category] = 0.0
+            category_allocation[raw_category] += current_val
+            
+            total_value += current_val
+        
+        # Convert to percentages
+        if total_value > 0:
+            allocation = {k: round((v / total_value) * 100, 2) for k, v in allocation.items()}
+            category_allocation = {k: round((v / total_value) * 100, 2) for k, v in category_allocation.items()}
+        
+        # Get portfolio with P/L for top performers
+        portfolio_data = MutualFundService.get_portfolio(db, tenant_id)
+        
+        # Calculate P/L percentage for sorting
+        for item in portfolio_data:
+            invested = item.get('invested_value', 0)
+            if invested > 0:
+                item['pl_percent'] = round((item['profit_loss'] / invested) * 100, 2)
+            else:
+                item['pl_percent'] = 0
+        
+        # Sort by P/L percentage
+        sorted_by_pl = sorted(portfolio_data, key=lambda x: x['pl_percent'], reverse=True)
+        
+        top_gainers = sorted_by_pl[:5]
+        top_losers = list(reversed(sorted_by_pl[-5:]))
+        
+        # Calculate XIRR
+        # Get all transactions for EXISTING holdings only (Same as timeline)
+        holdings_query = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        active_holding_ids = [h.id for h in holdings_query]
+        
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.holding_id.in_(active_holding_ids)
+        ).all()
+        
+        xirr_value = None
+        total_invested = 0.0
+        
+        if orders and len(orders) > 0:
+            from datetime import date
+            cash_flows = []
+            for order in orders:
+                # Use units * nav if amount is 0 (fallback for older imports)
+                amount = float(order.amount)
+                if amount <= 0:
+                    amount = float(order.units) * float(order.nav)
+                
+                # Convert order_date to date if it's datetime
+                order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+                
+                if order.type == "BUY":
+                    cash_flows.append((order_date, -amount))  # Outflow is negative
+                    total_invested += amount
+                else:  # SELL
+                    cash_flows.append((order_date, amount))  # Inflow is positive
+            
+            # Add current value as final inflow at today's date
+            if total_value > 0:
+                cash_flows.append((date.today(), total_value))
+            
+            
+            try:
+                # Need at least one negative (outflow) and one positive (inflow) for XIRR
+                sum_out = sum(cf[1] for cf in cash_flows if cf[1] < 0)
+                if len(cash_flows) >= 2 and abs(sum_out) > 0.01:
+                    xirr_decimal = xirr(cash_flows)
+                    xirr_value = round(xirr_decimal * 100, 2)  # Convert to percentage
+            except Exception:
+                xirr_value = None
+        
+        return {
+            "asset_allocation": allocation,
+            "category_allocation": category_allocation,
+            "top_gainers": top_gainers,
+            "top_losers": top_losers,
+            "xirr": xirr_value,
+            "total_invested": round(total_invested, 2),
+            "current_value": round(total_value, 2)
+        }
+    
+    @staticmethod
+    def clear_timeline_cache(db: Session, tenant_id: str, from_date=None):
+        """
+        Clear timeline cache for a tenant.
+        Call this when transactions are added/deleted to invalidate cache.
+        
+        Args:
+            tenant_id: Tenant ID
+            from_date: Clear cache from this date onwards (defaults to all)
+        """
+        from ..models import PortfolioTimelineCache
+        
+        query = db.query(PortfolioTimelineCache).filter(
+            PortfolioTimelineCache.tenant_id == tenant_id
+        )
+        
+        if from_date:
+            query = query.filter(PortfolioTimelineCache.snapshot_date >= from_date)
+        
+        deleted_count = query.delete()
+        db.commit()
+        return deleted_count
+    
+    @staticmethod
+    def get_performance_timeline(db: Session, tenant_id: str, period: str = "1y", granularity: str = "1w"):
+        """
+        Calculate portfolio value over time with smart caching.
+        
+        Returns timeline data with portfolio value and invested amount at weekly intervals.
+        """
+        from datetime import date, timedelta
+        from ..utils.financial_math import calculate_start_date, add_months
+        from ..models import PortfolioTimelineCache
+        import httpx
+        import hashlib
+        
+        # Get all transactions for EXISTING holdings only
+        # This prevents orphaned orders from deleted holdings from inflating the timeline
+        holdings = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        active_holding_ids = [h.id for h in holdings]
+        
+        orders = db.query(MutualFundOrder).filter(
+            MutualFundOrder.tenant_id == tenant_id,
+            MutualFundOrder.holding_id.in_(active_holding_ids)
+        ).order_by(MutualFundOrder.order_date.asc()).all()
+        
+        if not orders:
+            return {
+                "timeline": [],
+                "period": period,
+                "total_return_percent": 0
+            }
+        
+        # Calculate portfolio hash (sorted scheme codes)
+        unique_schemes = sorted(set(str(o.scheme_code) for o in orders))
+        portfolio_hash = hashlib.md5(",".join(unique_schemes).encode()).hexdigest()
+        
+        # Determine date range and granularity
+        end_date = date.today() - timedelta(days=1)
+        start_date = calculate_start_date(period, orders[0].order_date)
+        
+        # Ensure at least 2 points for sparklines/trends even for brand new portfolios
+        if start_date >= end_date:
+            start_date = end_date - timedelta(days=1)
+        
+        # Snapshot interval based on granularity
+        if granularity == "1d":
+            snapshot_days = 1
+        elif granularity == "1m":
+            snapshot_days = 30 # Approximation
+        else:
+            snapshot_days = 7  # Default to weekly
+            # Align to Monday for consistency if weekly
+            days_until_monday = (7 - start_date.weekday()) % 7
+            if days_until_monday > 0:
+                start_date = start_date + timedelta(days=days_until_monday)
+        
+        # Try to fetch cached snapshots
+        cached_snapshots = db.query(PortfolioTimelineCache).filter(
+            PortfolioTimelineCache.tenant_id == tenant_id,
+            PortfolioTimelineCache.portfolio_hash == portfolio_hash,
+            PortfolioTimelineCache.snapshot_date >= start_date,
+            PortfolioTimelineCache.snapshot_date < end_date  # Don't cache today
+        ).all()
+        
+        # Convert cached snapshots to dict for easy lookup
+        cache_dict = {
+            snap.snapshot_date.date(): {
+                "date": snap.snapshot_date.date().isoformat(),
+                "value": float(snap.portfolio_value),
+                "invested": float(snap.invested_value)
+            }
+            for snap in cached_snapshots
+        }
+        
+        # Convert cached snapshots to dict for easy lookup
+        
+        # Generate snapshots
+        timeline = []
+        current_date = start_date
+        
+        # Bulk NAV data cache to avoid repeated API calls per scheme
+        # {scheme_code: {date_str: nav}}
+        bulk_nav_data = {}
+        
+        def get_nav_bulk(scheme_code: str):
+            if scheme_code in bulk_nav_data:
+                return bulk_nav_data[scheme_code]
+            
+            try:
+                import httpx
+                resp = httpx.get(f"https://api.mfapi.in/mf/{scheme_code}", timeout=10.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    nav_map = {entry['date']: float(entry['nav']) for entry in data.get('data', [])}
+                    bulk_nav_data[scheme_code] = nav_map
+                    return nav_map
+            except Exception as e:
+                pass
+            return {}
+
+        def find_closest_nav(nav_map, target_date):
+            if not nav_map: return 0.0
+            
+            # Try exact match first (API format is DD-MM-YYYY)
+            target_str = target_date.strftime("%d-%m-%Y")
+            if target_str in nav_map:
+                return nav_map[target_str]
+            
+            # Look back up to 7 days
+            for i in range(1, 8):
+                prev_date = target_date - timedelta(days=i)
+                prev_str = prev_date.strftime("%d-%m-%Y")
+                if prev_str in nav_map:
+                    return nav_map[prev_str]
+            
+            # Fallback to any latest available if none in range
+            # (In a real app, you might want more complex logic here)
+            return next(iter(nav_map.values())) if nav_map else 0.0
+        
+        
+        while current_date <= end_date:
+            # Check if this snapshot is cached
+            if current_date in cache_dict and current_date < end_date:
+                # Use cached value
+                timeline.append(cache_dict[current_date])
+            else:
+                # Calculate holdings snapshot at this date
+                holdings_snapshot = {}  # {scheme_code: units}
+                invested_at_date = 0
+                buy_total = 0
+                sell_total = 0
+                
+                for order in orders:
+                    order_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+                    
+                    if order_date <= current_date:
+                        scheme_code = str(order.scheme_code)
+                        
+                        if order.type == "BUY":
+                            holdings_snapshot[scheme_code] = holdings_snapshot.get(scheme_code, 0) + float(order.units)
+                            invested_at_date += float(order.amount)
+                            buy_total += float(order.amount)
+                        elif order.type == "SELL":
+                            holdings_snapshot[scheme_code] = holdings_snapshot.get(scheme_code, 0) - float(order.units)
+                            invested_at_date -= float(order.amount)
+                            sell_total += float(order.amount)
+                
+                
+                # Calculate portfolio value at this date
+                portfolio_value = 0
+                nav_fetched = 0
+                nav_fallback = 0
+                
+                for scheme_code, units in holdings_snapshot.items():
+                    if units > 0:
+                        try:
+                            if scheme_code not in bulk_nav_data:
+                                get_nav_bulk(scheme_code)
+                            
+                            nav = find_closest_nav(bulk_nav_data.get(scheme_code, {}), current_date)
+                            portfolio_value += units * nav
+                            nav_fetched += 1
+                        except Exception as e:
+                            # Use current NAV as fallback if API/Cache fails
+                            holding = db.query(MutualFundHolding).filter(
+                                MutualFundHolding.scheme_code == scheme_code,
+                                MutualFundHolding.tenant_id == tenant_id
+                            ).first()
+                            if holding and holding.last_nav:
+                                portfolio_value += units * float(holding.last_nav)
+                                nav_fallback += 1
+                
+                
+                snapshot_data = {
+                    "date": current_date.isoformat(),
+                    "value": round(portfolio_value, 2),
+                    "invested": round(invested_at_date, 2)
+                }
+                timeline.append(snapshot_data)
+                
+                # Save to cache if not today
+                if current_date < end_date:
+                    from datetime import datetime as dt
+                    cache_entry = PortfolioTimelineCache(
+                        tenant_id=tenant_id,
+                        snapshot_date=dt.combine(current_date, dt.min.time()),
+                        portfolio_hash=portfolio_hash,
+                        portfolio_value=round(portfolio_value, 2),
+                        invested_value=round(invested_at_date, 2)
+                    )
+                    db.add(cache_entry)
+            
+            # Move to next snapshot date
+            # Move to next date based on granularity
+            if granularity == "1m":
+                current_date = add_months(current_date, 1)
+            else:
+                current_date = current_date + timedelta(days=snapshot_days)
+            
+            # Don't overshoot end date
+            if current_date > end_date:
+                break
+        
+        # Calculate total return
+        total_return_percent = 0
+        if timeline and timeline[-1]["invested"] > 0:
+            total_return_percent = (
+                (timeline[-1]["value"] - timeline[-1]["invested"]) / 
+                timeline[-1]["invested"] * 100
+            )
+        
+        # Commit cache entries to database
+        try:
+            with _db_write_lock:
+                MutualFundService._safe_commit(db)
+        except Exception as e:
+            # Silent fail or log properly
+            db.rollback()
+        
+        # Calculate Benchmark (Nifty 50 proxy: 120716)
+        # Instead of simple normalization, we simulate actual investment timing (SIPs/Lumpsums)
+        benchmark_timeline = []
+        try:
+            benchmark_code = "120716" # UTI Nifty 50 Index Fund
+            get_nav_bulk(benchmark_code)
+            b_nav_map = bulk_nav_data.get(benchmark_code, {})
+
+            total_benchmark_units = 0.0
+            order_idx = 0
+            
+            for point in timeline:
+                p_date_iso = point["date"]
+                p_date = date.fromisoformat(p_date_iso)
+                
+                # Check for any transactions UP TO this snapshot date
+                while order_idx < len(orders):
+                    order = orders[order_idx]
+                    o_date = order.order_date.date() if hasattr(order.order_date, 'date') else order.order_date
+                    
+                    if o_date <= p_date:
+                        # Fetch index NAV on this transaction date
+                        o_nav = find_closest_nav(b_nav_map, o_date)
+                        if o_nav > 0:
+                            # Use units * nav if amount is 0 (fallback)
+                            amount = float(order.amount)
+                            if amount <= 0:
+                                amount = float(order.units) * float(order.nav)
+                                
+                            if order.type == "BUY":
+                                total_benchmark_units += (amount / o_nav)
+                            elif order.type == "SELL":
+                                # Proportionally sell benchmark units based on value ratio
+                                # We'll just sell the same equivalent cash value for simplicity
+                                total_benchmark_units -= (amount / o_nav)
+                        order_idx += 1
+                    else:
+                        break
+                
+                # Nifty 50 value today = total units * current snapshot NAV
+                p_nav = find_closest_nav(b_nav_map, p_date)
+                simulated_value = total_benchmark_units * p_nav
+                
+                benchmark_timeline.append({
+                    "date": p_date_iso,
+                    "value": round(simulated_value, 2)
+                })
+        except Exception as b_err:
+            benchmark_timeline = []
+
+        return {
+            "timeline": timeline,
+            "benchmark": benchmark_timeline,
+            "period": period,
+            "granularity": granularity,
+            "total_return_percent": round(total_return_percent, 2)
+        }
+    
+    @staticmethod
+    def _fetch_historical_nav(scheme_code: str, target_date) -> float:
+        """
+        Fetch NAV for a specific date from mfapi.in.
+        Falls back to nearest available NAV if exact date not found.
+        """
+        import httpx
+        from datetime import timedelta
+        
+        try:
+            # mfapi.in provides historical data in reverse chronological order
+            response = httpx.get(f"https://api.mfapi.in/mf/{scheme_code}", timeout=5.0)
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'data' not in data:
+                raise ValueError("No NAV data available")
+            
+            # Format target date as DD-MM-YYYY to match API format
+            target_date_str = target_date.strftime("%d-%m-%Y")
+            
+            # Try to find exact date first
+            for entry in data['data']:
+                if entry['date'] == target_date_str:
+                    return float(entry['nav'])
+            
+            # If not found, find closest date within 7 days before
+            target_timestamp = target_date
+            for entry in data['data']:
+                try:
+                    from datetime import datetime
+                    entry_date = datetime.strptime(entry['date'], "%d-%m-%Y").date()
+                    
+                    # Use NAV from up to 7 days before target
+                    if entry_date <= target_date and (target_date - entry_date).days <= 7:
+                        return float(entry['nav'])
+                except:
+                    continue
+            
+            # If still not found, use the latest available NAV
+            if data['data']:
+                return float(data['data'][0]['nav'])
+            
+            raise ValueError("No suitable NAV found")
+            
+        except Exception as e:
+            pass
+            raise

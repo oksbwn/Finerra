@@ -56,8 +56,15 @@ def create_application() -> FastAPI:
             if "credit_limit" not in cols:
                 print("[Migration] Adding credit_limit to accounts table...")
                 conn.execute(text("ALTER TABLE accounts ADD COLUMN credit_limit DECIMAL(15, 2);"))
-                conn.commit()
-                print("[Migration] Column added successfully.")
+            if "billing_day" not in cols:
+                print("[Migration] Adding billing_day to accounts table...")
+                conn.execute(text("ALTER TABLE accounts ADD COLUMN billing_day INTEGER;"))
+            if "due_day" not in cols:
+                print("[Migration] Adding due_day to accounts table...")
+                conn.execute(text("ALTER TABLE accounts ADD COLUMN due_day INTEGER;"))
+            
+            conn.commit()
+            print("[Migration] Columns added successfully.")
         except Exception as e:
             print(f"[Migration] Error checking/adding columns: {e}")
 

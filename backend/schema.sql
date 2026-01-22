@@ -159,6 +159,19 @@ CREATE TABLE mutual_fund_orders (
 	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code)
 );
 
+CREATE TABLE portfolio_timeline_cache (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	snapshot_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	portfolio_hash VARCHAR NOT NULL, 
+	portfolio_value NUMERIC(15, 2) NOT NULL, 
+	invested_value NUMERIC(15, 2) NOT NULL, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+CREATE INDEX ix_timeline_cache_lookup ON portfolio_timeline_cache (tenant_id, portfolio_hash, snapshot_date);
+
 CREATE TABLE email_configurations (
 	id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 
@@ -169,6 +182,7 @@ CREATE TABLE email_configurations (
 	is_active BOOLEAN DEFAULT TRUE, 
 	auto_sync_enabled BOOLEAN DEFAULT FALSE, 
 	last_sync_at TIMESTAMP WITHOUT TIME ZONE, 
+	cas_last_sync_at TIMESTAMP WITHOUT TIME ZONE, 
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)

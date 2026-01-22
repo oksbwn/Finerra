@@ -98,6 +98,10 @@ export const financeApi = {
     processRecurring: () => apiClient.post('/finance/recurring/process'),
     getForecast: (accountId?: string, days: number = 30) =>
         apiClient.get('/finance/forecast', { params: { account_id: accountId, days } }),
+    getNetWorthTimeline: (days: number = 30) =>
+        apiClient.get('/finance/net-worth-timeline', { params: { days } }),
+    getSpendingTrend: () =>
+        apiClient.get('/finance/spending-trend'),
     getBudgetHistory: (months: number = 6) =>
         apiClient.get('/finance/budget-history', { params: { months } }),
 
@@ -135,6 +139,39 @@ export const financeApi = {
     getUsers: () => apiClient.get<any[]>('/auth/users'),
     createUser: (data: any) => apiClient.post('/auth/users', data),
     updateUser: (id: string, data: any) => apiClient.put(`/auth/users/${id}`, data),
+
+    // Mutual Funds
+    searchFunds: (query?: string, category?: string, amc?: string, limit: number = 20, offset: number = 0, sortBy: string = 'relevance') =>
+        apiClient.get('/finance/mutual-funds/search', { params: { q: query, category, amc, limit, offset, sort_by: sortBy } }),
+
+    getMarketIndices: () => apiClient.get('/finance/mutual-funds/indices'),
+    getPortfolio: (userId?: string) => apiClient.get('/finance/mutual-funds/portfolio', { params: { user_id: userId } }),
+    getHoldingDetails: (id: string) => apiClient.get(`/finance/mutual-funds/holdings/${id}`),
+    getSchemeDetails: (schemeCode: string) => apiClient.get(`/finance/mutual-funds/schemes/${schemeCode}/details`),
+    updateHolding: (id: string, data: any) => apiClient.patch(`/finance/mutual-funds/holdings/${id}`, data),
+    getAnalytics: () => apiClient.get('/finance/mutual-funds/analytics'),
+    getPerformanceTimeline: (period: string = '1y', granularity: string = '1w') => apiClient.get('/finance/mutual-funds/analytics/performance-timeline', { params: { period, granularity } }),
+    deleteCacheTimeline: () => apiClient.delete('/finance/mutual-funds/analytics/cache'),
+    cleanupDuplicateOrders: () => apiClient.post('/finance/mutual-funds/cleanup-duplicates'),
+    createFundTransaction: (data: any) => apiClient.post('/finance/mutual-funds/transaction', data),
+    delete: (url: string) => apiClient.delete(url), // Generic delete helper or specific method
+    deleteHolding: (id: string) => apiClient.delete(`/finance/mutual-funds/holdings/${id}`),
+    importCAS: (formData: FormData) => apiClient.post('/finance/mutual-funds/import-cas', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    importCASEmail: (formData: FormData) => apiClient.post('/finance/mutual-funds/import-cas-email', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    previewCAS: (formData: FormData) => apiClient.post('/finance/mutual-funds/preview-cas-pdf', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    previewCASEmail: (formData: FormData) => apiClient.post('/finance/mutual-funds/preview-cas-email', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    confirmImport: (transactions: any[], userId?: string) => apiClient.post('/finance/mutual-funds/confirm-import', transactions, {
+        params: { user_id: userId }
+    }),
+    getNav: (schemeCode: string) => apiClient.get(`/finance/mutual-funds/${schemeCode}/nav`),
 }
 
 export const aiApi = {
