@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from backend.app.modules.finance import models
 from backend.app.modules.finance.services.transaction_service import TransactionService
 
@@ -55,10 +55,11 @@ class AnalyticsService:
         # 2. Monthly Spending (or Filtered Spending)
         monthly_spending_query = db.query(func.sum(models.Transaction.amount)).filter(
             models.Transaction.tenant_id == tenant_id,
-            models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
         )
+        if start_date:
+            monthly_spending_query = monthly_spending_query.filter(models.Transaction.date >= start_date)
         if end_date:
             monthly_spending_query = monthly_spending_query.filter(models.Transaction.date <= end_date)
         if account_id:
@@ -91,10 +92,16 @@ class AnalyticsService:
             func.sum(models.Transaction.amount).label('total')
         ).filter(
             models.Transaction.tenant_id == tenant_id,
-            models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
-        ).group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).asc()).first()
+        )
+        
+        if start_date:
+            top_cat_query = top_cat_query.filter(models.Transaction.date >= start_date)
+        if end_date:
+            top_cat_query = top_cat_query.filter(models.Transaction.date <= end_date)
+            
+        top_cat_query = top_cat_query.group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).asc()).first()
         
         top_spending_category = None
         if top_cat_query:
@@ -352,7 +359,7 @@ class AnalyticsService:
             models.Transaction.is_transfer == False
         ).group_by(
             models.Transaction.category,
-            func.date_trunc('month', models.Transaction.date)
+            text('month_start')
         ).all()
         
         # Organize statistics into a map for easy lookup: {month_start_date: {category: amount}}
@@ -374,7 +381,7 @@ class AnalyticsService:
                 models.Transaction.amount < 0,
                 models.Transaction.is_transfer == False
             ).group_by(
-                func.date_trunc('month', models.Transaction.date)
+                text('month_start')
             ).all()
             
             for row in overall_stats:
