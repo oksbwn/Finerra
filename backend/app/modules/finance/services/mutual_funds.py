@@ -1043,7 +1043,7 @@ class MutualFundService:
         portfolio_hash = hashlib.md5(",".join(unique_schemes).encode()).hexdigest()
         
         # Determine date range and granularity
-        end_date = date.today()
+        end_date = date.today() - timedelta(days=1)
         start_date = calculate_start_date(period, orders[0].order_date)
         
         # Snapshot interval based on granularity
