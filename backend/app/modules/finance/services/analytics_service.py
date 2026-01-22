@@ -31,18 +31,31 @@ class AnalyticsService:
             "credit_debt": 0,
             "investment_value": 0,
             "total_credit_limit": 0,
-            "available_credit": 0
+            "available_credit": 0,
+            "overall_credit_utilization": 0
         }
         
         for acc in accounts:
             bal = float(acc.balance or 0)
             if acc.type == 'CREDIT_CARD':
-                breakdown["credit_debt"] += bal
-                breakdown["net_worth"] -= bal
+                # For CC, negative balance means debt. so we take abs() or invert it for "debt amount"
+                # If balance is -200, debt is 200.
+                debt_amount = abs(bal) if bal < 0 else 0 
+                # If balance is positive, it means overpaid (credit), not debt.
+                
+                breakdown["credit_debt"] += debt_amount
+                # Net worth: debt reduces it. Since bal is negative (-200), adding it reduces net worth correctly?
+                # Actually net worth = Assets - Liabilities. 
+                # If we just sum everything: Bank(1000) + CC(-200) = 800. Correct.
+                breakdown["net_worth"] += bal 
                 
                 limit = float(acc.credit_limit or 0)
                 breakdown["total_credit_limit"] += limit
-                breakdown["available_credit"] += (limit - bal)
+                
+                # Available credit: Limit - Debt. 
+                # If Limit 10000, Balance -200 (Debt 200): Available = 10000 - 200 = 9800.
+                # So Limit - abs(bal) or Limit + bal (if bal is negative)
+                breakdown["available_credit"] += (limit + bal)
             
             elif acc.type == 'INVESTMENT':
                 breakdown["investment_value"] += bal
@@ -57,7 +70,18 @@ class AnalyticsService:
                 if acc.type == 'BANK': breakdown["bank_balance"] += bal
                 elif acc.type == 'WALLET': breakdown["cash_balance"] += bal
 
+        # Calculate overall credit utilization
+        if breakdown["total_credit_limit"] > 0:
+            raw_overall_util = (breakdown["credit_debt"] / breakdown["total_credit_limit"]) * 100
+            breakdown["overall_credit_utilization"] = max(0, raw_overall_util)
+
         # 2. Monthly Spending (or Filtered Spending)
+        # Default to current month if no dates provided
+        if not start_date and not end_date:
+            from datetime import datetime
+            today = datetime.utcnow()
+            start_date = datetime(today.year, today.month, 1)
+            
         monthly_spending_query = db.query(func.sum(models.Transaction.amount)).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.amount < 0,
@@ -157,18 +181,27 @@ class AnalyticsService:
         credit_cards = [a for a in accounts if a.type == 'CREDIT_CARD']
         credit_intelligence = []
         for card in credit_cards:
+            # Use ₹100,000 as default limit if not set
+            limit = float(card.credit_limit or 0)
+            if limit == 0:
+                limit = 100000.0
+                
             intel = {
                 "id": card.id,
                 "name": card.name,
                 "balance": float(card.balance or 0),
-                "limit": float(card.credit_limit or 0),
+                "limit": limit,
                 "utilization": 0,
                 "billing_day": int(card.billing_day) if card.billing_day else None,
                 "due_day": int(card.due_day) if card.due_day else None,
                 "days_until_due": None
             }
             if intel["limit"] > 0:
-                intel["utilization"] = (intel["balance"] / intel["limit"]) * 100
+                # Calculate utilization percentage
+                # Balance is typically negative (debt). Use abs() to get debt amount.
+                current_debt = abs(intel["balance"]) if intel["balance"] < 0 else 0
+                raw_util = (current_debt / intel["limit"]) * 100
+                intel["utilization"] = max(0, raw_util)
             
             if intel["due_day"]:
                 today = datetime.utcnow()

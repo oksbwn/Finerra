@@ -468,6 +468,13 @@ watch(selectedMember, () => {
                         <div class="snap-info">
                             <span class="snap-label">Avail. Credit</span>
                             <span class="snap-val">{{ formatAmount(metrics.breakdown.available_credit, metrics.currency) }}</span>
+                            <span v-if="metrics.breakdown.overall_credit_utilization > 0" class="snap-util" :class="{
+                                'util-low': metrics.breakdown.overall_credit_utilization < 30,
+                                'util-medium': metrics.breakdown.overall_credit_utilization >= 30 && metrics.breakdown.overall_credit_utilization < 70,
+                                'util-high': metrics.breakdown.overall_credit_utilization >= 70
+                            }">
+                                {{ metrics.breakdown.overall_credit_utilization.toFixed(1) }}% used
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -1097,6 +1104,10 @@ watch(selectedMember, () => {
 .snap-info { display: flex; flex-direction: column; }
 .snap-label { font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); }
 .snap-val { font-size: 1rem; font-weight: 700; color: var(--color-text-main); }
+.snap-util { font-size: 0.7rem; font-weight: 600; padding: 0.125rem 0.375rem; border-radius: 4px; display: inline-block; margin-top: 0.25rem; width: fit-content; }
+.util-low { background: #dcfce7; color: #166534; }
+.util-medium { background: #ffedd5; color: #9a3412; }
+.util-high { background: #fee2e2; color: #991b1b; }
 
 /* Recent Activity */
 .recent-list { display: flex; flex-direction: column; gap: 0.75rem; }
