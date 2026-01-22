@@ -87,16 +87,166 @@ class AnalyticsService:
         }
         
         # 4. Recent Transactions
-        # Avoid circular import at top level if possible, or Import inside method
         recent_txns = TransactionService.get_transactions(db, tenant_id, limit=5, user_role=user_role)
+
+        # 5. Top Spending Category this month
+        top_cat_query = db.query(
+            models.Transaction.category,
+            func.sum(models.Transaction.amount).label('total')
+        ).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_date,
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False
+        ).group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).asc()).first()
         
+        top_spending_category = None
+        if top_cat_query:
+            top_spending_category = {
+                "name": top_cat_query[0],
+                "amount": abs(float(top_cat_query[1]))
+            }
+        
+        # 6. Credit Intelligence
+        credit_cards = [a for a in accounts if a.type == 'CREDIT_CARD']
+        credit_intelligence = []
+        for card in credit_cards:
+            intel = {
+                "id": card.id,
+                "name": card.name,
+                "balance": float(card.balance or 0),
+                "limit": float(card.credit_limit or 0),
+                "utilization": 0,
+                "billing_day": int(card.billing_day) if card.billing_day else None,
+                "due_day": int(card.due_day) if card.due_day else None,
+                "days_until_due": None
+            }
+            if intel["limit"] > 0:
+                intel["utilization"] = (intel["balance"] / intel["limit"]) * 100
+            
+            if intel["due_day"]:
+                today = datetime.utcnow()
+                try:
+                    due_date = datetime(today.year, today.month, intel["due_day"])
+                    if due_date < today:
+                        # Move to next month
+                        if today.month == 12:
+                            due_date = datetime(today.year + 1, 1, intel["due_day"])
+                        else:
+                            due_date = datetime(today.year, today.month + 1, intel["due_day"])
+                    intel["days_until_due"] = (due_date - today).days
+                except ValueError:
+                    # Handle Feb 30 etc.
+                    pass
+
+            credit_intelligence.append(intel)
+
         return {
             "breakdown": breakdown,
             "monthly_spending": monthly_spending,
+            "top_spending_category": top_spending_category,
             "budget_health": budget_health,
+            "credit_intelligence": credit_intelligence,
             "recent_transactions": recent_txns,
             "currency": accounts[0].currency if accounts else "INR"
         }
+
+    @staticmethod
+    def get_net_worth_timeline(db: Session, tenant_id: str, days: int = 30):
+        from datetime import date, timedelta
+        from .mutual_funds import MutualFundService
+        
+        # 1. Get current static balances (Bank + Cash - Credit Debt - Loans)
+        accounts = db.query(models.Account).filter(models.Account.tenant_id == tenant_id).all()
+        current_liquid_assets = 0
+        for acc in accounts:
+            bal = float(acc.balance or 0)
+            if acc.type in ['BANK', 'WALLET']:
+                current_liquid_assets += bal
+            elif acc.type in ['CREDIT_CARD', 'LOAN']:
+                current_liquid_assets -= bal
+        
+        # 2. Get all transactions for these accounts in the last 'days' days
+        start_history = datetime.utcnow() - timedelta(days=days)
+        transactions = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_history
+        ).order_by(models.Transaction.date.desc()).all()
+        
+        # 3. Get MF timeline (which already handles historical valuation)
+        mf_res = MutualFundService.get_performance_timeline(db, tenant_id, period='1m', granularity='1d')
+        mf_timeline = mf_res.get("timeline", [])
+        mf_map = {datetime.fromisoformat(p["date"]).date(): p["value"] for p in mf_timeline}
+        
+        # 4. Backtrack liquid balances
+        timeline = []
+        now = datetime.utcnow()
+        cursor_balance = current_liquid_assets
+        
+        # Group transactions by date
+        from collections import defaultdict
+        txn_by_date = defaultdict(float)
+        for t in transactions:
+            d = t.date.date()
+            txn_by_date[d] += float(t.amount)
+            
+        for i in range(days):
+            target_date = (now - timedelta(days=i)).date()
+            
+            # Balance at end of target_date is cursor_balance
+            mf_val = mf_map.get(target_date, 0)
+            if not mf_val and mf_timeline:
+                # If no exact date, find closest previous
+                past_dates = [d for d in mf_map.keys() if d <= target_date]
+                if past_dates:
+                    mf_val = mf_map[max(past_dates)]
+                else:
+                    mf_val = mf_timeline[0]["value"] # Fallback to first known
+
+            timeline.append({
+                "date": target_date.isoformat(),
+                "liquid": round(cursor_balance, 2),
+                "investments": round(mf_val, 2),
+                "total": round(cursor_balance + mf_val, 2)
+            })
+            
+            # Step back: subtract todays net transactions to get yesterday's closing balance
+            cursor_balance -= txn_by_date[target_date]
+            
+        return timeline[::-1] # Chronological
+
+    @staticmethod
+    def get_spending_trend(db: Session, tenant_id: str):
+        from datetime import date, timedelta
+        
+        now = datetime.utcnow()
+        start_date = datetime(now.year, now.month, 1)
+        
+        # Daily spending
+        spending = db.query(
+            func.date(models.Transaction.date).label('day'),
+            func.sum(models.Transaction.amount).label('total')
+        ).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_date,
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False
+        ).group_by(func.date(models.Transaction.date)).order_by('day').all()
+        
+        # Fill gaps with 0
+        trend = []
+        today = now.date()
+        current = start_date.date()
+        spend_map = {row.day: abs(float(row.total)) for row in spending}
+        
+        while current <= today:
+            trend.append({
+                "date": current.isoformat(),
+                "amount": spend_map.get(current.isoformat(), 0.0)
+            })
+            current += timedelta(days=1)
+            
+        return trend
 
     @staticmethod
     def get_balance_forecast(db: Session, tenant_id: str, days: int = 30, account_id: str = None):

@@ -44,7 +44,9 @@ const newAccount = ref({
     currency: 'INR',
     account_mask: '',
     balance: 0,
-    credit_limit: null,
+    credit_limit: null as number | null,
+    billing_day: null as number | null,
+    due_day: null as number | null,
     is_verified: true,
     tenant_id: '',
     owner_id: ''
@@ -289,6 +291,8 @@ function openCreateAccountModal() {
         name: '', type: 'BANK', currency: 'INR', 
         account_mask: '', balance: 0, 
         credit_limit: null,
+        billing_day: null,
+        due_day: null,
         is_verified: true,
         tenant_id: tenants.value[0]?.id || '',
         owner_id: ''
@@ -305,6 +309,8 @@ function openEditAccountModal(account: any, autoVerify: boolean = false) {
         account_mask: account.account_mask,
         balance: account.balance,
         credit_limit: account.credit_limit,
+        billing_day: account.billing_day,
+        due_day: account.due_day,
         owner_id: account.owner_id,
         tenant_id: account.tenant_id,
         is_verified: autoVerify ? true : account.is_verified
@@ -317,7 +323,9 @@ async function handleAccountSubmit() {
         const payload = {
             ...newAccount.value,
             balance: Number(newAccount.value.balance),
-            credit_limit: newAccount.value.type === 'CREDIT_CARD' ? Number(newAccount.value.credit_limit) : null
+            credit_limit: newAccount.value.type === 'CREDIT_CARD' ? Number(newAccount.value.credit_limit) : null,
+            billing_day: (newAccount.value.type === 'CREDIT_CARD' && newAccount.value.billing_day) ? Number(newAccount.value.billing_day) : null,
+            due_day: (newAccount.value.type === 'CREDIT_CARD' && newAccount.value.due_day) ? Number(newAccount.value.due_day) : null
         }
         
         if (editingAccountId.value) {
@@ -1470,6 +1478,17 @@ async function handleMemberSubmit() {
                         <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
                             <label class="form-label">Total Credit Limit</label>
                             <input type="number" v-model.number="newAccount.credit_limit" class="form-input" step="0.01" placeholder="e.g. 100000" />
+                        </div>
+                    </div>
+
+                    <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-row">
+                        <div class="form-group half">
+                            <label class="form-label">Billing Day (1-31)</label>
+                            <input type="number" v-model.number="newAccount.billing_day" class="form-input" min="1" max="31" placeholder="e.g. 15" />
+                        </div>
+                        <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
+                            <label class="form-label">Due Day (1-31)</label>
+                            <input type="number" v-model.number="newAccount.due_day" class="form-input" min="1" max="31" placeholder="e.g. 5" />
                         </div>
                     </div>
 

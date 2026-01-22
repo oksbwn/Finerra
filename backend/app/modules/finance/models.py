@@ -25,6 +25,8 @@ class Account(Base):
     account_mask = Column(String, nullable=True) # e.g. "XX1234" used for SMS matching
     balance = Column(Numeric(15, 2), default=0.0) # Current Balance or Consumed Limit
     credit_limit = Column(Numeric(15, 2), nullable=True) # For Credit Cards
+    billing_day = Column(Numeric(2, 0), nullable=True) # 1-31
+    due_day = Column(Numeric(2, 0), nullable=True) # 1-31
     is_verified = Column(Boolean, default=True, nullable=False) # False = Auto-detected from SMS
     import_config = Column(String, nullable=True) # JSON config for CSV/Excel mapping
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -12,6 +12,8 @@ class AccountBase(BaseModel):
     account_mask: Optional[str] = None
     balance: Optional[Decimal] = 0.0
     credit_limit: Optional[Decimal] = None
+    billing_day: Optional[int] = None
+    due_day: Optional[int] = None
     is_verified: bool = True
     import_config: Optional[str] = None
 
@@ -29,6 +31,8 @@ class AccountUpdate(BaseModel):
     owner_id: Optional[UUID] = None
     balance: Optional[Decimal] = None
     credit_limit: Optional[Decimal] = None
+    billing_day: Optional[int] = None
+    due_day: Optional[int] = None
     is_verified: Optional[bool] = None
     import_config: Optional[str] = None
     tenant_id: Optional[Union[UUID, str]] = None

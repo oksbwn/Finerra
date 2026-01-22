@@ -49,3 +49,24 @@ def get_budget_history(
         str(current_user.tenant_id), 
         months=months
     )
+@router.get("/net-worth-timeline")
+def get_net_worth_timeline(
+    days: int = 30,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return AnalyticsService.get_net_worth_timeline(
+        db, 
+        str(current_user.tenant_id), 
+        days=days
+    )
+
+@router.get("/spending-trend")
+def get_spending_trend(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return AnalyticsService.get_spending_trend(
+        db, 
+        str(current_user.tenant_id)
+    )

@@ -595,10 +595,6 @@ class MutualFundService:
         
         nav_data_list = asyncio.run(fetch_all_nav_data())
         
-        # Process each holding with its NAV data
-        # We wrap the update logic in a lock to prevent concurrent DuckDB writes
-        nav_data_list = asyncio.run(fetch_all_nav_data())
-        
         # Phase 1: Update Holdings (Write Lock)
         updates_made = False
         with _db_write_lock:
@@ -1253,11 +1249,15 @@ class MutualFundService:
         end_date = date.today() - timedelta(days=1)
         start_date = calculate_start_date(period, orders[0].order_date)
         
+        # Ensure at least 2 points for sparklines/trends even for brand new portfolios
+        if start_date >= end_date:
+            start_date = end_date - timedelta(days=1)
+        
         # Snapshot interval based on granularity
         if granularity == "1d":
             snapshot_days = 1
         elif granularity == "1m":
-            snapshot_days = 30 # Approximation, but we can iterate months
+            snapshot_days = 30 # Approximation
         else:
             snapshot_days = 7  # Default to weekly
             # Align to Monday for consistency if weekly
