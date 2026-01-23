@@ -33,6 +33,8 @@ CREATE TABLE accounts (
 	account_mask VARCHAR,
 	balance NUMERIC(15, 2),
 	credit_limit NUMERIC(15, 2),
+	billing_day NUMERIC(2, 0),
+	due_day NUMERIC(2, 0),
 	is_verified BOOLEAN DEFAULT TRUE NOT NULL,
 	import_config VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
@@ -46,6 +48,7 @@ CREATE TABLE categories (
 	tenant_id VARCHAR NOT NULL, 
 	name VARCHAR NOT NULL, 
 	icon VARCHAR, 
+	color VARCHAR DEFAULT '#3B82F6',
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -134,10 +137,12 @@ CREATE TABLE mutual_fund_holdings (
 	average_price NUMERIC(15, 4) DEFAULT 0, 
 	current_value NUMERIC(15, 2), 
 	last_nav NUMERIC(15, 4), 
+	user_id VARCHAR,
 	last_updated_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
-	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code)
+	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code),
+	FOREIGN KEY(user_id) REFERENCES users (id)
 );
 
 CREATE TABLE mutual_fund_orders (
@@ -150,13 +155,16 @@ CREATE TABLE mutual_fund_orders (
 	units NUMERIC(15, 4) NOT NULL, 
 	nav NUMERIC(15, 4) NOT NULL, 
 	order_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	folio_number VARCHAR,
 	status VARCHAR DEFAULT 'COMPLETED', 
 	external_id VARCHAR, 
 	import_source VARCHAR DEFAULT 'MANUAL', 
+	user_id VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
-	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code)
+	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code),
+	FOREIGN KEY(user_id) REFERENCES users (id)
 );
 
 CREATE TABLE portfolio_timeline_cache (
@@ -274,3 +282,17 @@ CREATE TABLE ai_call_cache (
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 CREATE INDEX ix_ai_call_cache_content_hash ON ai_call_cache (content_hash);
+
+-- Additional Performance Indexes
+CREATE INDEX ix_accounts_tenant_owner ON accounts (tenant_id, owner_id);
+CREATE INDEX ix_transactions_query ON transactions (tenant_id, account_id, date);
+CREATE INDEX ix_transactions_category ON transactions (tenant_id, category);
+CREATE INDEX ix_budgets_lookup ON budgets (tenant_id, category);
+CREATE INDEX ix_recurring_lookup ON recurring_transactions (tenant_id, account_id, next_run_date);
+CREATE INDEX ix_mf_holdings_lookup ON mutual_fund_holdings (tenant_id, scheme_code);
+CREATE INDEX ix_mf_orders_lookup ON mutual_fund_orders (tenant_id, scheme_code, order_date);
+CREATE INDEX ix_mf_orders_folio ON mutual_fund_orders (folio_number);
+CREATE INDEX ix_email_configs_tenant ON email_configurations (tenant_id);
+CREATE INDEX ix_email_logs_lookup ON email_sync_logs (tenant_id, config_id);
+CREATE INDEX ix_pending_txns_lookup ON pending_transactions (tenant_id, account_id);
+CREATE INDEX ix_user_tenant ON users (tenant_id);

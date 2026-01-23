@@ -65,15 +65,17 @@ def get_portfolio(
 
 @router.get("/analytics")
 def get_analytics(
+    user_id: Optional[str] = Query(None),
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return MutualFundService.get_portfolio_analytics(db, str(current_user.tenant_id))
+    return MutualFundService.get_portfolio_analytics(db, str(current_user.tenant_id), user_id)
 
 @router.get("/analytics/performance-timeline")
 def get_performance_timeline(
     period: str = "1y",
     granularity: str = "1w",
+    user_id: Optional[str] = Query(None),
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -83,8 +85,9 @@ def get_performance_timeline(
     Query params:
     - period: One of '1m', '3m', '6m', '1y', 'all'
     - granularity: One of '1d', '1w', '1m'
+    - user_id: Filter by specific family member
     """
-    return MutualFundService.get_performance_timeline(db, str(current_user.tenant_id), period, granularity)
+    return MutualFundService.get_performance_timeline(db, str(current_user.tenant_id), period, granularity, user_id)
 
 @router.delete("/analytics/cache")
 def clear_timeline_cache(

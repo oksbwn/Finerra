@@ -3,6 +3,7 @@ from backend.app.modules.auth import models, schemas, security
 from fastapi import HTTPException, status
 
 class AuthService:
+    @staticmethod
     def create_tenant_and_user(db: Session, tenant: schemas.TenantCreate, user: schemas.UserCreate) -> models.User:
         # 1. Create Tenant
         db_tenant = models.Tenant(name=tenant.name)
@@ -26,6 +27,7 @@ class AuthService:
         db.refresh(db_user)
         return db_user
 
+    @staticmethod
     def authenticate_user(db: Session, email: str, password: str) -> models.User | None:
         user = db.query(models.User).filter(models.User.email == email).first()
         if not user:

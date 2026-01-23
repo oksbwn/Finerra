@@ -56,14 +56,11 @@ class EmailSyncService:
                 else:
                     final_criterion = f'({search_criterion} SINCE "{date_str}")'
             
-            print(f"[EmailSync] Searching with: {final_criterion}")
             status, messages = mail.search(None, final_criterion)
             if status != "OK":
-                print(f"[EmailSync] Search failed: {status}")
                 return {"status": "error", "message": f"Search failed: {status}"}
 
             email_ids = messages[0].split()
-            print(f"[EmailSync] Found {len(email_ids)} emails.")
             stats["total_fetched"] = len(email_ids)
 
             for e_id in email_ids:
@@ -90,7 +87,6 @@ class EmailSyncService:
                             if isinstance(subject, bytes):
                                 subject = subject.decode(encoding if encoding else "utf-8")
                             
-                            print(f"[EmailSync] Checking: {subject}")
                             
                             # Extract body
                             body = ""
@@ -137,22 +133,18 @@ class EmailSyncService:
                             # Parse via Registry
                             parsed = EmailParserRegistry.parse(subject, body, db, tenant_id, email_date)
                             if parsed:
-                                print(f"[EmailSync] SUCCESS! Parsed: {parsed.amount} {parsed.recipient} (Ref: {parsed.ref_id})")
                                 result = IngestionService.process_transaction(db, tenant_id, parsed)
                                 status = result.get("status")
                                 
                                 if status in ["success", "triaged"]:
                                     stats["processed"] += 1
-                                    print(f"[EmailSync] {status.upper()}: {parsed.amount} to {result.get('account', 'Unknown')}")
                                 elif result.get("deduplicated"):
-                                    # Explicitly log deduplication for user confidence
-                                    print(f"[EmailSync] SKIPPED (Duplicate: {result.get('reason')})")
+                                    pass
                                 else:
                                     stats["failed"] += 1
                                     reason = result.get('message') or result.get('reason') or "Unknown Error"
                                     err_msg = f"Ingestion failed for '{subject[:30]}...': {reason}"
                                     stats["errors"].append(err_msg)
-                                    print(f"[EmailSync] {err_msg}")
                             else:
                                 stats["failed"] += 1
                                 # Log why it was skipped (now without cap for terminal debugging)
@@ -164,7 +156,6 @@ class EmailSyncService:
                                 keywords = ["bill", "mutual fund", "paid", "sent", "upi", "rs", "spent", "debited", "vpa", "txn", "transaction"]
                                 combined_text = (subject + " " + body).lower()
                                 if any(k in combined_text for k in keywords):
-                                    print(f"[EmailSync] Capture for training: {subject}")
                                     IngestionService.capture_unparsed(
                                         db=db,
                                         tenant_id=tenant_id,
@@ -177,7 +168,6 @@ class EmailSyncService:
                                 # Print body snippet for debugging
                                 if any(k in combined_text for k in ["txn", "upi", "hdfc", "spent", "debited", "transaction"]):
                                     clean_body = body.replace("\n", " ").strip()
-                                    print(f"[EmailSync] Debug Body Snippet: {clean_body[:300]}...")
 
                 except Exception as e:
                     stats["errors"].append(f"Error processing message {e_id}: {str(e)}")

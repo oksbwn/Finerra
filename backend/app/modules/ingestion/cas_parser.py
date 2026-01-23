@@ -58,7 +58,6 @@ class CASParser:
             folios = get_val(data, "folios", [])
             cas_type = get_val(data, "cas_type", "UNKNOWN")
             
-            print(f"[CASParser Debug] Parse type: {cas_type}. Folios found: {len(folios)}")
 
             # Check if it's a Summary statement with no data
             if len(folios) == 0 and cas_type == "SUMMARY":
@@ -66,7 +65,6 @@ class CASParser:
                  
             # Fallback: If 0 folios and NOT explicitly summary (or maybe misidentified), try force_pdfminer
             if len(folios) == 0:
-                print("[CASParser] No folios found. Retrying with force_pdfminer=True...")
                 try:
                     data = casparser.read_cas_pdf(file_path, password, output="dict", force_pdfminer=True)
                     if not isinstance(data, dict):
@@ -76,19 +74,12 @@ class CASParser:
                             data = data.dict()
                     
                     folios = get_val(data, "folios", [])
-                    print(f"[CASParser Debug] Retry parse type: {type(data)}. Folios found: {len(folios)}")
-                except Exception as e:
-                    print(f"[CASParser Debug] Retry failed: {e}")
-
-            # Debug: Print raw keys if still empty
-            if len(folios) == 0:
-                print(f"[CASParser] RAW DATA DUMP: {data}")
-            print(f"[CASParser Debug] Found {len(folios)} folios in CAS data.")
+                except Exception:
+                    pass
             
             for folio in folios:
                 folio_number = get_val(folio, "folio", "Unknown")
                 schemes = get_val(folio, "schemes", [])
-                print(f"[CASParser Debug] Folio {folio_number} has {len(schemes)} schemes.")
                 
                 for scheme in schemes:
                     scheme_name = get_val(scheme, "scheme", "Unknown Scheme")
@@ -96,7 +87,6 @@ class CASParser:
                     isin = get_val(scheme, "isin", None)
                     
                     transactions = get_val(scheme, "transactions", [])
-                    print(f"[CASParser Debug] Scheme '{scheme_name}' has {len(transactions)} transactions.")
                     
                     for txn in transactions:
                         # Convert date string to datetime object
@@ -153,10 +143,8 @@ class CASParser:
                             "external_id": get_val(txn, "external_id") 
                         })
                 
-            print(f"[CASParser] Extracted {len(flattened_transactions)} transactions using casparser.")
                 
         except Exception as e:
-            print(f"[CASParser] Error parsing PDF with casparser: {e}")
             raise e
             
         return flattened_transactions
@@ -192,7 +180,6 @@ class CASParser:
                 return []
                 
             email_ids = messages[0].split()
-            print(f"[CASParser] Found {len(email_ids)} CAS emails to scan.")
 
             for e_id in email_ids:
                 _, msg_data = mail.fetch(e_id, "(BODY.PEEK[])")
@@ -203,27 +190,24 @@ class CASParser:
                     if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None:
                         continue
                         
-                    filename = part.get_filename()
                     if filename and filename.lower().endswith('.pdf'):
-                        print(f"[CASParser] Scanning PDF from email: {filename}")
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
                             f.write(part.get_payload(decode=True))
                             temp_path = f.name
                             
-                        try:
-                            transactions = CASParser.parse_pdf(temp_path, password)
-                            all_found_transactions.extend(transactions)
-                        except Exception as parse_err:
-                            print(f"[CASParser] Parse error for {filename}: {parse_err}")
-                        finally:
-                            if os.path.exists(temp_path):
-                                os.remove(temp_path)
+                            try:
+                                transactions = CASParser.parse_pdf(temp_path, password)
+                                all_found_transactions.extend(transactions)
+                            except Exception:
+                                pass
+                            finally:
+                                if os.path.exists(temp_path):
+                                    os.remove(temp_path)
 
             mail.close()
             mail.logout()
             
         except Exception as e:
-            print(f"[CASParser] Connection error: {e}")
             raise e
             
         return all_found_transactions

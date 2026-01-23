@@ -8,8 +8,8 @@ class EmailConfiguration(Base):
     __tablename__ = "email_configurations"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
-    user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Link to family member
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)  # Link to family member
     email = Column(String, nullable=False)
     # Note: In a real app, encrypt this. For now, storing as-is.
     password = Column(String, nullable=False) 
@@ -25,8 +25,8 @@ class EmailSyncLog(Base):
     __tablename__ = "email_sync_logs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    config_id = Column(String, ForeignKey("email_configurations.id"), nullable=False)
-    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    config_id = Column(String, ForeignKey("email_configurations.id"), nullable=False, index=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     status = Column(String, default="running") # running, completed, error
@@ -37,8 +37,8 @@ class PendingTransaction(Base):
     __tablename__ = "pending_transactions"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
-    account_id = Column(String, nullable=False)  # No FK for DuckDB compliance
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    account_id = Column(String, nullable=False, index=True)  # No FK for DuckDB compliance
     
     # Relationships
     account = relationship("Account", 
@@ -64,7 +64,7 @@ class UnparsedMessage(Base):
     __tablename__ = "unparsed_messages"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     source = Column(String, nullable=False) # SMS, EMAIL
     raw_content = Column(String, nullable=False)
     subject = Column(String, nullable=True)
@@ -75,7 +75,7 @@ class ParsingPattern(Base):
     __tablename__ = "parsing_patterns"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     pattern_type = Column(String, default="regex") # regex, template
     pattern_value = Column(String, nullable=False) # The regex or template string
     mapping_config = Column(String, nullable=False) # JSON: { "amount": 1, "date": 2, ... }
@@ -87,7 +87,7 @@ class AIConfiguration(Base):
     __tablename__ = "ai_configurations"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     provider = Column(String, default="gemini") # gemini, openai, etc.
     model_name = Column(String, default="gemini-pro")
     api_key = Column(String, nullable=True) # Sensitive
@@ -104,7 +104,7 @@ class AICallCache(Base):
     __tablename__ = "ai_call_cache"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     content_hash = Column(String, index=True, nullable=False)
     provider = Column(String, nullable=False)
     model_name = Column(String, nullable=False)

@@ -44,29 +44,9 @@ def create_application() -> FastAPI:
     application.include_router(ingestion_router, prefix=f"{settings.API_V1_STR}/ingestion", tags=["ingestion"])
     application.include_router(ai_router, prefix=f"{settings.API_V1_STR}/ingestion", tags=["ai"])
     
-    # DB Creation (Dev only)
+    
+    # DB Creation (Dev only - migrations removed, use fresh schema.sql for setup)
     Base.metadata.create_all(bind=engine)
-
-    # --- Schema Migrations (Manual) ---
-    with engine.connect() as conn:
-        try:
-            # Check if column exists in accounts table
-            res = conn.execute(text("DESCRIBE accounts;")).fetchall()
-            cols = [r[0] for r in res]
-            if "credit_limit" not in cols:
-                print("[Migration] Adding credit_limit to accounts table...")
-                conn.execute(text("ALTER TABLE accounts ADD COLUMN credit_limit DECIMAL(15, 2);"))
-            if "billing_day" not in cols:
-                print("[Migration] Adding billing_day to accounts table...")
-                conn.execute(text("ALTER TABLE accounts ADD COLUMN billing_day INTEGER;"))
-            if "due_day" not in cols:
-                print("[Migration] Adding due_day to accounts table...")
-                conn.execute(text("ALTER TABLE accounts ADD COLUMN due_day INTEGER;"))
-            
-            conn.commit()
-            print("[Migration] Columns added successfully.")
-        except Exception as e:
-            print(f"[Migration] Error checking/adding columns: {e}")
 
     # --- Background Tasks ---
     

@@ -1,16 +1,21 @@
 from datetime import datetime
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from backend.app.modules.finance import models
 from backend.app.modules.finance.services.transaction_service import TransactionService
 
 class AnalyticsService:
     @staticmethod
-    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT", account_id: str = None, start_date: datetime = None, end_date: datetime = None):
+    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT", account_id: str = None, start_date: datetime = None, end_date: datetime = None, user_id: str = None):
         
-        # 1. Accounts & Net Worth
+        # 1. Accounts & Net Worth (Accounts are filtered by owner_id if user_id is provided)
         accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
+        if user_id:
+            from sqlalchemy import or_
+            # Show accounts owned by this user OR shared accounts (owner_id is null)
+            accounts_query = accounts_query.filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+        
         if account_id:
             accounts_query = accounts_query.filter(models.Account.id == account_id)
         if user_role == "CHILD":
@@ -26,18 +31,31 @@ class AnalyticsService:
             "credit_debt": 0,
             "investment_value": 0,
             "total_credit_limit": 0,
-            "available_credit": 0
+            "available_credit": 0,
+            "overall_credit_utilization": 0
         }
         
         for acc in accounts:
             bal = float(acc.balance or 0)
             if acc.type == 'CREDIT_CARD':
-                breakdown["credit_debt"] += bal
-                breakdown["net_worth"] -= bal
+                # For CC, negative balance means debt. so we take abs() or invert it for "debt amount"
+                # If balance is -200, debt is 200.
+                debt_amount = abs(bal) if bal < 0 else 0 
+                # If balance is positive, it means overpaid (credit), not debt.
+                
+                breakdown["credit_debt"] += debt_amount
+                # Net worth: debt reduces it. Since bal is negative (-200), adding it reduces net worth correctly?
+                # Actually net worth = Assets - Liabilities. 
+                # If we just sum everything: Bank(1000) + CC(-200) = 800. Correct.
+                breakdown["net_worth"] += bal 
                 
                 limit = float(acc.credit_limit or 0)
                 breakdown["total_credit_limit"] += limit
-                breakdown["available_credit"] += (limit - bal)
+                
+                # Available credit: Limit - Debt. 
+                # If Limit 10000, Balance -200 (Debt 200): Available = 10000 - 200 = 9800.
+                # So Limit - abs(bal) or Limit + bal (if bal is negative)
+                breakdown["available_credit"] += (limit + bal)
             
             elif acc.type == 'INVESTMENT':
                 breakdown["investment_value"] += bal
@@ -52,26 +70,42 @@ class AnalyticsService:
                 if acc.type == 'BANK': breakdown["bank_balance"] += bal
                 elif acc.type == 'WALLET': breakdown["cash_balance"] += bal
 
+        # Calculate overall credit utilization
+        if breakdown["total_credit_limit"] > 0:
+            raw_overall_util = (breakdown["credit_debt"] / breakdown["total_credit_limit"]) * 100
+            breakdown["overall_credit_utilization"] = max(0, raw_overall_util)
+
         # 2. Monthly Spending (or Filtered Spending)
-        if not start_date:
-            now = datetime.utcnow()
-            start_date = datetime(now.year, now.month, 1)
-        
-        txns_query = db.query(models.Transaction).filter(
+        # Default to current month if no dates provided
+        if not start_date and not end_date:
+            from datetime import datetime
+            today = datetime.utcnow()
+            start_date = datetime(today.year, today.month, 1)
+            
+        monthly_spending_query = db.query(func.sum(models.Transaction.amount)).filter(
             models.Transaction.tenant_id == tenant_id,
-            models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
         )
+        if start_date:
+            monthly_spending_query = monthly_spending_query.filter(models.Transaction.date >= start_date)
         if end_date:
-            txns_query = txns_query.filter(models.Transaction.date <= end_date)
+            monthly_spending_query = monthly_spending_query.filter(models.Transaction.date <= end_date)
         if account_id:
-            txns_query = txns_query.filter(models.Transaction.account_id == account_id)
+            monthly_spending_query = monthly_spending_query.filter(models.Transaction.account_id == account_id)
+        if user_id:
+            # Filter by account ownership: show user's accounts OR shared accounts (owner_id is NULL)
+            from sqlalchemy import or_
+            monthly_spending_query = monthly_spending_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
         if user_role == "CHILD":
-             txns_query = txns_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
-                                    .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+            monthly_spending_query = monthly_spending_query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                                                           .filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
         
-        monthly_spending = abs(sum(txn.amount for txn in txns_query.all()))
+        monthly_spending = abs(float(monthly_spending_query.scalar() or 0))
         
         # 3. Overall Budget Health
         all_budgets = db.query(models.Budget).filter(models.Budget.tenant_id == tenant_id).all()
@@ -86,8 +120,30 @@ class AnalyticsService:
             "percentage": (float(monthly_spending) / total_budget_limit * 100) if total_budget_limit > 0 else 0
         }
         
-        # 4. Recent Transactions
-        recent_txns = TransactionService.get_transactions(db, tenant_id, limit=5, user_role=user_role)
+        # 4. Recent Transactions (with owner names)
+        recent_txns = TransactionService.get_transactions(db, tenant_id, limit=5, user_role=user_role, user_id=user_id)
+        
+        # Enrich with account owner names
+        enriched_txns = []
+        for txn in recent_txns:
+            txn_dict = {
+                "id": txn.id,
+                "date": txn.date,
+                "description": txn.description,
+                "amount": float(txn.amount),
+                "category": txn.category,
+                "account_id": txn.account_id
+            }
+            
+            # Get account owner name
+            account = db.query(models.Account).filter(models.Account.id == txn.account_id).first()
+            if account and account.owner_id:
+                from backend.app.modules.auth.models import User
+                owner = db.query(User).filter(User.id == account.owner_id).first()
+                if owner:
+                    txn_dict["account_owner_name"] = owner.full_name or owner.email.split('@')[0]
+            
+            enriched_txns.append(txn_dict)
 
         # 5. Top Spending Category this month
         top_cat_query = db.query(
@@ -95,10 +151,24 @@ class AnalyticsService:
             func.sum(models.Transaction.amount).label('total')
         ).filter(
             models.Transaction.tenant_id == tenant_id,
-            models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
-        ).group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).asc()).first()
+        )
+        
+        if start_date:
+            top_cat_query = top_cat_query.filter(models.Transaction.date >= start_date)
+        if end_date:
+            top_cat_query = top_cat_query.filter(models.Transaction.date <= end_date)
+        if user_id:
+            # Filter by account ownership
+            from sqlalchemy import or_
+            top_cat_query = top_cat_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
+            
+        top_cat_query = top_cat_query.group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).asc()).first()
         
         top_spending_category = None
         if top_cat_query:
@@ -111,18 +181,27 @@ class AnalyticsService:
         credit_cards = [a for a in accounts if a.type == 'CREDIT_CARD']
         credit_intelligence = []
         for card in credit_cards:
+            # Use ₹100,000 as default limit if not set
+            limit = float(card.credit_limit or 0)
+            if limit == 0:
+                limit = 100000.0
+                
             intel = {
                 "id": card.id,
                 "name": card.name,
                 "balance": float(card.balance or 0),
-                "limit": float(card.credit_limit or 0),
+                "limit": limit,
                 "utilization": 0,
                 "billing_day": int(card.billing_day) if card.billing_day else None,
                 "due_day": int(card.due_day) if card.due_day else None,
                 "days_until_due": None
             }
             if intel["limit"] > 0:
-                intel["utilization"] = (intel["balance"] / intel["limit"]) * 100
+                # Calculate utilization percentage
+                # Balance is typically negative (debt). Use abs() to get debt amount.
+                current_debt = abs(intel["balance"]) if intel["balance"] < 0 else 0
+                raw_util = (current_debt / intel["limit"]) * 100
+                intel["utilization"] = max(0, raw_util)
             
             if intel["due_day"]:
                 today = datetime.utcnow()
@@ -147,17 +226,22 @@ class AnalyticsService:
             "top_spending_category": top_spending_category,
             "budget_health": budget_health,
             "credit_intelligence": credit_intelligence,
-            "recent_transactions": recent_txns,
+            "recent_transactions": enriched_txns,
             "currency": accounts[0].currency if accounts else "INR"
         }
 
     @staticmethod
-    def get_net_worth_timeline(db: Session, tenant_id: str, days: int = 30):
+    def get_net_worth_timeline(db: Session, tenant_id: str, days: int = 30, user_id: str = None):
         from datetime import date, timedelta
         from .mutual_funds import MutualFundService
         
         # 1. Get current static balances (Bank + Cash - Credit Debt - Loans)
-        accounts = db.query(models.Account).filter(models.Account.tenant_id == tenant_id).all()
+        accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
+        if user_id:
+            from sqlalchemy import or_
+            accounts_query = accounts_query.filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+            
+        accounts = accounts_query.all()
         current_liquid_assets = 0
         for acc in accounts:
             bal = float(acc.balance or 0)
@@ -166,15 +250,29 @@ class AnalyticsService:
             elif acc.type in ['CREDIT_CARD', 'LOAN']:
                 current_liquid_assets -= bal
         
-        # 2. Get all transactions for these accounts in the last 'days' days
+        # 2. Get net transactions grouped by date
         start_history = datetime.utcnow() - timedelta(days=days)
-        transactions = db.query(models.Transaction).filter(
+        transactions_grouped_query = db.query(
+            func.date(models.Transaction.date).label('d'),
+            func.sum(models.Transaction.amount).label('total')
+        ).filter(
             models.Transaction.tenant_id == tenant_id,
             models.Transaction.date >= start_history
-        ).order_by(models.Transaction.date.desc()).all()
+        )
+        
+        if user_id:
+            # Filter by account ownership
+            from sqlalchemy import or_
+            transactions_grouped_query = transactions_grouped_query.join(
+                models.Account, models.Transaction.account_id == models.Account.id
+            ).filter(
+                or_(models.Account.owner_id == user_id, models.Account.owner_id == None)
+            )
+            
+        transactions_grouped = transactions_grouped_query.group_by(func.date(models.Transaction.date)).all()
         
         # 3. Get MF timeline (which already handles historical valuation)
-        mf_res = MutualFundService.get_performance_timeline(db, tenant_id, period='1m', granularity='1d')
+        mf_res = MutualFundService.get_performance_timeline(db, tenant_id, period='1m', granularity='1d', user_id=user_id)
         mf_timeline = mf_res.get("timeline", [])
         mf_map = {datetime.fromisoformat(p["date"]).date(): p["value"] for p in mf_timeline}
         
@@ -184,11 +282,7 @@ class AnalyticsService:
         cursor_balance = current_liquid_assets
         
         # Group transactions by date
-        from collections import defaultdict
-        txn_by_date = defaultdict(float)
-        for t in transactions:
-            d = t.date.date()
-            txn_by_date[d] += float(t.amount)
+        txn_by_date = {row.d: float(row.total) for row in transactions_grouped}
             
         for i in range(days):
             target_date = (now - timedelta(days=i)).date()
@@ -211,19 +305,19 @@ class AnalyticsService:
             })
             
             # Step back: subtract todays net transactions to get yesterday's closing balance
-            cursor_balance -= txn_by_date[target_date]
+            cursor_balance -= txn_by_date.get(target_date, 0)
             
         return timeline[::-1] # Chronological
 
     @staticmethod
-    def get_spending_trend(db: Session, tenant_id: str):
+    def get_spending_trend(db: Session, tenant_id: str, user_id: str = None):
         from datetime import date, timedelta
         
         now = datetime.utcnow()
         start_date = datetime(now.year, now.month, 1)
         
         # Daily spending
-        spending = db.query(
+        query = db.query(
             func.date(models.Transaction.date).label('day'),
             func.sum(models.Transaction.amount).label('total')
         ).filter(
@@ -231,7 +325,15 @@ class AnalyticsService:
             models.Transaction.date >= start_date,
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False
-        ).group_by(func.date(models.Transaction.date)).order_by('day').all()
+        )
+        
+        if user_id:
+            # Filter by account ownership
+            from sqlalchemy import or_
+            query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                         .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+            
+        spending = query.group_by(func.date(models.Transaction.date)).order_by('day').all()
         
         # Fill gaps with 0
         trend = []
@@ -330,8 +432,65 @@ class AnalyticsService:
             return []
 
         now = datetime.utcnow()
-        history = []
+        # Calculate start of the first month in range
+        first_month_offset = months - 1
+        current_m = now.month
+        current_y = now.year
         
+        for _ in range(first_month_offset):
+            current_m -= 1
+            if current_m == 0:
+                current_m = 12
+                current_y -= 1
+        
+        start_range = datetime(current_y, current_m, 1)
+        
+        # Query spending for ALL categories for the WHOLE period in one go
+        # Group by category and month
+        # Note: func.date_trunc('month', ...) is supported by DuckDB
+        monthly_stats = db.query(
+            models.Transaction.category,
+            func.date_trunc('month', models.Transaction.date).label('month_start'),
+            func.sum(models.Transaction.amount).label('total')
+        ).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.date >= start_range,
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False
+        ).group_by(
+            models.Transaction.category,
+            text('month_start')
+        ).all()
+        
+        # Organize statistics into a map for easy lookup: {month_start_date: {category: amount}}
+        stats_map = {}
+        for row in monthly_stats:
+            m_date = row.month_start.date() if hasattr(row.month_start, 'date') else row.month_start
+            if m_date not in stats_map:
+                stats_map[m_date] = {}
+            stats_map[m_date][row.category] = abs(float(row.total))
+            
+        # Handle 'OVERALL' special case if it exists in categories
+        if 'OVERALL' in categories:
+            overall_stats = db.query(
+                func.date_trunc('month', models.Transaction.date).label('month_start'),
+                func.sum(models.Transaction.amount).label('total')
+            ).filter(
+                models.Transaction.tenant_id == tenant_id,
+                models.Transaction.date >= start_range,
+                models.Transaction.amount < 0,
+                models.Transaction.is_transfer == False
+            ).group_by(
+                text('month_start')
+            ).all()
+            
+            for row in overall_stats:
+                m_date = row.month_start.date() if hasattr(row.month_start, 'date') else row.month_start
+                if m_date not in stats_map:
+                    stats_map[m_date] = {}
+                stats_map[m_date]['OVERALL'] = abs(float(row.total))
+
+        history = []
         for i in range(months):
             # Calculate target month and year
             target_month = now.month - i
@@ -340,38 +499,7 @@ class AnalyticsService:
                 target_month += 12
                 target_year -= 1
             
-            m_start = datetime(target_year, target_month, 1)
-            if target_month == 12:
-                m_end = datetime(target_year + 1, 1, 1)
-            else:
-                m_end = datetime(target_year, target_month + 1, 1)
-            
-            # Query spending for these categories in this month
-            spendings = db.query(
-                models.Transaction.category,
-                func.sum(models.Transaction.amount).label('total')
-            ).filter(
-                models.Transaction.tenant_id == tenant_id,
-                models.Transaction.date >= m_start,
-                models.Transaction.date < m_end,
-                models.Transaction.amount < 0,
-                models.Transaction.is_transfer == False,
-                models.Transaction.category.in_(categories)
-            ).group_by(models.Transaction.category).all()
-            
-            spend_map = {s.category: abs(float(s.total)) for s in spendings}
-            
-            # Special case for OVERALL: ignore category and sum all
-            if 'OVERALL' in categories:
-                overall_spend = db.query(func.sum(models.Transaction.amount)).filter(
-                    models.Transaction.tenant_id == tenant_id,
-                    models.Transaction.date >= m_start,
-                    models.Transaction.date < m_end,
-                    models.Transaction.amount < 0,
-                    models.Transaction.is_transfer == False
-                ).scalar() or 0
-                spend_map['OVERALL'] = abs(float(overall_spend))
-            
+            m_start = datetime(target_year, target_month, 1).date()
             month_label = m_start.strftime("%b %Y")
             
             entry = {
@@ -379,11 +507,12 @@ class AnalyticsService:
                 "data": []
             }
             
+            month_data = stats_map.get(m_start, {})
             for b in budgets:
                 entry["data"].append({
                     "category": b.category,
                     "limit": float(b.amount_limit),
-                    "spent": spend_map.get(b.category, 0.0)
+                    "spent": month_data.get(b.category, 0.0)
                 })
             
             history.append(entry)

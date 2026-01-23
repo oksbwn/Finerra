@@ -51,5 +51,4 @@ class EmailParserRegistry:
 
         # 3. Try AI Parsing (Gemini/LLM) as final fallback
         from backend.app.modules.ingestion.ai_service import AIService
-        print(f"[EmailParserRegistry] Falling back to AI for: {subject}")
         return AIService.parse_with_ai(db, tenant_id, combined_content, "parsing")

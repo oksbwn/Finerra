@@ -40,7 +40,7 @@ class TransactionService:
                         final_category = rule.category
                         break
                 except Exception as e:
-                    print(f"Error parsing rule keywords: {e}")
+                    pass
         # ---------------------------------
         
         txn_type = models.TransactionType.DEBIT if transaction.amount < 0 else models.TransactionType.CREDIT
@@ -82,7 +82,8 @@ class TransactionService:
         limit: int = 50,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        user_role: str = "ADULT"
+        user_role: str = "ADULT",
+        user_id: Optional[str] = None
     ) -> List[models.Transaction]:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
         
@@ -96,6 +97,11 @@ class TransactionService:
             query = query.filter(models.Transaction.date >= start_date)
         if end_date:
             query = query.filter(models.Transaction.date <= end_date)
+        if user_id:
+            # Filter by account ownership: show user's accounts OR shared accounts
+            from sqlalchemy import or_
+            query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                         .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
             
         return query.order_by(models.Transaction.date.desc()).offset(skip).limit(limit).all()
 

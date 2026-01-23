@@ -67,7 +67,7 @@ class GeminiProvider:
                     })
             return models
         except Exception as e:
-            print(f"[GeminiProvider] List Models Error: {e}")
+            pass
             return []
 
     def generate_analysis(self, config: ingestion_models.AIConfiguration, summary_data: str) -> Optional[str]:
@@ -91,7 +91,7 @@ class GeminiProvider:
             )
             return response.text if response else None
         except Exception as e:
-            print(f"[GeminiProvider] Generate Analysis Error: {e}")
+            pass
             return None
 
 class AIService:

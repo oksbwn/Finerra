@@ -92,7 +92,6 @@ class MutualFundService:
                 return results
             return []
         except Exception as e:
-            print(f"Error searching funds: {e}")
             return []
 
     @staticmethod
@@ -107,7 +106,6 @@ class MutualFundService:
                     return data
             return None
         except Exception as e:
-            print(f"Error fetching NAV: {e}")
             return None
 
     @staticmethod
@@ -119,16 +117,13 @@ class MutualFundService:
         all_funds = []
         amfi_map = {}
         try:
-            print("[MutualFundService] Fetching master fund list for mapping...")
             import httpx
             resp = httpx.get("https://api.mfapi.in/mf", timeout=10.0)
             if resp.status_code == 200:
                 all_funds = resp.json()
                 amfi_map = {str(f['schemeCode']): f for f in all_funds}
-                print(f"[MutualFundService] Master list fetched: {len(all_funds)} schemes.")
-        except Exception as e:
-            print(f"[MutualFundService] Warning: Failed to fetch master fund list: {e}. Falling back to name search.")
-
+        except Exception:
+            pass
         mapped_results = []
         for txn in transactions:
             matched_scheme = None
@@ -225,7 +220,6 @@ class MutualFundService:
         """Bulk ingest transactions under a global lock."""
         stats = {"processed": 0, "failed": 0, "details": {"imported": [], "failed": []}}
         
-        print(f"[MutualFundService] Starting bulk import of {len(transactions)} transactions")
         
         with _db_write_lock:
             for idx, txn in enumerate(transactions):
@@ -243,27 +237,21 @@ class MutualFundService:
                                 except: continue
                         except: pass
                     
-                    print(f"[MutualFundService] [{idx+1}/{len(transactions)}] Processing: {txn.get('scheme_name')} - {txn.get('units')} units")
                     result = MutualFundService._add_transaction_logic(db, tenant_id, txn)
                     
                     if result and hasattr(result, 'id'):
-                        print(f"[MutualFundService] ✓ Transaction added/found: Order ID {result.id}")
                         stats["processed"] += 1
                         stats["details"]["imported"].append(txn)
                     else:
-                        print(f"[MutualFundService] ✗ No result returned")
                         stats["failed"] += 1
                         txn['error'] = "No order returned"
                         stats["details"]["failed"].append(txn)
                 except Exception as e:
-                    print(f"[MutualFundService] ✗ Import error: {e}")
                     txn['error'] = str(e)
                     stats["failed"] += 1
                     stats["details"]["failed"].append(txn)
             
-            print(f"[MutualFundService] Committing {stats['processed']} transactions")
             MutualFundService._safe_commit(db)
-            print(f"[MutualFundService] Import complete: {stats['processed']} processed, {stats['failed']} failed")
             
         return stats
 
@@ -309,7 +297,6 @@ class MutualFundService:
                 MutualFundOrder.external_id == external_id
             ).first()
             if existing_order:
-                print(f"[MutualFundService] → DUPLICATE (external_id): {external_id}")
                 return existing_order
 
         # Priority 2: Check by exact match with precision handling
@@ -334,11 +321,9 @@ class MutualFundService:
         ).first()
 
         if existing_order:
-            print(f"[MutualFundService] → DUPLICATE (field match): {scheme_code} on {txn_date}")
             return existing_order
 
         # 3. Create Order
-        print(f"[MutualFundService] → NEW TRANSACTION: Creating order for {scheme_code}")
         order = MutualFundOrder(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -349,6 +334,7 @@ class MutualFundService:
             nav=data['nav'],
             order_date=data['date'],
             external_id=external_id,
+            folio_number=data.get('folio_number'),
             import_source=data.get('import_source', 'MANUAL')
         )
         db.add(order)
@@ -421,7 +407,6 @@ class MutualFundService:
             db.flush()  # Force ID generation
         
         order.holding_id = holding.id
-        print(f"[MutualFundService] Updated holding {holding.id} for scheme {scheme_code}: {holding.units} units, value: {holding.current_value}")
         db.flush() 
         return order
 
@@ -498,8 +483,7 @@ class MutualFundService:
         # 3. Process each order
         processed_orders = []
         for order in orders:
-            folio = getattr(order, 'folio_number', None)
-            MutualFundService._update_holding_with_order(db, tenant_id, order, folio)
+            MutualFundService._update_holding_with_order(db, tenant_id, order, order.folio_number)
             processed_orders.append(order)
         
         # 4. Special Commit
@@ -523,7 +507,6 @@ class MutualFundService:
                 MutualFundOrder.tenant_id == tenant_id
             ).delete(synchronize_session=False)
             
-            print(f"[MutualFundService] Deleted {deleted_orders} orders for holding {holding_id}")
             
             # Then delete the holding itself
             db.delete(holding)
@@ -585,7 +568,6 @@ class MutualFundService:
                 else:
                     return {"latest_nav": 0.0, "nav_date": "", "sparkline": []}
             except Exception as e:
-                print(f"Failed to fetch NAV/sparkline for {scheme_code}: {e}")
                 return {"latest_nav": 0.0, "nav_date": "", "sparkline": []}
         
         # Fetch all NAV data concurrently
@@ -634,7 +616,6 @@ class MutualFundService:
                 if updates_made:
                     MutualFundService._safe_commit(db)
             except Exception as e:
-                print(f"[MutualFundService] Error updating NAVs: {e}")
                 db.rollback()
 
         # Phase 2: Build Results (Read-Only)
@@ -779,7 +760,7 @@ class MutualFundService:
                 nav_history = sorted(valid_history, key=lambda x: x['date'])
 
         except Exception as e:
-            print(f"Failed to fetch NAV history: {e}")
+            pass
 
         return {
             "id": holding.id,
@@ -919,7 +900,7 @@ class MutualFundService:
                     except: continue
                 nav_history = sorted(valid_history, key=lambda x: x['date'])
         except Exception as e:
-            print(f"Failed to fetch NAV history: {e}")
+            pass
 
         # 8. User Info & Owners List
         owners_map = {}
@@ -1071,14 +1052,17 @@ class MutualFundService:
         return asyncio.run(fetch_all())
 
     @staticmethod
-    def get_portfolio_analytics(db: Session, tenant_id: str):
+    def get_portfolio_analytics(db: Session, tenant_id: str, user_id: Optional[str] = None):
         """
         Calculate portfolio analytics: allocation, top performers, XIRR
         """
         from backend.app.modules.finance.utils.financial_math import xirr, categorize_fund
         
         # Get portfolio data
-        holdings = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        query = db.query(MutualFundHolding).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            query = query.filter(MutualFundHolding.user_id == user_id)
+        holdings = query.all()
         
         if not holdings:
             return {
@@ -1117,7 +1101,7 @@ class MutualFundService:
             category_allocation = {k: round((v / total_value) * 100, 2) for k, v in category_allocation.items()}
         
         # Get portfolio with P/L for top performers
-        portfolio_data = MutualFundService.get_portfolio(db, tenant_id)
+        portfolio_data = MutualFundService.get_portfolio(db, tenant_id, user_id)
         
         # Calculate P/L percentage for sorting
         for item in portfolio_data:
@@ -1135,13 +1119,19 @@ class MutualFundService:
         
         # Calculate XIRR
         # Get all transactions for EXISTING holdings only (Same as timeline)
-        holdings_query = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
-        active_holding_ids = [h.id for h in holdings_query]
+        h_q = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            h_q = h_q.filter(MutualFundHolding.user_id == user_id)
+        active_holding_ids = [h.id for h in h_q.all()]
         
-        orders = db.query(MutualFundOrder).filter(
+        o_q = db.query(MutualFundOrder).filter(
             MutualFundOrder.tenant_id == tenant_id,
             MutualFundOrder.holding_id.in_(active_holding_ids)
-        ).all()
+        )
+        if user_id:
+            o_q = o_q.filter(MutualFundOrder.user_id == user_id)
+        
+        orders = o_q.all()
         
         xirr_value = None
         total_invested = 0.0
@@ -1212,7 +1202,7 @@ class MutualFundService:
         return deleted_count
     
     @staticmethod
-    def get_performance_timeline(db: Session, tenant_id: str, period: str = "1y", granularity: str = "1w"):
+    def get_performance_timeline(db: Session, tenant_id: str, period: str = "1y", granularity: str = "1w", user_id: Optional[str] = None):
         """
         Calculate portfolio value over time with smart caching.
         
@@ -1226,13 +1216,20 @@ class MutualFundService:
         
         # Get all transactions for EXISTING holdings only
         # This prevents orphaned orders from deleted holdings from inflating the timeline
-        holdings = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id).all()
+        holdings_query = db.query(MutualFundHolding.id).filter(MutualFundHolding.tenant_id == tenant_id)
+        if user_id:
+            holdings_query = holdings_query.filter(MutualFundHolding.user_id == user_id)
+        holdings = holdings_query.all()
         active_holding_ids = [h.id for h in holdings]
         
-        orders = db.query(MutualFundOrder).filter(
+        orders_query = db.query(MutualFundOrder).filter(
             MutualFundOrder.tenant_id == tenant_id,
             MutualFundOrder.holding_id.in_(active_holding_ids)
-        ).order_by(MutualFundOrder.order_date.asc()).all()
+        )
+        if user_id:
+            orders_query = orders_query.filter(MutualFundOrder.user_id == user_id)
+        
+        orders = orders_query.order_by(MutualFundOrder.order_date.asc()).all()
         
         if not orders:
             return {
@@ -1241,9 +1238,13 @@ class MutualFundService:
                 "total_return_percent": 0
             }
         
-        # Calculate portfolio hash (sorted scheme codes)
+        # Calculate portfolio hash (sorted scheme codes + user_id)
         unique_schemes = sorted(set(str(o.scheme_code) for o in orders))
-        portfolio_hash = hashlib.md5(",".join(unique_schemes).encode()).hexdigest()
+        hash_input = ",".join(unique_schemes)
+        if user_id:
+            hash_input += f"|user:{user_id}"
+            
+        portfolio_hash = hashlib.md5(hash_input.encode()).hexdigest()
         
         # Determine date range and granularity
         end_date = date.today() - timedelta(days=1)

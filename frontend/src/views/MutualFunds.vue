@@ -208,7 +208,7 @@ const analytics = ref<any>(null)
 
 async function fetchAnalytics() {
     try {
-        const res = await financeApi.getAnalytics()
+        const res = await financeApi.getAnalytics(selectedMember.value || undefined)
         analytics.value = res.data
     } catch (e) {
         console.error('Analytics fetch failed:', e)
@@ -223,7 +223,11 @@ const isLoadingTimeline = ref(false)
 async function fetchPerformanceTimeline() {
     isLoadingTimeline.value = true
     try {
-        const res = await financeApi.getPerformanceTimeline(selectedPeriod.value, selectedGranularity.value)
+        const res = await financeApi.getPerformanceTimeline(
+            selectedPeriod.value, 
+            selectedGranularity.value,
+            selectedMember.value || undefined
+        )
         performanceData.value = res.data
     } catch (e) {
         console.error('Performance timeline fetch failed:', e)
@@ -727,6 +731,20 @@ watch(scrollSentinel, (el) => {
 
 onUnmounted(() => {
     if (observer) observer.disconnect()
+})
+
+// Watch for member selection
+watch(selectedMember, () => {
+    fetchPortfolio()
+    // Reset secondary data so it re-fetches with new member
+    analytics.value = null
+    performanceData.value = null
+    aiAnalysis.value = ''
+    
+    if (activeTab.value === 'portfolio') {
+        fetchAnalytics()
+        fetchPerformanceTimeline()
+    }
 })
 
 // Functional Filters Logic

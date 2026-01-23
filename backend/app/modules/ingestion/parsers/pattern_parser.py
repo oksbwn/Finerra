@@ -64,7 +64,7 @@ class PatternParser:
                         source=source
                     )
             except Exception as e:
-                print(f"Error executing user pattern {p.id}: {e}")
+                pass
                 continue
                 
         return None
