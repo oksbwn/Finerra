@@ -13,6 +13,7 @@ from backend.app.modules.auth.router import router as auth_router
 from backend.app.modules.finance.routers import router as finance_router
 from backend.app.modules.ingestion.router import router as ingestion_router
 from backend.app.modules.ingestion.ai_router import router as ai_router
+from backend.app.modules.mobile.router import router as mobile_router
 
 # Background Tasks
 from backend.app.modules.ingestion.email_sync import EmailSyncService
@@ -43,6 +44,7 @@ def create_application() -> FastAPI:
     application.include_router(finance_router, prefix=f"{settings.API_V1_STR}/finance", tags=["finance"])
     application.include_router(ingestion_router, prefix=f"{settings.API_V1_STR}/ingestion", tags=["ingestion"])
     application.include_router(ai_router, prefix=f"{settings.API_V1_STR}/ingestion", tags=["ai"])
+    application.include_router(mobile_router, prefix=f"{settings.API_V1_STR}/mobile", tags=["mobile"])
     
     
     # DB Creation (Dev only - migrations removed, use fresh schema.sql for setup)
