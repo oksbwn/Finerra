@@ -45,6 +45,9 @@ EmailParserRegistry.register(KotakEmailParser())
 class SmsPayload(BaseModel):
     sender: str
     message: str
+    device_id: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class EmailPayload(BaseModel):
     subject: str
@@ -101,12 +104,44 @@ def ingest_sms(
     """
     Ingest a raw SMS message, parse it, and SAVE the transaction if account matches.
     """
+    # 1. Device Authorization Check
+    if payload.device_id:
+        device = db.query(ingestion_models.MobileDevice).filter(
+            ingestion_models.MobileDevice.device_id == payload.device_id,
+            ingestion_models.MobileDevice.tenant_id == str(current_user.tenant_id)
+        ).first()
+
+        if not device:
+             # Unknown device, reject or log?
+             # For improved UX, we might allow it but mark as unapproved? 
+             # Plan says: "Rejects data if the sending device_id is not approved"
+             raise HTTPException(status_code=403, detail="Device not registered or found")
+
+        if not device.is_approved:
+            raise HTTPException(status_code=403, detail="Device not approved by owner")
+            
+        if not device.is_enabled:
+            return {"status": "skipped", "reason": "Ingestion disabled for this device"}
+            
+        # Update last seen
+        device.last_seen_at = datetime.utcnow()
+        db.commit()
+
+    # 2. Parsing
     parsed = SmsParserRegistry.parse(payload.sender, payload.message)
     
     if not parsed:
         raise HTTPException(status_code=422, detail="Could not parse SMS content")
+
+    # 3. Add Location Data to Parsed Object (Monkey patch or update class)
+    # We'll pass it to process_transaction separately or attach it
+    extra_data = {
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "device_id": payload.device_id
+    }
         
-    result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed)
+    result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed, extra_data=extra_data)
     
     return {
         "status": "processed",

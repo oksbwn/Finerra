@@ -34,7 +34,7 @@ class IngestionService:
         return None
 
     @staticmethod
-    def process_transaction(db: Session, tenant_id: str, parsed: ParsedTransaction):
+    def process_transaction(db: Session, tenant_id: str, parsed: ParsedTransaction, extra_data: Optional[dict] = None):
         """
         Process a parsed transaction: match account, save transaction.
         """
@@ -116,7 +116,10 @@ class IngestionService:
                 category=category,
                 external_id=parsed.ref_id,
                 source=parsed.source,
-                tags=[]
+                tags=[],
+                latitude=extra_data.get("latitude") if extra_data else None,
+                longitude=extra_data.get("longitude") if extra_data else None,
+                location_name=None # TODO: Reverse Geocoding
             )
             try:
                 db_txn = TransactionService.create_transaction(db, txn_create, tenant_id)
@@ -139,7 +142,10 @@ class IngestionService:
                 is_transfer=is_transfer,
                 to_account_id=to_account_id,
                 balance=parsed.balance,
-                credit_limit=parsed.credit_limit
+                credit_limit=parsed.credit_limit,
+                latitude=extra_data.get("latitude") if extra_data else None,
+                longitude=extra_data.get("longitude") if extra_data else None,
+                location_name=None 
             )
             db.add(pending)
             db.commit()
