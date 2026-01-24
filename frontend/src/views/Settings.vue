@@ -35,6 +35,10 @@
                             @click="activeTab = 'ai'; searchQuery = ''">
                             AI Integration
                         </button>
+                        <button class="tab-btn" :class="{ active: activeTab === 'devices' }"
+                            @click="activeTab = 'devices'; searchQuery = ''">
+                            Devices
+                        </button>
                     </div>
                 </div>
 
@@ -779,27 +783,99 @@
                                         {{ aiTesting ? 'Analyzing...' : 'Test Extraction' }}
                                     </button>
 
-                                    <div class="console-box">
-                                        <div class="console-header">
-                                            <div class="flex gap-1">
-                                                <span class="console-dot green"></span>
-                                                <span class="console-dot yellow"></span>
-                                            </div>
-                                            <span>DEBUG CONSOLE</span>
-                                        </div>
-                                        <div class="ai-console">
-                                            <div v-if="!aiTestResult && !aiTesting" class="text-slate-500 italic">
-                                                Waiting for data...
-                                            </div>
-                                            <div v-if="aiTesting" class="animate-pulse text-indigo-400">
-                                                > Initializing Gemini provider...
-                                                <br>> Sending payload...
-                                            </div>
-                                            <pre
-                                                v-if="aiTestResult">{{ JSON.stringify(aiTestResult.data || aiTestResult.message, null, 2) }}</pre>
-                                        </div>
+                                </div>
+                                <div class="ai-console">
+                                    <div v-if="!aiTestResult && !aiTesting" class="text-slate-500 italic">
+                                        Waiting for data...
+                                    </div>
+                                    <div v-if="aiTesting" class="animate-pulse text-indigo-400">
+                                        > Initializing Gemini provider...
+                                        <br>> Sending payload...
+                                    </div>
+                                    <pre
+                                        v-if="aiTestResult">{{ JSON.stringify(aiTestResult.data || aiTestResult.message, null, 2) }}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DEVICES TAB (MOBILE) -->
+                <div v-if="activeTab === 'devices'" class="tab-content animate-in">
+                    <!-- Search Bar -->
+                    <div class="account-control-bar mb-6">
+                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" class="search-icon">
+                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <input type="text" v-model="searchQuery" placeholder="Search devices..."
+                                class="search-input">
+                        </div>
+                        <div class="header-with-badge"
+                            style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                            <h3
+                                style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
+                                Mobile Devices</h3>
+                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
+                                devices.length }} Total</span>
+                        </div>
+                    </div>
+
+                    <div class="settings-grid">
+                        <div v-for="device in devices.filter(d => !searchQuery || d.device_name.toLowerCase().includes(searchQuery.toLowerCase()))"
+                            :key="device.id" class="glass-card device-card"
+                            :class="{ 'approved': device.is_approved, 'unapproved': !device.is_approved }">
+
+                            <div class="device-card-header">
+                                <span class="device-icon">📱</span>
+                                <div class="device-info">
+                                    <h3 class="device-name">{{ device.device_name }}</h3>
+                                    <p class="device-id-mono">{{ device.device_id.substring(0, 12) }}...</p>
+                                </div>
+                                <div class="status-pill" :class="device.is_approved ? 'success' : 'warning'">
+                                    {{ device.is_approved ? 'Approved' : 'Pending' }}
+                                </div>
+                            </div>
+
+                            <div class="device-meta-grid">
+                                <div class="meta-item">
+                                    <span class="label">Last Seen</span>
+                                    <span class="value">{{ formatDate(device.last_seen_at).full }}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="label">Ingestion</span>
+                                    <span class="value" :class="device.is_enabled ? 'text-green' : 'text-gray'">
+                                        {{ device.is_enabled ? 'Enabled' : 'Disabled' }}
+                                    </span>
+                                </div>
+                                <div class="meta-item" v-if="device.user_id">
+                                    <span class="label">Linked To</span>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <span>{{ getDeviceUser(device.user_id)?.avatar || '👤' }}</span>
+                                        <span class="value">{{ getDeviceUser(device.user_id)?.full_name || 'Unknown'
+                                            }}</span>
                                     </div>
                                 </div>
+                            </div>
+
+                            <div class="device-actions">
+                                <button v-if="!device.is_approved" @click="toggleDeviceApproval(device)"
+                                    class="btn-primary-glow width-full">
+                                    Approve Device
+                                </button>
+                                <button v-else @click="toggleDeviceApproval(device)"
+                                    class="btn-secondary width-full danger-hover">
+                                    Revoke Access
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-if="devices.length === 0" class="empty-placeholder full-width">
+                            <div class="empty-state-content">
+                                <div class="empty-icon-large">📱</div>
+                                <h3>No Devices Connected</h3>
+                                <p>Login from the mobile app to register a device here.</p>
                             </div>
                         </div>
                     </div>
@@ -1348,7 +1424,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
-import { financeApi, aiApi } from '@/api/client'
+import { financeApi, aiApi, mobileApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
 import { useSettingsStore } from '@/stores/settings'
@@ -1414,6 +1490,7 @@ const memberForm = ref({
 })
 
 const showPan = ref(false)
+const devices = ref<any[]>([])
 
 const searchQuery = ref('')
 const verifiedAccounts = computed(() => {
@@ -1606,7 +1683,7 @@ const categoryOptions = computed(() => {
 async function fetchData() {
     loading.value = true
     try {
-        const [accRes, rulesRes, catRes, sugRes, emailRes, tenantRes, usersRes, meRes] = await Promise.all([
+        const [accRes, rulesRes, catRes, sugRes, emailRes, tenantRes, usersRes, meRes, devicesRes] = await Promise.all([
             financeApi.getAccounts(),
             financeApi.getRules(),
             financeApi.getCategories(),
@@ -1614,7 +1691,8 @@ async function fetchData() {
             financeApi.getEmailConfigs(),
             financeApi.getTenants(),
             financeApi.getUsers(),
-            financeApi.getMe()
+            financeApi.getMe(),
+            mobileApi.getDevices()
         ])
         accounts.value = accRes.data
         rules.value = rulesRes.data
@@ -1624,6 +1702,7 @@ async function fetchData() {
         tenants.value = tenantRes.data
         familyMembers.value = usersRes.data
         currentUser.value = meRes.data
+        devices.value = devicesRes.data
         fetchAiSettings()
     } catch (err) {
         console.error('Failed to fetch settings data', err)
@@ -1733,7 +1812,27 @@ const getRoleColorClass = (role: string) => {
         default: return 'ring-gray'
     }
 }
-// --- Email UI Logic ---
+
+const getDeviceUser = (userId: string) => {
+    if (!userId) return null
+    return familyMembers.value.find(u => u.id === userId)
+}
+
+const toggleDeviceApproval = async (device: any) => {
+    try {
+        const newStatus = !device.is_approved
+        const res = await mobileApi.toggleApproval(device.id, newStatus)
+        // Update local state
+        const idx = devices.value.findIndex(d => d.id === device.id)
+        if (idx !== -1) {
+            devices.value[idx] = res.data
+        }
+    } catch (e) {
+        console.error("Failed to toggle device approval", e)
+    }
+}
+
+// --- Lifecycle ---
 const showEmailEditModal = ref(false)
 const editingEmailConfig = ref<string | null>(null)
 const showHistoryModal = ref(false)
@@ -1867,7 +1966,8 @@ function formatDate(dateStr: string) {
     const d = new Date(dateStr)
     return {
         day: d.toLocaleDateString(),
-        meta: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        meta: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        full: d.toLocaleString()
     }
 }
 
@@ -2142,6 +2242,8 @@ async function handleMemberSubmit() {
         notify.error(err.response?.data?.detail || "Action failed")
     }
 }
+
+// --- Devices Logic ---
 
 </script>
 <style scoped>

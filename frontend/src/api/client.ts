@@ -183,3 +183,8 @@ export const aiApi = {
     listModels: (provider: string, apiKey?: string) => apiClient.get('/ingestion/ai/models', { params: { provider, api_key: apiKey } }),
     generateSummaryInsights: (summary_data: any) => apiClient.post('/ingestion/ai/generate-insights', { summary_data })
 }
+
+export const mobileApi = {
+    getDevices: () => apiClient.get('/mobile/devices'),
+    toggleApproval: (id: string, is_approved: boolean) => apiClient.patch(`/mobile/devices/${id}/approve`, { is_approved })
+}
