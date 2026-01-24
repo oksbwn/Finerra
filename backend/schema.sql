@@ -296,3 +296,21 @@ CREATE INDEX ix_email_configs_tenant ON email_configurations (tenant_id);
 CREATE INDEX ix_email_logs_lookup ON email_sync_logs (tenant_id, config_id);
 CREATE INDEX ix_pending_txns_lookup ON pending_transactions (tenant_id, account_id);
 CREATE INDEX ix_user_tenant ON users (tenant_id);
+
+CREATE TABLE mobile_devices (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+    user_id VARCHAR,
+	device_name VARCHAR NOT NULL, 
+	device_id VARCHAR NOT NULL, 
+	fcm_token VARCHAR, 
+	is_approved BOOLEAN DEFAULT FALSE, 
+	is_enabled BOOLEAN DEFAULT TRUE, 
+	last_seen_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+    FOREIGN KEY(user_id) REFERENCES users (id),
+    UNIQUE(device_id)
+);
+CREATE INDEX ix_mobile_devices_tenant ON mobile_devices (tenant_id);

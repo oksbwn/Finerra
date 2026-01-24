@@ -58,6 +58,23 @@ class PendingTransaction(Base):
     to_account_id = Column(String, nullable=True) # Destination Account ID for transfers
     balance = Column(Numeric(15, 2), nullable=True)
     credit_limit = Column(Numeric(15, 2), nullable=True)
+    latitude = Column(Numeric(10, 8), nullable=True)
+    longitude = Column(Numeric(11, 8), nullable=True)
+    location_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class MobileDevice(Base):
+    __tablename__ = "mobile_devices"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True) # Optional link to specific user
+    device_name = Column(String, nullable=False)
+    device_id = Column(String, nullable=False, unique=True)
+    fcm_token = Column(String, nullable=True)
+    is_approved = Column(Boolean, default=False)
+    is_enabled = Column(Boolean, default=True)  # Toggle for ingestion
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class UnparsedMessage(Base):
