@@ -1,7 +1,7 @@
 # WealthFam
 
 > [!IMPORTANT]
-> **WealthFam** (formerly Finnera) is a premium, AI-driven personal and family finance management platform designed for the modern household.
+> **WealthFam** is a premium, AI-driven personal and family finance management platform designed for the modern household.
 
 ![WealthFam Branding](/frontend/public/wordmark.png)
 
@@ -51,7 +51,37 @@ WealthFam provides a holistic view of your financial health. From daily expense 
 - **ORM**: [SQLAlchemy](https://www.sqlalchemy.org/)
 - **Validation**: [Pydantic v2](https://docs.pydantic.dev/)
 
-## 🏁 Getting Started
+## 🐳 Quick Start with Docker
+The easiest way to run WealthFam is using our pre-built Docker image. You don't need to build anything yourself!
+
+1. **Create a directory** for your data and configuration:
+   ```bash
+   mkdir wealthfam && cd wealthfam
+   ```
+
+2. **Create a `docker-compose.yml` file**:
+   ```yaml
+   version: '3.8'
+   services:
+     wealthfam:
+       image: wglabz/wealthfam:latest
+       container_name: wealthfam
+       restart: unless-stopped
+       ports:
+         - "80:80"
+       volumes:
+         - ./data:/data
+       environment:
+         - DATABASE_URL=duckdb:////data/family_finance_v3.duckdb
+   ```
+
+3. **Run the application**:
+   ```bash
+   docker-compose up -d
+   ```
+   Open [http://localhost](http://localhost) in your browser.
+
+## 🏁 Getting Started (Development)
 
 ### Prerequisites
 - Python 3.10+
