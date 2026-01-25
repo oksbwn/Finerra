@@ -45,11 +45,18 @@ WealthFam provides a holistic view of your financial health. From daily expense 
 - **Charts**: [Chart.js](https://www.chartjs.org/)
 - **State Management**: Pinia
 
+### Mobile App (Companion)
+- **Framework**: [Flutter](https://flutter.dev/) (Android)
+- **State Management**: Provider
+- **Features**: Real-time SMS ingestion, offline retry queue, and manual SMS sync management.
+- **Biometrics**: Integration ready for secure access.
+
 ### Backend
 - **Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
 - **Database**: [DuckDB](https://duckdb.org/) (Serverless SQL)
 - **ORM**: [SQLAlchemy](https://www.sqlalchemy.org/)
 - **Validation**: [Pydantic v2](https://docs.pydantic.dev/)
+- **AI Engine**: Gemini Pro for advanced transaction parsing.
 
 ## 🐳 Quick Start with Docker
 The easiest way to run WealthFam is using our pre-built Docker image. You don't need to build anything yourself!

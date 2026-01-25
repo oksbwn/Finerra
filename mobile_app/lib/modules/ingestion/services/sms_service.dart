@@ -72,43 +72,51 @@ class SmsService extends ChangeNotifier {
   }
 
   Future<void> _handleSms(SmsMessage message) async {
+    if (message.body == null || message.address == null) return;
+    await processSms(message.address!, message.body!, message.date ?? DateTime.now().millisecondsSinceEpoch);
+  }
+
+  Future<Map<String, dynamic>> processSms(String address, String body, int date) async {
     if (!_isSyncEnabled) {
-       if (kDebugMode) print("Sync disabled by user.");
-       return;
+       return {'status': 'disabled', 'reason': 'Sync disabled'};
     }
 
-    if (message.body == null || message.address == null) return;
-
-    final String hash = _computeHash(message.address!, message.date.toString(), message.body!);
+    final String hash = _computeHash(address, date.toString(), body);
     
     if (_isCached(hash)) {
-      if (kDebugMode) print("Skipping cached SMS: $hash");
-      return;
+      return {'status': 'cached', 'hash': hash};
     }
 
     try {
-      await _sendToBackend(message.address!, message.body!, message.date ?? DateTime.now().millisecondsSinceEpoch);
+      final res = await _sendToBackend(address, body, date);
       await _cacheHash(hash);
-      if (kDebugMode) print("Processed SMS: $hash");
+      return res;
     } catch (e) {
-      if (kDebugMode) print("Failed to send SMS: $e");
+      debugPrint("Failed to send SMS to backend: $e");
       // Queue for offline Retry (Step 6 requirement)
-      _queueForRetry(message.address!, message.body!, message.date ?? DateTime.now().millisecondsSinceEpoch);
+      _queueForRetry(address, body, date);
+      rethrow; // Rethrow for UI to see error if manual
     }
   }
 
-  String _computeHash(String address, String date, String body) {
+  String computeHash(String address, String date, String body) {
     final raw = "$address-$date-$body";
     return sha256.convert(utf8.encode(raw)).toString();
   }
 
-  bool _isCached(String hash) {
+  String _computeHash(String address, String date, String body) => computeHash(address, date, body);
+
+  bool isCached(String hash) {
     return _prefs.containsKey('sms_hash_$hash');
   }
 
-  Future<void> _cacheHash(String hash) async {
+  bool _isCached(String hash) => isCached(hash);
+
+  Future<void> cacheHash(String hash) async {
     await _prefs.setBool('sms_hash_$hash', true);
   }
+
+  Future<void> _cacheHash(String hash) async => cacheHash(hash);
   
   Future<void> clearCache() async {
     final keys = _prefs.getKeys().where((k) => k.startsWith('sms_hash_'));
@@ -118,7 +126,7 @@ class SmsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _sendToBackend(String address, String body, int date) async {
+  Future<Map<String, dynamic>> _sendToBackend(String address, String body, int date) async {
     if (!_auth.isAuthenticated || _auth.accessToken == null) {
       throw Exception("Not Authenticated");
     }
@@ -130,7 +138,9 @@ class SmsService extends ChangeNotifier {
       // Check permission first to avoid error
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
-        Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
+        Position position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+        );
         lat = position.latitude;
         lng = position.longitude;
       }
@@ -156,8 +166,11 @@ class SmsService extends ChangeNotifier {
     );
 
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception("Backend Error: ${response.statusCode}");
+      final detail = jsonDecode(response.body)['detail'] ?? 'Backend Error';
+      throw Exception("$detail (${response.statusCode})");
     }
+
+    return jsonDecode(response.body);
   }
 
   // --- Offline Queue Logic ---
@@ -240,5 +253,25 @@ class SmsService extends ChangeNotifier {
        }
     }
     return sent;
+  }
+
+  Future<List<SmsMessage>> getAllMessages() async {
+    if (kIsWeb || !defaultTargetPlatform.shouldUseTelephony) return [];
+    try {
+      return await _telephony.getInboxSms(
+        columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE],
+      );
+    } catch (e) {
+      debugPrint("Error fetching SMS: $e");
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> sendSmsToBackend(String address, String body, int date) async {
+    final res = await _sendToBackend(address, body, date);
+    final hash = computeHash(address, date.toString(), body);
+    await cacheHash(hash);
+    notifyListeners();
+    return res;
   }
 }

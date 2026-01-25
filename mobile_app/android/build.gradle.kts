@@ -16,7 +16,16 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 subprojects {
-    project.evaluationDependsOn(":app")
+    afterEvaluate {
+        if (project.hasProperty("android")) {
+            val android = project.extensions.getByName("android") as? com.android.build.gradle.BaseExtension
+            if (android != null && (android.namespace == null || android.namespace!!.isEmpty())) {
+                if (project.name == "telephony") {
+                    android.namespace = "com.shounakmulay.telephony"
+                }
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

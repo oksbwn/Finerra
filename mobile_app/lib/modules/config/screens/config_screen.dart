@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_app/core/config/app_config.dart';
 import 'package:mobile_app/core/theme/app_theme.dart';
+import 'package:mobile_app/modules/auth/services/auth_service.dart';
 
 class ConfigScreen extends StatefulWidget {
   final VoidCallback? onSaved;
@@ -16,20 +17,24 @@ class _ConfigScreenState extends State<ConfigScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _backendCtrl;
   late TextEditingController _webUiCtrl;
+  late TextEditingController _deviceIdCtrl;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     final config = context.read<AppConfig>();
+    final auth = context.read<AuthService>();
     _backendCtrl = TextEditingController(text: config.backendUrl);
     _webUiCtrl = TextEditingController(text: config.webUiUrl);
+    _deviceIdCtrl = TextEditingController(text: auth.deviceId ?? '');
   }
 
   @override
   void dispose() {
     _backendCtrl.dispose();
     _webUiCtrl.dispose();
+    _deviceIdCtrl.dispose();
     super.dispose();
   }
 
@@ -42,31 +47,36 @@ class _ConfigScreenState extends State<ConfigScreen> {
       backend: _backendCtrl.text.trim(),
       webUi: _webUiCtrl.text.trim(),
     );
+
+    if (_deviceIdCtrl.text.isNotEmpty) {
+      await context.read<AuthService>().setDeviceId(_deviceIdCtrl.text.trim());
+    }
     
-    // Simulate brief delay or valid check (optional)
     await Future.delayed(const Duration(milliseconds: 500));
     
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
     
     if (widget.onSaved != null) {
       widget.onSaved!();
     } else {
       if (mounted) {
          ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Configuration Saved')),
+          const SnackBar(content: Text('Configuration Saved'), duration: Duration(seconds: 1)),
         );
+        Navigator.pop(context);
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Server Configuration'),
         backgroundColor: Colors.transparent,
-        elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
@@ -75,7 +85,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-               Icon(
+               const Icon(
                 Icons.settings_ethernet,
                 size: 64,
                 color: AppTheme.primary,
@@ -84,17 +94,17 @@ class _ConfigScreenState extends State<ConfigScreen> {
               
               Text(
                 'Connect to WealthFam',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: AppTheme.textMain
+                  color: theme.colorScheme.onSurface
                 ),
                 textAlign: TextAlign.center,
               ),
                const SizedBox(height: 8),
               Text(
                 'Configure your self-hosted server endpoints.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.textMuted
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -102,11 +112,11 @@ class _ConfigScreenState extends State<ConfigScreen> {
 
               TextFormField(
                 controller: _backendCtrl,
-                style: const TextStyle(color: AppTheme.textMain),
+                style: TextStyle(color: theme.colorScheme.onSurface),
                 decoration: const InputDecoration(
                   labelText: 'Backend API URL',
                   hintText: 'http://192.168.0.9:8000',
-                  prefixIcon: Icon(Icons.api, color: AppTheme.textMuted),
+                  prefixIcon: Icon(Icons.api),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'Required';
@@ -118,15 +128,33 @@ class _ConfigScreenState extends State<ConfigScreen> {
               
               TextFormField(
                 controller: _webUiCtrl,
-                style: const TextStyle(color: AppTheme.textMain),
+                style: TextStyle(color: theme.colorScheme.onSurface),
                 decoration: const InputDecoration(
                   labelText: 'Web Dashboard URL',
                   hintText: 'http://192.168.0.9:80',
-                  prefixIcon: Icon(Icons.web, color: AppTheme.textMuted),
+                  prefixIcon: Icon(Icons.web),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'Required';
                   if (!value.startsWith('http')) return 'Must start with http/https';
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 24),
+
+              TextFormField(
+                controller: _deviceIdCtrl,
+                style: TextStyle(color: theme.colorScheme.onSurface),
+                decoration: InputDecoration(
+                  labelText: 'Device ID',
+                  hintText: 'Unique Device Identifier',
+                  prefixIcon: const Icon(Icons.perm_device_information),
+                  helperText: 'Changing this will require re-approval.',
+                  helperStyle: const TextStyle(color: AppTheme.warning),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'Required';
                   return null;
                 },
               ),

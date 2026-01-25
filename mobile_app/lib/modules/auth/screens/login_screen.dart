@@ -32,14 +32,15 @@ class _LoginScreenState extends State<LoginScreen> {
         _userCtrl.text.trim(),
         _passCtrl.text,
       );
-      // Navigation will be handled by auth state change in main.dart
     } catch (e) {
-      setState(() {
-        _error = e.toString().contains('Exception:') 
-            ? e.toString().split('Exception: ')[1] 
-            : e.toString();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _error = e.toString().contains('Exception:') 
+              ? e.toString().split('Exception: ')[1] 
+              : e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -52,8 +53,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Stack(
         children: [
           // Ambient Gradient Background
@@ -65,29 +68,10 @@ class _LoginScreenState extends State<LoginScreen> {
               height: 300,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppTheme.primary.withOpacity(0.2),
+                color: theme.primaryColor.withOpacity(0.1),
                 boxShadow: [
                   BoxShadow(
-                    color: AppTheme.primary.withOpacity(0.2),
-                    blurRadius: 100,
-                    spreadRadius: 20,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -50,
-            left: -50,
-            child: Container(
-              width: 250,
-              height: 250,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.primaryDark.withOpacity(0.2),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryDark.withOpacity(0.2),
+                    color: theme.primaryColor.withOpacity(0.1),
                     blurRadius: 100,
                     spreadRadius: 20,
                   ),
@@ -104,30 +88,29 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // Logo / Icon
-                  const Icon(
-                    Icons.account_balance_wallet,
-                    size: 80,
-                    color: AppTheme.primary,
+                  Image.asset(
+                    'assets/branding/logo.png',
+                    height: 80,
                   ),
                   const SizedBox(height: 24),
                   
-                  Text(
-                    'WealthFam',
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
+                  Image.asset(
+                    'assets/branding/wordmark.png',
+                    height: 40,
+                    // Use color filters if you want it to adapt to theme, 
+                    // but for branding it's usually fixed or has light/dark versions.
+                    // For now, let it be.
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Secure Expense Tracking',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: AppTheme.textMuted,
+                    'Refine Your Finances',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 48),
 
-                  // Glass Card
+                  // Glass Card (Less opaque in light mode)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(24),
                     child: BackdropFilter(
@@ -135,10 +118,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(32),
                         decoration: BoxDecoration(
-                          color: AppTheme.surface.withOpacity(0.6),
+                          color: theme.colorScheme.surface.withOpacity(theme.brightness == Brightness.dark ? 0.6 : 0.8),
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.1),
+                            color: theme.colorScheme.onSurface.withOpacity(0.1),
                           ),
                         ),
                         child: Form(
@@ -151,23 +134,23 @@ class _LoginScreenState extends State<LoginScreen> {
                                   padding: const EdgeInsets.all(12),
                                   margin: const EdgeInsets.only(bottom: 16),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.danger.withOpacity(0.1),
+                                    color: theme.colorScheme.error.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: AppTheme.danger.withOpacity(0.3)),
+                                    border: Border.all(color: theme.colorScheme.error.withOpacity(0.3)),
                                   ),
                                   child: Text(
                                     _error!,
-                                    style: const TextStyle(color: AppTheme.danger, fontSize: 12),
+                                    style: TextStyle(color: theme.colorScheme.error, fontSize: 12),
                                     textAlign: TextAlign.center,
                                   ),
                                 ),
 
                               TextFormField(
                                 controller: _userCtrl,
-                                style: const TextStyle(color: AppTheme.textMain),
+                                style: TextStyle(color: theme.colorScheme.onSurface),
                                 decoration: const InputDecoration(
                                   labelText: 'Username',
-                                  prefixIcon: Icon(Icons.person_outline, color: AppTheme.textMuted),
+                                  prefixIcon: Icon(Icons.person_outline),
                                 ),
                                 validator: (v) => v!.isEmpty ? 'Required' : null,
                               ),
@@ -175,10 +158,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               TextFormField(
                                 controller: _passCtrl,
                                 obscureText: true,
-                                style: const TextStyle(color: AppTheme.textMain),
+                                style: TextStyle(color: theme.colorScheme.onSurface),
                                 decoration: const InputDecoration(
                                   labelText: 'Password',
-                                  prefixIcon: Icon(Icons.lock_outline, color: AppTheme.textMuted),
+                                  prefixIcon: Icon(Icons.lock_outline),
                                 ),
                                 validator: (v) => v!.isEmpty ? 'Required' : null,
                               ),
@@ -187,7 +170,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ElevatedButton(
                                 onPressed: _isLoading ? null : _login,
                                 style: ElevatedButton.styleFrom(
-                                  shadowColor: AppTheme.primary.withOpacity(0.5),
+                                  shadowColor: theme.primaryColor.withOpacity(0.5),
                                   elevation: 8,
                                 ),
                                 child: _isLoading
@@ -205,10 +188,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   
                   TextButton.icon(
                     onPressed: _openConfig,
-                    icon: const Icon(Icons.settings, size: 16, color: AppTheme.textMuted),
-                    label: const Text(
+                    icon: Icon(Icons.settings, size: 16, color: theme.colorScheme.onSurfaceVariant),
+                    label: Text(
                       'Configure Server',
-                      style: TextStyle(color: AppTheme.textMuted),
+                      style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                     ),
                   )
                 ],

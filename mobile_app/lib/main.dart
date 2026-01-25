@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_app/core/config/app_config.dart';
@@ -43,7 +43,7 @@ class MyApp extends StatelessWidget {
           return MaterialApp(
             title: 'WealthFam',
             debugShowCheckedModeBanner: false,
-            theme: AppTheme.darkTheme, // Force Dark/Midnight Theme
+            theme: AppTheme.lightTheme, // Switched to Light Theme
             home: auth.isAuthenticated 
                 ? const HomeScreen() 
                 : const LoginScreen(),

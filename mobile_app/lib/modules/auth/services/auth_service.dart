@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -40,12 +41,13 @@ class AuthService extends ChangeNotifier {
       _isAuthenticated = true;
       try {
         await checkStatus();
+        _startHeartbeat();
       } catch (e) {
         // If status check fails (offline), we assume okay if we valid token?
         // Or we might need to be careful. For now, let's allow offline entry but restricted.
         // But for V1, let's just mark authenticated. 
         // Real validation happens on API calls.
-        if (kDebugMode) print('Offline or Check Status Failed: $e');
+        debugPrint('Offline or Check Status Failed: $e');
       }
     }
     notifyListeners();
@@ -75,6 +77,12 @@ class AuthService extends ChangeNotifier {
     await _storage.write(key: 'device_id', value: _deviceId);
   }
 
+  Future<void> setDeviceId(String id) async {
+    _deviceId = id;
+    await _storage.write(key: 'device_id', value: id);
+    notifyListeners();
+  }
+
   Future<void> login(String username, String password) async {
     if (_deviceId == null) await _initDeviceInfo();
 
@@ -102,13 +110,14 @@ class AuthService extends ChangeNotifier {
         await _storage.write(key: 'tenant_id', value: _tenantId);
         
         _isAuthenticated = true;
+        _startHeartbeat();
         notifyListeners();
       } else {
         throw Exception('Login Failed: ${response.statusCode} ${response.body}');
       }
     } catch (e) {
-      if (kDebugMode) print(e);
-      throw e;
+      debugPrint('Login Error: $e');
+      rethrow;
     }
   }
 
@@ -142,7 +151,52 @@ class AuthService extends ChangeNotifier {
       }
     } catch (e) {
       // Ignore network errors for heartbeat
-      if (kDebugMode) print('Status check failed: $e');
+      debugPrint('Status check failed: $e');
+    }
+  }
+
+  // --- Heartbeat Logic ---
+  Timer? _heartbeatTimer;
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      if (_isAuthenticated && _accessToken != null) {
+        sendHeartbeat();
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  void stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+  }
+
+  Future<void> sendHeartbeat() async {
+    if (_accessToken == null || _deviceId == null) return;
+
+    final url = Uri.parse('${_config.backendUrl}/api/v1/mobile/heartbeat?device_id=$_deviceId');
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        // debugPrint('Heartbeat sent');
+        // Update approval status while we are at it?
+        final data = jsonDecode(response.body);
+        if (_isApproved != data['is_approved']) {
+           _isApproved = data['is_approved'];
+           notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('Heartbeat failed: $e');
     }
   }
 }
