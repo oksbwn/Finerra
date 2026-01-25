@@ -10,6 +10,7 @@ services:
     container_name: wealthfam
     ports:
       - "80:80"
+      - "8000:8000"
     volumes:
       - /docker/volumes/wealthfam/data:/data
     environment:
