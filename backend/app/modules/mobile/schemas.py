@@ -16,6 +16,7 @@ class DeviceResponse(DeviceBase):
     tenant_id: str
     is_approved: bool
     is_enabled: bool
+    is_ignored: bool
     last_seen_at: datetime
     created_at: datetime
     user_id: Optional[str] = None
@@ -39,3 +40,6 @@ class ToggleApprovalRequest(BaseModel):
 
 class ToggleEnabledRequest(BaseModel):
     is_enabled: bool
+
+class AssignUserRequest(BaseModel):
+    user_id: Optional[str] = None

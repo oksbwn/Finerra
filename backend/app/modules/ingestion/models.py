@@ -74,6 +74,7 @@ class MobileDevice(Base):
     fcm_token = Column(String, nullable=True)
     is_approved = Column(Boolean, default=False)
     is_enabled = Column(Boolean, default=True)  # Toggle for ingestion
+    is_ignored = Column(Boolean, default=False) # Soft Reject
     last_seen_at = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
 

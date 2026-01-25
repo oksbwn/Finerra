@@ -186,5 +186,9 @@ export const aiApi = {
 
 export const mobileApi = {
     getDevices: () => apiClient.get('/mobile/devices'),
-    toggleApproval: (id: string, is_approved: boolean) => apiClient.patch(`/mobile/devices/${id}/approve`, { is_approved })
+    toggleApproval: (id: string, is_approved: boolean) => apiClient.patch(`/mobile/devices/${id}/approve`, { is_approved }),
+    toggleEnabled: (id: string, is_enabled: boolean) => apiClient.patch(`/mobile/devices/${id}/enable`, null, { params: { enabled: is_enabled } }),
+    toggleIgnored: (id: string, is_ignored: boolean) => apiClient.patch(`/mobile/devices/${id}/ignore`, null, { params: { ignored: is_ignored } }),
+    assignUser: (id: string, userId: string | null) => apiClient.patch(`/mobile/devices/${id}/assign`, { user_id: userId }),
+    deleteDevice: (id: string) => apiClient.delete(`/mobile/devices/${id}`)
 }

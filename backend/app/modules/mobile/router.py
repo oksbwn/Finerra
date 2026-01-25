@@ -124,6 +124,28 @@ def check_device_status(
         
     return device
 
+@router.post("/heartbeat", response_model=schemas.DeviceResponse)
+def device_heartbeat(
+    device_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Explicit heartbeat to update last_seen_at.
+    """
+    device = db.query(ingestion_models.MobileDevice).filter(
+        (ingestion_models.MobileDevice.id == device_id) | (ingestion_models.MobileDevice.device_id == device_id),
+        ingestion_models.MobileDevice.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    device.last_seen_at = datetime.utcnow()
+    db.commit()
+    db.refresh(device)
+    return device
+
 # --- Web Dashboard Management Endpoints (also under /mobile namespace) ---
 
 @router.get("/devices", response_model=List[schemas.DeviceResponse])
@@ -161,6 +183,112 @@ def approve_device(
         raise HTTPException(status_code=404, detail="Device not found")
         
     device.is_approved = payload.is_approved
+    db.commit()
+    db.refresh(device)
+    return device
+
+@router.delete("/devices/{device_id}")
+def delete_device(
+    device_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Remove/Reject a device.
+    """
+    if current_user.role == "CHILD":
+       # Optional: Allow user to delete their own device by device_id matching?
+       # For now, strict role check or ownership check
+       pass
+
+    # Find device by ID or Device_ID (Hybrid lookup for convenience)
+    device = db.query(ingestion_models.MobileDevice).filter(
+        (ingestion_models.MobileDevice.id == device_id) | (ingestion_models.MobileDevice.device_id == device_id),
+        ingestion_models.MobileDevice.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    db.delete(device)
+    db.commit()
+    return {"status": "deleted"}
+
+@router.patch("/devices/{device_id}/enable")
+def toggle_device_enabled(
+    device_id: str,
+    enabled: bool,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Enable or Disable ingestion for a device without removing it.
+    """
+    device = db.query(ingestion_models.MobileDevice).filter(
+        (ingestion_models.MobileDevice.id == device_id) | (ingestion_models.MobileDevice.device_id == device_id),
+        ingestion_models.MobileDevice.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    device.is_enabled = enabled
+    db.commit()
+    db.refresh(device)
+    device.is_enabled = enabled
+    db.commit()
+    db.refresh(device)
+    return device
+
+@router.patch("/devices/{device_id}/ignore")
+def toggle_device_ignored(
+    device_id: str,
+    ignored: bool,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Mark a device as ignored (soft reject) or restore it.
+    """
+    device = db.query(ingestion_models.MobileDevice).filter(
+        (ingestion_models.MobileDevice.id == device_id) | (ingestion_models.MobileDevice.device_id == device_id),
+        ingestion_models.MobileDevice.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    device.is_ignored = ignored
+    if ignored:
+        device.is_approved = False # Auto-revoke approval if ignored
+        
+
+    db.commit()
+    db.refresh(device)
+    return device
+
+@router.patch("/devices/{device_id}/assign")
+def assign_device_user(
+    device_id: str,
+    payload: schemas.AssignUserRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Assign a device to a specific family member/user.
+    """
+    if current_user.role == "CHILD":
+        raise HTTPException(status_code=403, detail="Only adults can manage devices")
+
+    device = db.query(ingestion_models.MobileDevice).filter(
+        (ingestion_models.MobileDevice.id == device_id) | (ingestion_models.MobileDevice.device_id == device_id),
+        ingestion_models.MobileDevice.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    device.user_id = payload.user_id
     db.commit()
     db.refresh(device)
     return device

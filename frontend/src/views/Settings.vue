@@ -813,60 +813,158 @@
                         </div>
                     </div>
 
-                    <div class="settings-grid">
-                        <div v-for="device in devices.filter(d => !searchQuery || d.device_name.toLowerCase().includes(searchQuery.toLowerCase()))"
-                            :key="device.id" class="glass-card device-card"
-                            :class="{ 'approved': device.is_approved, 'unapproved': !device.is_approved }">
-
-                            <div class="device-card-header">
-                                <span class="device-icon">📱</span>
-                                <div class="device-info">
-                                    <h3 class="device-name">{{ device.device_name }}</h3>
-                                    <p class="device-id-mono">{{ device.device_id.substring(0, 12) }}...</p>
-                                </div>
-                                <div class="status-pill" :class="device.is_approved ? 'success' : 'warning'">
-                                    {{ device.is_approved ? 'Approved' : 'Pending' }}
-                                </div>
+                    <!-- PENDING DEVICES -->
+                    <div v-if="devices.some(d => !d.is_approved && !d.is_ignored)" class="mb-8">
+                        <div class="device-section-header">
+                            <div class="device-section-title">
+                                <span>🔔 Pending Approval</span>
+                                <span class="badge-count warning">{{devices.filter(d => !d.is_approved &&
+                                    !d.is_ignored).length}}</span>
                             </div>
-
-                            <div class="device-meta-grid">
-                                <div class="meta-item">
-                                    <span class="label">Last Seen</span>
-                                    <span class="value">{{ formatDate(device.last_seen_at).full }}</span>
-                                </div>
-                                <div class="meta-item">
-                                    <span class="label">Ingestion</span>
-                                    <span class="value" :class="device.is_enabled ? 'text-green' : 'text-gray'">
-                                        {{ device.is_enabled ? 'Enabled' : 'Disabled' }}
-                                    </span>
-                                </div>
-                                <div class="meta-item" v-if="device.user_id">
-                                    <span class="label">Linked To</span>
-                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <span>{{ getDeviceUser(device.user_id)?.avatar || '👤' }}</span>
-                                        <span class="value">{{ getDeviceUser(device.user_id)?.full_name || 'Unknown'
-                                        }}</span>
+                        </div>
+                        <div class="devices-grid-premium">
+                            <div v-for="device in devices.filter(d => !d.is_approved && !d.is_ignored)" :key="device.id"
+                                class="device-card-premium unapproved">
+                                <div class="dev-header">
+                                    <div class="dev-icon-wrapper"
+                                        :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
+                                        {{ (device.device_name.toLowerCase().includes('iphone') ||
+                                            device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
+                                    </div>
+                                    <div class="dev-info-main">
+                                        <h3 class="dev-name">{{ device.device_name }}</h3>
+                                        <span class="dev-id-mono">{{ device.device_id.substring(0, 12) }}...</span>
+                                    </div>
+                                    <div class="status-indicator pending">
+                                        <span class="status-dot"></span>
+                                        Pending
                                     </div>
                                 </div>
+                                <div class="dev-meta">
+                                    <div class="meta-row">
+                                        <span class="meta-label">First Seen</span>
+                                        <span class="meta-val">{{ formatDate(device.created_at).day }}</span>
+                                    </div>
+                                    <div class="meta-row">
+                                        <span class="meta-label">User</span>
+                                        <span class="meta-val">
+                                            {{ (getDeviceUser(device.user_id)?.full_name ||
+                                                getDeviceUser(device.user_id)?.email || 'Unknown').split('@')[0] }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="dev-actions">
+                                    <button @click="toggleDeviceApproval(device)" class="btn-dev primary">Approve
+                                        Access</button>
+                                    <button @click="toggleDeviceIgnored(device, true)"
+                                        class="btn-dev secondary">Ignore</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ACTIVE DEVICES -->
+                    <div class="device-section-header">
+                        <div class="device-section-title">
+                            <span>✅ Active Devices</span>
+                            <span class="badge-count">{{devices.filter(d => d.is_approved).length}}</span>
+                        </div>
+                    </div>
+
+                    <div class="devices-grid-premium mb-12">
+                        <div v-for="device in devices.filter(d => d.is_approved)" :key="device.id"
+                            class="device-card-premium">
+                            <div class="dev-header">
+                                <div class="dev-icon-wrapper"
+                                    :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
+                                    {{ (device.device_name.toLowerCase().includes('iphone') ||
+                                        device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
+                                </div>
+                                <div class="dev-info-main">
+                                    <h3 class="dev-name">{{ device.device_name }}</h3>
+                                    <span class="dev-id-mono">{{ device.device_id.substring(0, 8) }}...</span>
+                                </div>
+                                <div class="status-indicator" :class="isOnline(device.last_seen_at) ? 'online' : ''">
+                                    <span class="status-dot" :class="{ 'pulse': isOnline(device.last_seen_at) }"></span>
+                                    {{ isOnline(device.last_seen_at) ? 'Online' : 'Offline' }}
+                                </div>
                             </div>
 
-                            <div class="device-actions">
-                                <button v-if="!device.is_approved" @click="toggleDeviceApproval(device)"
-                                    class="btn-primary-glow width-full">
-                                    Approve Device
+                            <div class="dev-meta">
+                                <div class="meta-row">
+                                    <span class="meta-label">User</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="meta-val p-0">
+                                            <img v-if="getDeviceUser(device.user_id)?.avatar?.length > 4"
+                                                :src="getDeviceUser(device.user_id)?.avatar"
+                                                class="w-5 h-5 rounded-full" />
+                                            <span v-else>{{ getDeviceUser(device.user_id)?.avatar || '👤' }}</span>
+                                            {{ getDeviceUser(device.user_id)?.full_name ||
+                                                getDeviceUser(device.user_id)?.email || 'Unassigned' }}
+                                        </span>
+                                        <button @click="openAssignModal(device)"
+                                            class="text-xs text-blue-600 hover:text-blue-800 underline">Edit</button>
+                                    </div>
+                                </div>
+                                <div class="meta-row">
+                                    <span class="meta-label">Last Synchronization</span>
+                                    <span class="meta-val">{{ formatDate(device.last_seen_at).meta }} <small
+                                            class="text-xs text-muted ml-1">({{ formatDate(device.last_seen_at).day
+                                            }})</small></span>
+                                </div>
+                            </div>
+
+                            <div class="dev-actions">
+                                <button @click="toggleDeviceEnabled(device)" class="btn-dev secondary">
+                                    {{ device.is_enabled ? 'Pause Ingestion' : 'Resume Ingestion' }}
                                 </button>
-                                <button v-else @click="toggleDeviceApproval(device)"
-                                    class="btn-secondary width-full danger-hover">
-                                    Revoke Access
+                                <button @click="deleteDeviceRequest(device)" class="btn-dev danger"
+                                    style="flex: 0 0 auto;">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path
+                                            d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                    </svg>
                                 </button>
                             </div>
                         </div>
 
-                        <div v-if="devices.length === 0" class="empty-placeholder full-width">
+                        <div v-if="devices.filter(d => d.is_approved).length === 0"
+                            class="empty-placeholder col-span-full">
                             <div class="empty-state-content">
                                 <div class="empty-icon-large">📱</div>
                                 <h3>No Devices Connected</h3>
-                                <p>Login from the mobile app to register a device here.</p>
+                                <p>Login from the mobile app to see your devices here.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- IGNORED DEVICES -->
+                    <div v-if="devices.some(d => d.is_ignored)" class="mt-8">
+                        <div class="device-section-header">
+                            <div class="device-section-title text-muted">
+                                <span>🚫 Ignored Devices</span>
+                            </div>
+                        </div>
+                        <div class="devices-grid-premium">
+                            <div v-for="device in devices.filter(d => d.is_ignored)" :key="device.id"
+                                class="device-card-premium ignored">
+                                <div class="dev-header">
+                                    <div class="dev-icon-wrapper">
+                                        📱
+                                    </div>
+                                    <div class="dev-info-main">
+                                        <h3 class="dev-name text-muted">{{ device.device_name }}</h3>
+                                        <span class="dev-id-mono">{{ device.device_id }}</span>
+                                    </div>
+                                    <div class="status-indicator">Ignored</div>
+                                </div>
+                                <div class="dev-actions">
+                                    <button @click="toggleDeviceIgnored(device, false)"
+                                        class="btn-dev secondary">Restore</button>
+                                    <button @click="deleteDeviceRequest(device)" class="btn-dev danger">Delete
+                                        Forever</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1367,7 +1465,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                        }}</label>
+                            }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
@@ -1389,6 +1487,31 @@
                 </form>
             </div>
         </div>
+        <!-- Device Assignment Modal -->
+        <div v-if="showDeviceAssignModal" class="modal-overlay-global">
+            <div class="modal-global glass text-center">
+                <div class="modal-header">
+                    <h2 class="modal-title">Assign Device Owner</h2>
+                    <button class="btn-icon-circle" @click="showDeviceAssignModal = false">✕</button>
+                </div>
+                <div class="p-4" style="text-align: left;">
+                    <p class="mb-4 text-muted">Who does <strong>{{ deviceToAssign?.device_name }}</strong> belong to?
+                    </p>
+                    <div class="form-group">
+                        <label class="form-label">Select Family Member</label>
+                        <CustomSelect v-model="selectedAssignUserId as any" :options="[
+                            { label: '👤 Unassigned', value: null as any },
+                            ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
+                        ]" placeholder="Select Owner" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button @click="showDeviceAssignModal = false" class="btn-secondary">Cancel</button>
+                    <button @click="confirmAssignUser" class="btn-primary-glow">Save Assignment</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Tenant Rename Modal -->
         <div v-if="showTenantModal" class="modal-overlay-global">
             <div class="modal-global glass">
@@ -1804,10 +1927,70 @@ const getRoleColorClass = (role: string) => {
     }
 }
 
+
+
+// --- Device Assignment & Helpers ---
+const showDeviceAssignModal = ref(false)
+const deviceToAssign = ref<any>(null)
+const selectedAssignUserId = ref<string | null>(null)
+
 const getDeviceUser = (userId: string) => {
     if (!userId) return null
     return familyMembers.value.find(u => u.id === userId)
 }
+
+const isOnline = (dateStr: string) => {
+    if (!dateStr) return false
+    const lastSeen = new Date(dateStr).getTime()
+    const now = new Date().getTime()
+    return (now - lastSeen) < (10 * 60 * 1000) // 10 minutes
+}
+
+const toggleDeviceEnabled = async (device: any) => {
+    try {
+        const newStatus = !device.is_enabled
+        const res = await mobileApi.toggleEnabled(device.id, newStatus)
+        const idx = devices.value.findIndex(d => d.id === device.id)
+        if (idx !== -1) devices.value[idx] = res.data
+        notify.success(newStatus ? "Device ingestion enabled" : "Device ingestion disabled")
+    } catch (e) {
+        notify.error("Failed to update device status")
+    }
+}
+
+function openAssignModal(device: any) {
+    deviceToAssign.value = device
+    selectedAssignUserId.value = device.user_id || null
+    showDeviceAssignModal.value = true
+}
+
+async function confirmAssignUser() {
+    if (!deviceToAssign.value) return
+    try {
+        await mobileApi.assignUser(deviceToAssign.value.id, selectedAssignUserId.value)
+        notify.success("Device assigned successfully")
+
+        // Refresh data to ensure UI is in sync
+        await fetchData()
+
+        showDeviceAssignModal.value = false
+    } catch (e: any) {
+        console.error("Assignment failed", e)
+        notify.error("Failed to assign user")
+    }
+}
+
+const toggleDeviceIgnored = async (device: any, ignored: boolean) => {
+    try {
+        const res = await mobileApi.toggleIgnored(device.id, ignored)
+        const idx = devices.value.findIndex(d => d.id === device.id)
+        if (idx !== -1) devices.value[idx] = res.data
+        notify.success(ignored ? "Device ignored" : "Device restored")
+    } catch (e) {
+        notify.error("Failed to update status")
+    }
+}
+
 
 const toggleDeviceApproval = async (device: any) => {
     try {
@@ -1985,7 +2168,22 @@ function getAccountTypeLabel(type: string) {
 }
 
 
-function getLogIcon(status: string) {
+
+
+
+const deleteDeviceRequest = async (device: any) => {
+    // Basic confirm since modal is overkill for now
+    if (!confirm('Permanently delete this device? This cannot be undone.')) return
+    try {
+        await mobileApi.deleteDevice(device.id)
+        devices.value = devices.value.filter(d => d.id !== device.id)
+        notify.success("Device deleted")
+    } catch (e) {
+        notify.error("Failed to delete device")
+    }
+}
+
+const getLogIcon = (status: string) => {
     if (status === 'completed') return '✅'
     if (status === 'error') return '❌'
     return '⏳'
@@ -5418,5 +5616,267 @@ input:checked+.slider-premium:before {
 
 .glow-border-indigo {
     border: 1px solid rgba(79, 70, 229, 0.2);
+}
+
+/* ==================== PREMIUM DEVICE CARDS ==================== */
+.device-section-header {
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.device-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-count {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    background: #e5e7eb;
+    color: #4b5563;
+    border-radius: 9999px;
+    font-weight: 700;
+}
+
+.badge-count.warning {
+    background: #fffbeb;
+    color: #d97706;
+}
+
+.devices-grid-premium {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+}
+
+.device-card-premium {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 1.25rem;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.device-card-premium:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.08);
+    border-color: #4f46e5;
+}
+
+.device-card-premium.unapproved {
+    border-left: 4px solid #f59e0b;
+    background: #fffbeb;
+}
+
+.device-card-premium.ignored {
+    opacity: 0.7;
+    filter: grayscale(0.8);
+    background: #f9fafb;
+}
+
+.device-card-premium.ignored:hover {
+    filter: grayscale(0);
+    opacity: 1;
+}
+
+.dev-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.dev-icon-wrapper {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 1rem;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.dev-icon-wrapper.apple {
+    background: #e0f2fe;
+    color: #0284c7;
+}
+
+.dev-icon-wrapper.android {
+    background: #dcfce7;
+    color: #059669;
+}
+
+.dev-info-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.dev-name {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: #111827;
+    margin: 0 0 0.25rem 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dev-id-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: #6b7280;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    background: #f3f4f6;
+}
+
+.status-indicator.online {
+    background: #ecfdf5;
+    color: #059669;
+}
+
+.status-indicator.pending {
+    background: #fffbeb;
+    color: #d97706;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.status-dot.pulse {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+}
+
+.dev-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    padding: 0.75rem;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 0.75rem;
+    border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.meta-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.meta-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #9ca3af;
+    font-weight: 600;
+}
+
+.meta-val {
+    font-size: 0.875rem;
+    color: #374151;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.dev-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: auto;
+}
+
+.btn-dev {
+    flex: 1;
+    padding: 0.625rem;
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.btn-dev.primary {
+    background: #4f46e5;
+    color: white;
+    box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
+}
+
+.btn-dev.primary:hover {
+    background: #4338ca;
+    transform: translateY(-1px);
+}
+
+.btn-dev.secondary {
+    background: white;
+    border: 1px solid #e5e7eb;
+    color: #374151;
+}
+
+.btn-dev.secondary:hover {
+    border-color: #d1d5db;
+    background: #f9fafb;
+}
+
+.btn-dev.danger {
+    background: #fee2e2;
+    color: #ef4444;
+}
+
+.btn-dev.danger:hover {
+    background: #fecaca;
 }
 </style>

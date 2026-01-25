@@ -2,8 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps<{
-    modelValue: string | number
-    options: Array<{ label: string, value: string | number }>
+    modelValue: any
+    options: Array<{ label: string, value: any }>
     placeholder?: string
     label?: string
     required?: boolean
@@ -45,16 +45,11 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
             <span>{{ selectedLabel }}</span>
             <span class="chevron">▼</span>
         </div>
-        
+
         <transition name="fade">
             <div v-if="isOpen" class="options-container">
-                <div 
-                    v-for="opt in options" 
-                    :key="opt.value" 
-                    class="option-item" 
-                    :class="{ 'selected': opt.value === modelValue }"
-                    @click="select(opt.value)"
-                >
+                <div v-for="opt in options" :key="opt.value" class="option-item"
+                    :class="{ 'selected': opt.value === modelValue }" @click="select(opt.value)">
                     {{ opt.label }}
                     <span v-if="opt.value === modelValue" class="check">✓</span>
                 </div>
@@ -76,13 +71,26 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
     align-items: center;
     user-select: none;
 }
-.select-trigger.placeholder { color: var(--color-text-muted); }
-.chevron { font-size: 0.7rem; color: var(--color-text-muted); transition: transform 0.2s; }
-.select-trigger.open .chevron { transform: rotate(180deg); }
+
+.select-trigger.placeholder {
+    color: var(--color-text-muted);
+}
+
+.chevron {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+    transition: transform 0.2s;
+}
+
+.select-trigger.open .chevron {
+    transform: rotate(180deg);
+}
 
 .options-container {
     position: absolute;
-    top: 100%; left: 0; right: 0;
+    top: 100%;
+    left: 0;
+    right: 0;
     margin-top: 0.5rem;
     background: white;
     border: 1px solid var(--color-border);
@@ -99,25 +107,49 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
     cursor: pointer;
     border-radius: 0.25rem;
     color: var(--color-text-main);
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     font-size: 0.95rem;
 }
+
 .option-item:hover {
     background: var(--color-primary-light);
     color: var(--color-primary-dark);
 }
+
 .option-item.selected {
     background: var(--color-primary-light);
     color: var(--color-primary);
     font-weight: 500;
 }
-.check { font-size: 0.8rem; }
+
+.check {
+    font-size: 0.8rem;
+}
 
 /* Scrollbar */
-.options-container::-webkit-scrollbar { width: 6px; }
-.options-container::-webkit-scrollbar-track { background: transparent; }
-.options-container::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+.options-container::-webkit-scrollbar {
+    width: 6px;
+}
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(-5px); }
+.options-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.options-container::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
+    transform: translateY(-5px);
+}
 </style>
