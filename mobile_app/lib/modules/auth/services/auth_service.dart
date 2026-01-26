@@ -17,12 +17,14 @@ class AuthService extends ChangeNotifier {
   String? _tenantId;
   String? _deviceId;
   String? _deviceName;
+  String? _userRole; // Add this
   bool _isApproved = false;
 
   bool get isAuthenticated => _isAuthenticated;
   bool get isApproved => _isApproved;
   String? get accessToken => _accessToken;
   String? get deviceId => _deviceId;
+  String? get userRole => _userRole; // Add getter
 
   AuthService(this._config);
 
@@ -31,6 +33,7 @@ class AuthService extends ChangeNotifier {
     _tenantId = await _storage.read(key: 'tenant_id');
     _deviceId = await _storage.read(key: 'device_id');
     _deviceName = await _storage.read(key: 'device_name');
+    _userRole = await _storage.read(key: 'user_role'); // Read role
     
     if (_deviceId == null || _deviceName == null) {
       await _initDeviceInfo();
@@ -112,9 +115,13 @@ class AuthService extends ChangeNotifier {
         _accessToken = data['access_token'];
         _isApproved = data['device_status']['is_approved'];
         _tenantId = data['device_status']['tenant_id'];
+        _userRole = data['user_role']; 
 
         await _storage.write(key: 'access_token', value: _accessToken);
         await _storage.write(key: 'tenant_id', value: _tenantId);
+        if (_userRole != null) {
+           await _storage.write(key: 'user_role', value: _userRole);
+        }
         
         _isAuthenticated = true;
         _startHeartbeat();

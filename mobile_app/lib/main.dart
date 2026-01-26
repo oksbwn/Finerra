@@ -9,6 +9,9 @@ import 'package:mobile_app/modules/auth/services/security_service.dart';
 import 'package:mobile_app/modules/auth/components/biometric_gate.dart';
 import 'package:mobile_app/modules/home/screens/home_screen.dart';
 import 'package:mobile_app/core/services/notification_service.dart';
+import 'package:mobile_app/modules/home/services/dashboard_service.dart';
+import 'package:mobile_app/modules/home/services/funds_service.dart';
+import 'package:mobile_app/modules/home/services/categories_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +31,19 @@ void main() async {
   final sms = SmsService(config, auth, notificationService);
   await sms.init(); 
 
-  runApp(MyApp(config: config, auth: auth, sms: sms, security: security));
+  final dashboard = DashboardService(config, auth);
+  final funds = FundsService(config, auth);
+  final categories = CategoriesService(config, auth);
+
+  runApp(MyApp(
+    config: config, 
+    auth: auth, 
+    sms: sms, 
+    security: security, 
+    dashboard: dashboard, 
+    funds: funds,
+    categories: categories,
+  ));
 }
 
 class MyApp extends StatelessWidget {
@@ -36,8 +51,20 @@ class MyApp extends StatelessWidget {
   final AuthService auth;
   final SmsService sms;
   final SecurityService security;
+  final DashboardService dashboard;
+  final FundsService funds;
+  final CategoriesService categories;
 
-  const MyApp({super.key, required this.config, required this.auth, required this.sms, required this.security});
+  const MyApp({
+    super.key, 
+    required this.config, 
+    required this.auth, 
+    required this.sms, 
+    required this.security, 
+    required this.dashboard,
+    required this.funds,
+    required this.categories,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +74,9 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: auth),
         ChangeNotifierProvider.value(value: security),
         ChangeNotifierProvider.value(value: sms),
+        ChangeNotifierProvider.value(value: dashboard),
+        ChangeNotifierProvider.value(value: funds),
+        ChangeNotifierProvider.value(value: categories),
       ],
       child: Consumer<AuthService>(
         builder: (context, auth, _) {
