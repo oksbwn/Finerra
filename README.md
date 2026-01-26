@@ -51,6 +51,12 @@ WealthFam provides a holistic view of your financial health. From daily expense 
 - **Features**: Real-time SMS ingestion, offline retry queue, and manual SMS sync management.
 - **Biometrics**: Integration ready for secure access.
 
+#### 📲 Download & Install
+[![Download WealthFam Mobile](/docs/assets/mobile_banner.png)](/mobile_app/build/app/outputs/flutter-apk/app-release.apk)
+
+*Click the banner above to download the latest **WealthFam Mobile APK** directly from this repository.*
+
+
 ### Backend
 - **Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
 - **Database**: [DuckDB](https://duckdb.org/) (Serverless SQL)
