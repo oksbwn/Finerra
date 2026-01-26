@@ -714,6 +714,8 @@
                                     <span class="cat-icon-large">{{ cat.icon }}</span>
                                 </div>
                                 <h3 class="cat-name">{{ cat.name }}</h3>
+                                <span class="cat-type-badge" :class="cat.type || 'expense'">{{ cat.type || 'expense'
+                                }}</span>
                             </div>
                             <div class="card-actions">
                                 <button @click="openEditCategoryModal(cat)" class="btn-icon-circle">✏️</button>
@@ -1521,6 +1523,14 @@
                         <input v-model="newCategory.name" class="form-input" required
                             placeholder="e.g. Subscriptions" />
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Category Type</label>
+                        <CustomSelect v-model="newCategory.type" :options="[
+                            { label: '🔴 Expense', value: 'expense' },
+                            { label: '🟢 Income', value: 'income' },
+                            { label: '🔄 Transfer', value: 'transfer' }
+                        ]" />
+                    </div>
                     <div class="modal-footer">
                         <button type="button" @click="showCategoryModal = false" class="btn-secondary">Cancel</button>
                         <button type="submit" class="btn-primary-glow">Save Category</button>
@@ -1991,7 +2001,7 @@ async function testAi() {
         aiTesting.value = false
     }
 }
-const newCategory = ref({ name: '', icon: '🏷️', color: '#3B82F6' })
+const newCategory = ref({ name: '', icon: '🏷️', color: '#3B82F6', type: 'expense' })
 
 const categoryOptions = computed(() => {
     return categories.value.map(c => ({
@@ -2549,14 +2559,19 @@ async function saveRule() {
 function openAddCategoryModal() {
     isEditingCategory.value = false
     editingCategoryId.value = null
-    newCategory.value = { name: '', icon: '🏷️', color: '#3B82F6' }
+    newCategory.value = { name: '', icon: '🏷️', color: '#3B82F6', type: 'expense' }
     showCategoryModal.value = true
 }
 
 function openEditCategoryModal(cat: any) {
     isEditingCategory.value = true
     editingCategoryId.value = cat.id
-    newCategory.value = { name: cat.name, icon: cat.icon, color: cat.color || '#3B82F6' }
+    newCategory.value = {
+        name: cat.name,
+        icon: cat.icon,
+        color: cat.color || '#3B82F6',
+        type: cat.type || 'expense'
+    }
     showCategoryModal.value = true
 }
 
@@ -3169,6 +3184,33 @@ const copyToClipboard = (text: string) => {
     color: var(--color-text-main);
     margin: 0;
 }
+
+.cat-type-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.025em;
+    display: inline-block;
+    margin-top: 2px;
+}
+
+.cat-type-badge.expense {
+    background: #fef2f2;
+    color: #ef4444;
+}
+
+.cat-type-badge.income {
+    background: #f0fdf4;
+    color: #22c55e;
+}
+
+.cat-type-badge.transfer {
+    background: #eff6ff;
+    color: #3b82f6;
+}
+
 
 /* Rules Styling */
 .rule-flow {
