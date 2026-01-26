@@ -318,6 +318,44 @@ def delete_email_config(
     db.commit()
     return {"status": "deleted"}
 
+@router.get("/email/logs", response_model=Dict)
+def list_email_logs(
+    limit: int = 50,
+    skip: int = 0,
+    config_id: Optional[str] = None,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(ingestion_models.EmailSyncLog).filter(
+        ingestion_models.EmailSyncLog.tenant_id == str(current_user.tenant_id)
+    )
+    if config_id:
+        query = query.filter(ingestion_models.EmailSyncLog.config_id == config_id)
+        
+    total = query.count()
+    items = query.order_by(ingestion_models.EmailSyncLog.started_at.desc()).offset(skip).limit(limit).all()
+    
+    # Convert SQLAlchemy objects to dictionaries to avoid Pydantic serialization errors
+    items_data = []
+    for item in items:
+        items_data.append({
+            "id": item.id,
+            "config_id": item.config_id,
+            "tenant_id": item.tenant_id,
+            "started_at": item.started_at,
+            "completed_at": item.completed_at,
+            "status": item.status,
+            "items_processed": item.items_processed,
+            "message": item.message
+        })
+
+    return {
+        "total": total,
+        "items": items_data,
+        "limit": limit,
+        "skip": skip
+    }
+
 @router.get("/email/configs/{config_id}/logs", response_model=List[EmailSyncLogRead])
 def get_email_sync_logs(
     config_id: str,

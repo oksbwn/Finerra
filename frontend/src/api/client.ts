@@ -138,6 +138,7 @@ export const financeApi = {
     bulkDismissTraining: (ids: string[]) => apiClient.post('/ingestion/training/bulk-dismiss', { message_ids: ids }),
     getIngestionEvents: (params?: { limit?: number, skip?: number, device_id?: string }) => apiClient.get('/ingestion/events', { params }),
     bulkDeleteEvents: (ids: string[]) => apiClient.post('/ingestion/events/bulk-delete', { event_ids: ids }),
+    getEmailLogs: (params?: { limit?: number, skip?: number, config_id?: string }) => apiClient.get('/ingestion/email/logs', { params }),
 
     // User Management
     getMe: () => apiClient.get<any>('/auth/me'),

@@ -305,119 +305,89 @@
 
                     <div class="email-grid">
                         <div v-for="config in emailConfigs" :key="config.id" class="email-card-premium">
-                            <!-- Status Indicator Stripe -->
-                            <div class="status-stripe" :class="{
+                            <!-- Status Indicator Stripe (Thinner) -->
+                            <div class="status-stripe-compact" :class="{
                                 'active': config.is_active,
                                 'inactive': !config.is_active,
                                 'auto-sync': config.auto_sync_enabled
                             }"></div>
 
-                            <!-- Card Header -->
-                            <div class="email-card-header">
-                                <div class="email-info">
-                                    <div class="email-status-row">
-                                        <div class="pulse-dot" :class="config.is_active ? 'active' : 'inactive'"></div>
-                                        <span class="server-label">{{ config.imap_server }}</span>
-                                        <span v-if="config.auto_sync_enabled" class="auto-sync-badge">
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                            <div class="p-4 flex flex-col h-full justify-between">
+                                <!-- Horizontal Header -->
+                                <div class="flex items-start justify-between mb-3">
+                                    <div class="flex items-center gap-2 overflow-hidden">
+                                        <div
+                                            class="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center shrink-0 border border-indigo-100">
+                                            <span class="text-xs">
+                                                {{familyMembers.find(u => u.id === config.user_id)?.avatar || '👤'}}
+                                            </span>
+                                        </div>
+                                        <div class="flex flex-col min-w-0">
+                                            <h3 class="text-sm font-bold truncate text-gray-800" :title="config.email">
+                                                {{ config.email }}</h3>
+                                            <div class="flex items-center gap-2 text-[10px] text-muted">
+                                                <span class="server-label-compact">{{ config.imap_server }}</span>
+                                                <span v-if="config.auto_sync_enabled"
+                                                    class="text-green-600 font-bold flex items-center gap-0.5">
+                                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="3">
+                                                        <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                                    </svg>
+                                                    Auto
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center gap-1 shrink-0">
+                                        <button @click="openHistoryModal(config)"
+                                            class="p-1.5 rounded-md hover:bg-white text-gray-400 hover:text-indigo-600 transition-colors"
+                                            title="History">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                                                 stroke="currentColor" stroke-width="2">
-                                                <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
-                                            Auto
-                                        </span>
+                                        </button>
+                                        <button @click="openEditEmailModal(config)"
+                                            class="p-1.5 rounded-md hover:bg-white text-gray-400 hover:text-indigo-600 transition-colors"
+                                            title="Settings">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                            </svg>
+                                        </button>
                                     </div>
-                                    <h3 class="email-address">{{ config.email }}</h3>
                                 </div>
-                                <div class="header-actions">
-                                    <button @click="openHistoryModal(config)" class="icon-btn-premium"
-                                        title="Sync History">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+
+                                <!-- Footer: Sync Info + Action -->
+                                <div class="flex items-center justify-between mt-auto pt-3 border-t border-gray-50/50">
+                                    <div class="text-[10px] text-muted flex flex-col">
+                                        <span class="uppercase tracking-wider font-bold opacity-60">Last Sync</span>
+                                        <span v-if="config.last_sync_at">{{ formatDate(config.last_sync_at).meta }}
+                                            ({{ formatDate(config.last_sync_at).day }})</span>
+                                        <span v-else class="text-amber-600">Never</span>
+                                    </div>
+
+                                    <button @click="handleSync(config.id)"
+                                        :disabled="syncStatus && syncStatus.status === 'running'"
+                                        class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                                        :class="syncStatus && syncStatus.status === 'running'
+                                            ? 'bg-indigo-50 text-indigo-400 cursor-wait'
+                                            : 'bg-white border border-gray-200 text-gray-700 hover:border-indigo-300 hover:text-indigo-700 shadow-sm hover:shadow'">
+                                        <svg v-if="syncStatus && syncStatus.status === 'running'" class="animate-spin"
+                                            width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="3">
+                                            <path d="M21 12a9 9 0 11-6.219-8.56" />
                                         </svg>
-                                    </button>
-                                    <button @click="openEditEmailModal(config)" class="icon-btn-premium"
-                                        title="Edit Config">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2.5">
+                                            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
                                         </svg>
+                                        {{ syncStatus && syncStatus.status === 'running' ? 'Scanning...' : 'Sync' }}
                                     </button>
                                 </div>
                             </div>
-
-                            <!-- User Assignment Section -->
-                            <div class="user-assignment-section">
-                                <div v-if="config.user_id" class="assigned-user">
-                                    <div class="user-avatar-ring">
-                                        <span class="user-avatar">
-                                            {{familyMembers.find(u => u.id === config.user_id)?.avatar || '👤'}}
-                                        </span>
-                                    </div>
-                                    <div class="user-details">
-                                        <span class="user-name">{{familyMembers.find(u => u.id ===
-                                            config.user_id)?.full_name || 'Unknown User'}}</span>
-                                        <span class="user-label">Inbox Owner</span>
-                                    </div>
-                                </div>
-                                <div v-else class="unassigned-state">
-                                    <div class="unassigned-icon">👥</div>
-                                    <div class="unassigned-text">
-                                        <span class="unassigned-label">Unassigned</span>
-                                        <span class="unassigned-hint">Click edit to assign</span>
-                                    </div>
-                                </div>
-                                <div class="folder-tag">{{ config.folder }}</div>
-                            </div>
-
-                            <!-- Sync Status Timeline -->
-                            <div class="sync-timeline">
-                                <div v-if="syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running'"
-                                    class="syncing-state">
-                                    <div class="sync-spinner"></div>
-                                    <span class="sync-text">Scanning inbox...</span>
-                                </div>
-                                <div v-else-if="config.last_sync_at" class="last-sync">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" class="sync-icon">
-                                        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    <span>Last synced {{ formatDate(config.last_sync_at).day }}</span>
-                                </div>
-                                <div v-else class="never-synced">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" class="warn-icon">
-                                        <path
-                                            d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                                        <line x1="12" y1="9" x2="12" y2="13" />
-                                        <line x1="12" y1="17" x2="12.01" y2="17" />
-                                    </svg>
-                                    <span>Never synced</span>
-                                </div>
-                            </div>
-
-                            <!-- Primary Action -->
-                            <button @click="handleSync(config.id)" class="sync-btn-premium"
-                                :disabled="syncStatus && syncStatus.status === 'running'"
-                                :class="{ 'syncing': syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running' }">
-                                <div class="btn-glow-effect"></div>
-                                <span
-                                    v-if="syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running'">
-                                    <svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                        stroke="currentColor" stroke-width="2">
-                                        <path d="M21 12a9 9 0 11-6.219-8.56" />
-                                    </svg>
-                                    Syncing...
-                                </span>
-                                <span v-else>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
-                                        <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
-                                    </svg>
-                                    Sync Now
-                                </span>
-                            </button>
                         </div>
 
                         <!-- Add New Email Card -->
@@ -428,6 +398,97 @@
 
                         <div v-if="emailConfigs.length === 0 && searchQuery" class="empty-placeholder">
                             <p>No emails match "{{ searchQuery }}"</p>
+                        </div>
+                    </div>
+
+                    <!-- RECENT EMAIL SCAN LOGS -->
+                    <div
+                        class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-4">
+                                <h3 class="text-lg font-bold flex items-center gap-2">
+                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📨</span>
+                                    Recent Scan Activity
+                                </h3>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total: {{
+                                    emailLogPagination.total }}</span>
+                                <button @click="fetchEmailLogs(undefined, true)" class="btn-icon-circle"
+                                    title="Refresh Log">🔄</button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto min-h-[300px]">
+                            <table class="w-full text-left text-sm">
+                                <thead class="text-muted border-b border-gray-100">
+                                    <tr>
+                                        <th class="pb-3 pr-4 font-semibold">Timestamp</th>
+                                        <th class="pb-3 pr-4 font-semibold">Account</th>
+                                        <th class="pb-3 pr-4 font-semibold">Status</th>
+                                        <th class="pb-3 pr-4 font-semibold">Items</th>
+                                        <th class="pb-3 pr-4 font-semibold">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50">
+                                    <tr v-for="log in emailLogs" :key="log.id"
+                                        class="hover:bg-white/40 transition-colors group">
+                                        <td class="py-3 pr-4 whitespace-nowrap text-xs">
+                                            {{ formatDate(log.started_at).meta }}
+                                        </td>
+                                        <td class="py-3 pr-4 text-xs font-mono text-muted"
+                                            :title="emailConfigs.find(c => c.id === log.config_id)?.email">
+                                            {{(emailConfigs.find(c => c.id === log.config_id)?.email ||
+                                                'Unknown').split('@')[0]}}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span :class="{
+                                                'text-emerald-600 bg-emerald-50': log.status === 'completed',
+                                                'text-blue-600 bg-blue-50': log.status === 'running',
+                                                'text-rose-600 bg-rose-50': log.status === 'error'
+                                            }"
+                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                                                {{ log.status }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 font-mono text-xs">
+                                            {{ log.items_processed || 0 }}
+                                        </td>
+                                        <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="log.message">
+                                            {{ log.message }}
+                                        </td>
+                                    </tr>
+                                    <tr v-if="emailLogs.length === 0">
+                                        <td colspan="5" class="py-12 text-center text-muted italic">
+                                            <div class="flex flex-col items-center gap-2">
+                                                <span class="text-2xl">📭</span>
+                                                No scan history found.
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination Controls -->
+                        <div v-if="emailLogPagination.total > emailLogPagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted">
+                                Showing {{ emailLogPagination.skip + 1 }} to {{ Math.min(emailLogPagination.skip +
+                                    emailLogPagination.limit, emailLogPagination.total) }} of {{ emailLogPagination.total }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button @click="emailLogPagination.skip -= emailLogPagination.limit; fetchEmailLogs()"
+                                    :disabled="emailLogPagination.skip === 0"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Previous
+                                </button>
+                                <button @click="emailLogPagination.skip += emailLogPagination.limit; fetchEmailLogs()"
+                                    :disabled="emailLogPagination.skip + emailLogPagination.limit >= emailLogPagination.total"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1567,7 +1628,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                            }}</label>
+                        }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
@@ -1691,6 +1752,25 @@ const ingestionEvents = ref<any[]>([])
 const eventPagination = ref({ total: 0, limit: 10, skip: 0 })
 const selectedEvents = ref<string[]>([])
 const isDeletingEvents = ref(false)
+
+// Email Logs State
+const emailLogs = ref<any[]>([])
+const emailLogPagination = ref({ total: 0, limit: 10, skip: 0 })
+
+const fetchEmailLogs = async (configId?: string, resetSkip = false) => {
+    try {
+        if (resetSkip) emailLogPagination.value.skip = 0
+        const res = await financeApi.getEmailLogs({
+            limit: emailLogPagination.value.limit,
+            skip: emailLogPagination.value.skip,
+            config_id: configId
+        })
+        emailLogs.value = res.data.items
+        emailLogPagination.value.total = res.data.total
+    } catch (e) {
+        console.error("Failed to fetch email logs", e)
+    }
+}
 
 // Tenant Rename Modal State
 const showTenantModal = ref(false)
@@ -1945,6 +2025,7 @@ async function fetchData() {
         devices.value = devicesRes.data
         fetchAiSettings()
         fetchIngestionEvents()
+        fetchEmailLogs()
     } catch (err) {
         console.error('Failed to fetch settings data', err)
     } finally {
@@ -4201,18 +4282,20 @@ input:checked+.slider-premium:before {
 /* ==================== PREMIUM EMAIL CARDS ==================== */
 .email-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 1.5rem;
 }
 
 .email-card-premium {
     position: relative;
     background: white;
-    border-radius: 1.25rem;
-    padding: 1.5rem;
+    border-radius: 1rem;
+    /* padding: 1.5rem;  Removed to allow inner padding control */
     border: 1px solid #e5e7eb;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .email-card-premium:hover {
@@ -4222,37 +4305,47 @@ input:checked+.slider-premium:before {
 }
 
 /* Status Stripe */
-.status-stripe {
+.status-stripe-compact {
     position: absolute;
     top: 0;
     left: 0;
-    right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, #10b981, #34d399);
+    bottom: 0;
+    width: 4px;
+    /* Vertical stripe on left */
+    background: linear-gradient(180deg, #10b981, #34d399);
     opacity: 0.8;
 }
 
-.status-stripe.inactive {
-    background: linear-gradient(90deg, #9ca3af, #d1d5db);
+.status-stripe-compact.inactive {
+    background: linear-gradient(180deg, #9ca3af, #d1d5db);
     opacity: 0.5;
 }
 
-.status-stripe.auto-sync {
-    background: linear-gradient(90deg, #6366f1, #818cf8, #6366f1);
-    background-size: 200% 100%;
-    animation: gradient-slide 3s ease infinite;
+.status-stripe-compact.auto-sync {
+    background: linear-gradient(180deg, #6366f1, #818cf8, #6366f1);
+    background-size: 100% 200%;
+    animation: gradient-slide-v 3s ease infinite;
 }
 
-@keyframes gradient-slide {
+@keyframes gradient-slide-v {
 
     0%,
     100% {
-        background-position: 0% 50%;
+        background-position: 50% 0%;
     }
 
     50% {
-        background-position: 100% 50%;
+        background-position: 50% 100%;
     }
+}
+
+.server-label-compact {
+    font-size: 0.65rem;
+    color: #6b7280;
+    font-weight: 600;
+    background: #f3f4f6;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
 }
 
 /* Card Header */
@@ -6091,5 +6184,284 @@ input:checked+.slider-premium:before {
         transform: scale(0.95);
         box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
     }
+}
+
+/* --- UTILITY SHIM (For Compact Layouts) --- */
+.flex {
+    display: flex;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.items-start {
+    align-items: flex-start;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.justify-center {
+    justify-content: center;
+}
+
+.gap-0\.5 {
+    gap: 0.125rem;
+}
+
+.gap-1 {
+    gap: 0.25rem;
+}
+
+.gap-1\.5 {
+    gap: 0.375rem;
+}
+
+.gap-2 {
+    gap: 0.5rem;
+}
+
+.p-1\.5 {
+    padding: 0.375rem;
+}
+
+.p-4 {
+    padding: 1rem;
+}
+
+.pt-3 {
+    padding-top: 0.75rem;
+}
+
+.px-3 {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
+
+.py-1\.5 {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+}
+
+.mt-auto {
+    margin-top: auto;
+}
+
+.mb-3 {
+    margin-bottom: 0.75rem;
+}
+
+.w-8 {
+    width: 2rem;
+}
+
+.h-8 {
+    height: 2rem;
+}
+
+.w-full {
+    width: 100%;
+}
+
+.h-full {
+    height: 100%;
+}
+
+.rounded-full {
+    border-radius: 9999px;
+}
+
+.rounded-lg {
+    border-radius: 0.5rem;
+}
+
+.rounded-md {
+    border-radius: 0.375rem;
+}
+
+.bg-white {
+    background-color: white;
+}
+
+.bg-indigo-50 {
+    background-color: #eef2ff;
+}
+
+.border {
+    border-width: 1px;
+}
+
+.border-t {
+    border-top-width: 1px;
+}
+
+.border-gray-50\/50 {
+    border-color: rgba(249, 250, 251, 0.5);
+}
+
+.border-gray-200 {
+    border-color: #e5e7eb;
+}
+
+.border-indigo-100 {
+    border-color: #e0e7ff;
+}
+
+.text-xs {
+    font-size: 0.75rem;
+    line-height: 1rem;
+}
+
+.text-sm {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.text-\[10px\] {
+    font-size: 10px;
+}
+
+.font-bold {
+    font-weight: 700;
+}
+
+.text-gray-400 {
+    color: #9ca3af;
+}
+
+.text-gray-700 {
+    color: #374151;
+}
+
+.text-gray-800 {
+    color: #1f2937;
+}
+
+.text-indigo-400 {
+    color: #818cf8;
+}
+
+.text-indigo-600 {
+    color: #4f46e5;
+}
+
+.text-green-600 {
+    color: #16a34a;
+}
+
+.text-amber-600 {
+    color: #d97706;
+}
+
+.shrink-0 {
+    flex-shrink: 0;
+}
+
+.min-w-0 {
+    min-width: 0;
+}
+
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.overflow-hidden {
+    overflow: hidden;
+}
+
+.transition-colors {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+.shadow-sm {
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.hover\:shadow:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.hover\:bg-white:hover {
+    background-color: white;
+}
+
+.hover\:text-indigo-600:hover {
+    color: #4f46e5;
+}
+
+.hover\:text-indigo-700:hover {
+    color: #4338ca;
+}
+
+.hover\:border-indigo-300:hover {
+    border-color: #a5b4fc;
+}
+
+.cursor-wait {
+    cursor: wait;
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Status Stripe */
+.status-stripe-compact {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 4px;
+    /* Vertical stripe on left */
+    background: linear-gradient(180deg, #10b981, #34d399);
+    opacity: 0.8;
+}
+
+.status-stripe-compact.inactive {
+    background: linear-gradient(180deg, #9ca3af, #d1d5db);
+    opacity: 0.5;
+}
+
+.status-stripe-compact.auto-sync {
+    background: linear-gradient(180deg, #6366f1, #818cf8, #6366f1);
+    background-size: 100% 200%;
+    animation: gradient-slide-v 3s ease infinite;
+}
+
+@keyframes gradient-slide-v {
+
+    0%,
+    100% {
+        background-position: 50% 0%;
+    }
+
+    50% {
+        background-position: 50% 100%;
+    }
+}
+
+.server-label-compact {
+    font-size: 0.65rem;
+    color: #6b7280;
+    font-weight: 600;
+    background: #f3f4f6;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
 }
 </style>

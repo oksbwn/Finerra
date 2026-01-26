@@ -87,6 +87,41 @@ def run_auto_migrations(engine: Engine):
                 FOREIGN KEY(tenant_id) REFERENCES tenants (id)
             );
             """))
+
+            # 5. Add email_configurations table
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS email_configurations (
+                id VARCHAR PRIMARY KEY,
+                tenant_id VARCHAR NOT NULL,
+                user_id VARCHAR,
+                email VARCHAR NOT NULL,
+                password VARCHAR NOT NULL,
+                imap_server VARCHAR DEFAULT 'imap.gmail.com',
+                folder VARCHAR DEFAULT 'INBOX',
+                is_active BOOLEAN DEFAULT TRUE,
+                auto_sync_enabled BOOLEAN DEFAULT FALSE,
+                last_sync_at TIMESTAMP,
+                cas_last_sync_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+            );
+            """))
+
+            # 6. Add email_sync_logs table
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS email_sync_logs (
+                id VARCHAR PRIMARY KEY,
+                config_id VARCHAR NOT NULL,
+                tenant_id VARCHAR NOT NULL,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                status VARCHAR DEFAULT 'running',
+                items_processed NUMERIC(10, 0) DEFAULT 0,
+                message VARCHAR,
+                FOREIGN KEY(config_id) REFERENCES email_configurations (id),
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+            );
+            """))
             
             # Explicitly commit the transaction!
             connection.commit()
