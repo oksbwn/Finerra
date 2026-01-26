@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:mobile_app/modules/home/screens/dashboard_screen.dart';
 import 'package:mobile_app/core/config/app_config.dart';
 import 'package:mobile_app/core/theme/app_theme.dart';
 import 'package:mobile_app/modules/auth/services/auth_service.dart';
@@ -23,71 +23,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
-  late final WebViewController _webController;
-  bool _isLoadingWeb = true;
 
   @override
   void initState() {
     super.initState();
-    final config = context.read<AppConfig>();
-    
-    _webController = WebViewController();
-    
-    // Platform-specific config
-    if (!kIsWeb) {
-      try {
-        _webController.setJavaScriptMode(JavaScriptMode.unrestricted);
-        // Use a safe default, or handle dynamically if possible. 
-        // Initial color remains white for better light-theme start.
-        _webController.setBackgroundColor(Colors.transparent);
-      } catch (e) {
-        debugPrint("WebView config error: $e");
-      }
-    }
-
-    try {
-      _webController.setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (String url) {
-             if (mounted) setState(() => _isLoadingWeb = true);
-          },
-          onPageFinished: (String url) {
-             if (mounted) setState(() => _isLoadingWeb = false);
-          },
-          onWebResourceError: (WebResourceError error) {
-             debugPrint("Web Error: ${error.description}");
-             if (mounted) setState(() => _isLoadingWeb = false);
-          },
-        ),
-      );
-    } catch (e) {
-      debugPrint("NavigationDelegate error: $e");
-      if (mounted) setState(() => _isLoadingWeb = false);
-    }
-
-    if (kIsWeb) {
-      // Fallback: Dismiss spinner after 2s if Web hooks fail
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted && _isLoadingWeb) setState(() => _isLoadingWeb = false);
-      });
-    }
-    
-    final token = context.read<AuthService>().accessToken;
-    
-    final uri = Uri.parse(config.webUiUrl);
-    final newUri = uri.replace(queryParameters: {
-      ...uri.queryParameters, 
-      if (token != null) 'auth_token': token,
-    });
-
-    if (!kIsWeb) {
-      // Try to force mobile user agent
-      try {
-        _webController.setUserAgent('Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
-      } catch (e) { }
-    }
-    
-    _webController.loadRequest(newUri);
   }
 
   void _onTabTapped(int index) {
@@ -107,17 +46,8 @@ class _HomeScreenState extends State<HomeScreen> {
           child: IndexedStack(
             index: _currentIndex,
             children: [
-              // Tab 1: WebView Dashboard
-              Container(
-                color: theme.brightness == Brightness.dark ? AppTheme.darkBg : Colors.white,
-                child: Stack(
-                  children: [
-                    WebViewWidget(controller: _webController),
-                    if (_isLoadingWeb)
-                      Center(child: CircularProgressIndicator(color: theme.primaryColor)),
-                  ],
-                ),
-              ),
+              // Tab 1: Native Dashboard
+              const DashboardScreen(),
               
               // Tab 2: Native Settings / Sync
               _buildNativeSettings(context),
