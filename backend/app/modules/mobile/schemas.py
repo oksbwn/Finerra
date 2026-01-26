@@ -34,6 +34,7 @@ class MobileLoginResponse(BaseModel):
     token_type: str
     expires_in: int
     device_status: DeviceResponse
+    user_role: Optional[str] = "ADULT" # Default to ADULT for safety/compat, but should be explicit
 
 class ToggleApprovalRequest(BaseModel):
     is_approved: bool
@@ -49,3 +50,80 @@ class DeviceUpdate(BaseModel):
     is_enabled: Optional[bool] = None
     is_ignored: Optional[bool] = None
     user_id: Optional[str] = None
+
+class DashboardSummary(BaseModel):
+    today_total: float
+    monthly_total: float
+    currency: str = "INR"
+
+class BudgetSummary(BaseModel):
+    limit: float
+    spent: float
+    percentage: float
+
+class CategorySpending(BaseModel):
+    name: str
+    amount: float
+
+class RecentTransaction(BaseModel):
+    id: str
+    date: datetime
+    description: str
+    amount: float
+    category: str
+
+class SpendingTrendItem(BaseModel):
+    date: str
+    amount: float
+    daily_limit: float
+
+class CategoryPieItem(BaseModel):
+    name: str
+    value: float
+    color: Optional[str] = None
+
+class MobileDashboardResponse(BaseModel):
+    summary: DashboardSummary
+    budget: BudgetSummary
+    spending_trend: List[SpendingTrendItem]
+    category_distribution: List[CategoryPieItem]
+    recent_transactions: List[RecentTransaction]
+
+class MemberResponse(BaseModel):
+    id: str
+    name: str
+    role: str
+    avatar_url: Optional[str] = None
+
+class TransactionResponse(BaseModel):
+    items: List[RecentTransaction]
+    next_page: Optional[int] = None
+
+class FundHolding(BaseModel):
+    scheme_code: str
+    scheme_name: str
+    units: float
+    current_value: float
+    invested_value: float
+    profit_loss: float
+    last_updated: str
+    xirr: Optional[float] = None
+    allocation_percentage: Optional[float] = None # Calculated on fly
+
+class MobileFundsResponse(BaseModel):
+    total_invested: float
+    total_current: float
+    total_pl: float
+    xirr: Optional[float] = None
+    holdings: List[FundHolding]
+
+class Category(BaseModel):
+    id: str
+    name: str
+    icon: Optional[str] = None
+    type: str = "expense"
+
+class UpdateTransactionCategoryRequest(BaseModel):
+    category: str
+    create_rule: bool = False
+    rule_keywords: Optional[List[str]] = None

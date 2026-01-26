@@ -1,5 +1,8 @@
-from datetime import datetime, timedelta
-from typing import List
+from datetime import datetime, timedelta, date
+import calendar
+import uuid
+from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.app.core.database import get_db
@@ -10,6 +13,7 @@ from backend.app.modules.auth.dependencies import get_current_user
 from backend.app.modules.ingestion import models as ingestion_models
 from backend.app.modules.ingestion.services import IngestionService
 from backend.app.modules.mobile import schemas
+from backend.app.modules.finance.services.analytics_service import AnalyticsService
 
 router = APIRouter(tags=["Mobile"])
 
@@ -78,7 +82,8 @@ def mobile_login(
         "access_token": access_token, 
         "token_type": "bearer",
         "expires_in": int(access_token_expires.total_seconds()),
-        "device_status": device
+        "device_status": device,
+        "user_role": user.role
     }
 
 @router.post("/register-device", response_model=schemas.DeviceResponse)
@@ -343,3 +348,366 @@ def assign_device_user(
     db.commit()
     db.refresh(device)
     return device
+
+@router.get("/members", response_model=List[schemas.MemberResponse])
+def list_family_members(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List valid family members for filtering.
+    """
+    if current_user.role == "CHILD":
+        return [{
+            "id": str(current_user.id),
+            "name": current_user.full_name or current_user.email.split('@')[0],
+            "role": "CHILD",
+            "avatar_url": None
+        }]
+    
+    # Return all tenant users
+    users = db.query(auth_models.User).filter(
+        auth_models.User.tenant_id == str(current_user.tenant_id)
+    ).all()
+    
+    return [
+        {
+            "id": str(u.id),
+            "name": u.full_name or u.email.split('@')[0],
+            "role": u.role,
+            "avatar_url": None # Placeholder for now
+        }
+        for u in users
+    ]
+
+@router.get("/dashboard", response_model=schemas.MobileDashboardResponse)
+def get_mobile_dashboard(
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    member_id: Optional[str] = None,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns a lightweight summary for the mobile dashboard with chart data.
+    """
+    # Authorization logic for member_id
+    target_user_id = None # Default to None (All) for Adults
+    
+    if current_user.role == "CHILD":
+        # Child can only see their own data
+        target_user_id = str(current_user.id)
+        if member_id and member_id != target_user_id:
+             raise HTTPException(status_code=403, detail="Children can only view their own data")
+    elif member_id:
+        # Adults can view specific member
+        target_user_id = member_id
+        
+    now = datetime.utcnow()
+    target_month = month or now.month
+    target_year = year or now.year
+    
+    start_date = datetime(target_year, target_month, 1)
+    last_day = calendar.monthrange(target_year, target_month)[1]
+    end_date = datetime(target_year, target_month, last_day, 23, 59, 59)
+    
+    metrics = AnalyticsService.get_summary_metrics(
+        db, 
+        str(current_user.tenant_id), 
+        user_role=current_user.role,
+        user_id=target_user_id, # Can be None for All
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    # --- 1. Category Distribution (Pie Chart) ---
+    from sqlalchemy import func, or_
+    from backend.app.modules.finance import models
+    
+    cat_query = db.query(
+        models.Transaction.category,
+        func.sum(models.Transaction.amount).label('total')
+    ).filter(
+        models.Transaction.tenant_id == str(current_user.tenant_id),
+        models.Transaction.amount < 0,
+        models.Transaction.is_transfer == False,
+        models.Transaction.date >= start_date,
+        models.Transaction.date <= end_date
+    )
+    
+    if target_user_id:
+        cat_query = cat_query.join(
+            models.Account, models.Transaction.account_id == models.Account.id
+        ).filter(
+            or_(models.Account.owner_id == target_user_id, models.Account.owner_id == None)
+        )
+    
+    cat_results = cat_query.group_by(models.Transaction.category).order_by(func.sum(models.Transaction.amount).asc()).all()
+    
+    category_distribution = [
+        schemas.CategoryPieItem(name=cat[0], value=abs(float(cat[1])))
+        for cat in cat_results
+    ]
+    
+    # --- 2. Daily Spending Trend (Bar/Line Chart) ---
+    total_budget = metrics["budget_health"]["limit"]
+    daily_budget_limit = total_budget / last_day if total_budget > 0 else 0
+    
+    trend_query = db.query(
+        func.date(models.Transaction.date).label('day'),
+        func.sum(models.Transaction.amount).label('total')
+    ).filter(
+        models.Transaction.tenant_id == str(current_user.tenant_id),
+        models.Transaction.amount < 0,
+        models.Transaction.is_transfer == False,
+        models.Transaction.date >= start_date,
+        models.Transaction.date <= end_date
+    )
+    
+    if target_user_id:
+        trend_query = trend_query.join(
+            models.Account, models.Transaction.account_id == models.Account.id
+        ).filter(
+            or_(models.Account.owner_id == target_user_id, models.Account.owner_id == None)
+        )
+    
+    trend_results = trend_query.group_by(func.date(models.Transaction.date)).all()
+    trend_map = {str(row.day): abs(float(row.total)) for row in trend_results}
+    
+    spending_trend = []
+    for day in range(1, last_day + 1):
+        d_date = date(target_year, target_month, day)
+        d_str = d_date.isoformat()
+        spending_trend.append(schemas.SpendingTrendItem(
+            date=d_str,
+            amount=trend_map.get(d_str, 0.0),
+            daily_limit=daily_budget_limit
+        ))
+        
+    return {
+        "summary": {
+            "today_total": metrics["today_total"],
+            "monthly_total": metrics["monthly_total"],
+            "currency": metrics["currency"]
+        },
+        "budget": metrics["budget_health"],
+        "spending_trend": spending_trend,
+        "category_distribution": category_distribution,
+        "recent_transactions": metrics["recent_transactions"]
+    }
+
+@router.get("/transactions", response_model=schemas.TransactionResponse)
+def list_mobile_transactions(
+    page: int = 1,
+    page_size: int = 20,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Paginated transactions list for infinite scroll.
+    """
+    from backend.app.modules.finance import models
+    from sqlalchemy import or_
+    
+    query = db.query(models.Transaction).filter(
+        models.Transaction.tenant_id == str(current_user.tenant_id),
+        models.Transaction.is_transfer == False
+    )
+    
+    # Filter by user ownership
+    query = query.join(
+        models.Account, models.Transaction.account_id == models.Account.id
+    ).filter(
+        or_(models.Account.owner_id == str(current_user.id), models.Account.owner_id == None)
+    )
+    
+    if month and year:
+        start_date = datetime(year, month, 1)
+        last_day = calendar.monthrange(year, month)[1]
+        end_date = datetime(year, month, last_day, 23, 59, 59)
+        query = query.filter(models.Transaction.date >= start_date, models.Transaction.date <= end_date)
+        
+    total_count = query.count()
+    
+    transactions = query.order_by(models.Transaction.date.desc()) \
+                        .offset((page - 1) * page_size) \
+                        .limit(page_size) \
+                        .all()
+                        
+    # Enrich with owner info (simplified) or mapped
+    enriched = []
+    for txn in transactions:
+        enriched.append({
+            "id": txn.id,
+            "date": txn.date,
+            "description": txn.description,
+            "amount": float(txn.amount),
+            "category": txn.category
+        })
+        
+    has_next = (page * page_size) < total_count
+    
+    return {
+        "items": enriched,
+        "next_page": page + 1 if has_next else None
+    }
+    
+class CreateTransactionRequest(BaseModel):
+    account_id: str
+    amount: float
+    description: str
+    category: str
+    date: str
+
+@router.post("/transactions", response_model=schemas.RecentTransaction)
+def create_mobile_transaction(
+    payload: CreateTransactionRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new transaction (manual entry).
+    """
+    from backend.app.modules.finance import models
+    from datetime import datetime
+    
+    # Verify account ownership
+    account = db.query(models.Account).filter(
+         models.Account.id == payload.account_id,
+         or_(models.Account.owner_id == str(current_user.id), models.Account.owner_id == None),
+         models.Account.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found or access denied")
+        
+    txn = models.Transaction(
+        id=str(uuid.uuid4()),
+        tenant_id=str(current_user.tenant_id),
+        account_id=payload.account_id,
+        amount=payload.amount,
+        description=payload.description,
+        category=payload.category,
+        date=datetime.fromisoformat(payload.date),
+        is_transfer=False # Simple manual entry usually not transfer
+    )
+    
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+    
+    return {
+        "id": txn.id,
+        "date": txn.date,
+        "description": txn.description,
+        "amount": float(txn.amount),
+        "category": txn.category
+    }
+
+@router.get("/funds", response_model=schemas.MobileFundsResponse)
+def get_mobile_funds(
+    member_id: Optional[str] = None,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get Mutual Funds summary and holdings.
+    RESTRICTED: Child accounts cannot access this endpoint.
+    """
+    if current_user.role == "CHILD":
+        raise HTTPException(status_code=403, detail="Mutual funds are restricted for children")
+        
+    target_user_id = member_id if member_id else None
+    
+    from backend.app.modules.finance.services.mutual_funds import MutualFundService
+    
+    # Fetch portfolio
+    holdings = MutualFundService.get_portfolio(db, str(current_user.tenant_id), target_user_id)
+    
+    total_invested = 0.0
+    total_current = 0.0
+    
+    clean_holdings = []
+    
+    for h in holdings:
+        inv = float(h.get('invested_value', 0))
+        cur = float(h.get('current_value', 0))
+        
+        total_invested += inv
+        total_current += cur
+        
+        clean_holdings.append(schemas.FundHolding(
+            scheme_code=h['scheme_code'],
+            scheme_name=h['scheme_name'],
+            units=float(h.get('units', 0)),
+            current_value=cur,
+            invested_value=inv,
+            profit_loss=cur - inv,
+            last_updated=h.get('last_updated', ''),
+            xirr=None # Individual XIRR requires expensive calc, skipping for list view
+        ))
+        
+    return {
+        "total_invested": total_invested,
+        "total_current": total_current,
+        "total_pl": total_current - total_invested,
+        "xirr": None, # Global XIRR requires full logic
+        "holdings": clean_holdings
+    }
+
+@router.get("/categories", response_model=List[schemas.Category])
+def get_categories(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from backend.app.modules.finance.services.category_service import CategoryService
+    cats = CategoryService.get_categories(db, str(current_user.tenant_id))
+    return [
+        schemas.Category(id=str(c.id), name=c.name, icon=c.icon, type=getattr(c, 'type', 'expense')) 
+        for c in cats
+    ]
+
+@router.patch("/transactions/{transaction_id}", response_model=schemas.RecentTransaction)
+def update_transaction_category(
+    transaction_id: str,
+    payload: schemas.UpdateTransactionCategoryRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from backend.app.modules.finance import models
+    from backend.app.modules.finance.services.category_service import CategoryService
+    from backend.app.modules.finance import schemas as finance_schemas
+    
+    # 1. Update Transaction
+    txn = db.query(models.Transaction).filter(
+        models.Transaction.id == transaction_id,
+        models.Transaction.tenant_id == str(current_user.tenant_id)
+    ).first()
+    
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+        
+    txn.category = payload.category
+    db.commit()
+    
+    # 2. Create Rule if requested
+    if payload.create_rule and payload.rule_keywords:
+        rule_in = finance_schemas.CategoryRuleCreate(
+            name=f"Auto {payload.category} for {payload.rule_keywords[0]}",
+            category=payload.category,
+            keywords=payload.rule_keywords,
+            priority=10
+        )
+        CategoryService.create_category_rule(db, rule_in, str(current_user.tenant_id))
+        
+    db.refresh(txn)
+    
+    return {
+        "id": txn.id,
+        "date": txn.date,
+        "description": txn.description,
+        "amount": float(txn.amount),
+        "category": txn.category
+    }
