@@ -160,6 +160,7 @@ class TransactionService:
         to_account_id = update_data.get('to_account_id')
         
         if is_transfer_update is True:
+            db_txn.is_transfer = True
             if not to_account_id and not db_txn.linked_transaction_id:
                  pass 
 
@@ -188,6 +189,7 @@ class TransactionService:
                 update_data['category'] = "Transfer"
 
         elif is_transfer_update is False:
+            db_txn.is_transfer = False
             if db_txn.linked_transaction_id:
                 linked = db.query(models.Transaction).filter(models.Transaction.id == db_txn.linked_transaction_id).first()
                 if linked: db.delete(linked)
@@ -225,10 +227,13 @@ class TransactionService:
 
     # --- Triage Functions ---
     @staticmethod
-    def get_pending_transactions(db: Session, tenant_id: str):
-        return db.query(ingestion_models.PendingTransaction).filter(
+    def get_pending_transactions(db: Session, tenant_id: str, skip: int = 0, limit: int = 50):
+        query = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.tenant_id == tenant_id
-        ).order_by(ingestion_models.PendingTransaction.created_at.desc()).all()
+        )
+        total = query.count()
+        items = query.order_by(ingestion_models.PendingTransaction.created_at.desc()).offset(skip).limit(limit).all()
+        return items, total
 
     @staticmethod
     def approve_pending_transaction(
@@ -304,6 +309,16 @@ class TransactionService:
         db.delete(pending)
         db.commit()
         return True
+
+    @staticmethod
+    def bulk_reject_pending_transactions(db: Session, pending_ids: List[str], tenant_id: str):
+        if not pending_ids: return 0
+        count = db.query(ingestion_models.PendingTransaction).filter(
+            ingestion_models.PendingTransaction.id.in_(pending_ids),
+            ingestion_models.PendingTransaction.tenant_id == tenant_id
+        ).delete(synchronize_session=False)
+        db.commit()
+        return count
 
     @staticmethod
     def batch_update_category_and_create_rule(

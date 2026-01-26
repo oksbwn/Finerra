@@ -35,6 +35,10 @@
                             @click="activeTab = 'ai'; searchQuery = ''">
                             AI Integration
                         </button>
+                        <button class="tab-btn" :class="{ active: activeTab === 'devices' }"
+                            @click="activeTab = 'devices'; searchQuery = ''">
+                            Devices
+                        </button>
                     </div>
                 </div>
 
@@ -301,138 +305,190 @@
 
                     <div class="email-grid">
                         <div v-for="config in emailConfigs" :key="config.id" class="email-card-premium">
-                            <!-- Status Indicator Stripe -->
-                            <div class="status-stripe" :class="{
+                            <!-- Status Indicator Stripe (Thinner) -->
+                            <div class="status-stripe-compact" :class="{
                                 'active': config.is_active,
                                 'inactive': !config.is_active,
                                 'auto-sync': config.auto_sync_enabled
                             }"></div>
 
-                            <!-- Card Header -->
-                            <div class="email-card-header">
-                                <div class="email-info">
-                                    <div class="email-status-row">
-                                        <div class="pulse-dot" :class="config.is_active ? 'active' : 'inactive'"></div>
-                                        <span class="server-label">{{ config.imap_server }}</span>
-                                        <span v-if="config.auto_sync_enabled" class="auto-sync-badge">
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                            <div class="p-4 flex flex-col h-full justify-between">
+                                <!-- Horizontal Header -->
+                                <div class="flex items-start justify-between mb-3">
+                                    <div class="flex items-center gap-2 overflow-hidden">
+                                        <div
+                                            class="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center shrink-0 border border-indigo-100">
+                                            <span class="text-xs">
+                                                {{familyMembers.find(u => u.id === config.user_id)?.avatar || '👤'}}
+                                            </span>
+                                        </div>
+                                        <div class="flex flex-col min-w-0">
+                                            <h3 class="text-sm font-bold truncate text-gray-800" :title="config.email">
+                                                {{ config.email }}</h3>
+                                            <div class="flex items-center gap-2 text-[10px] text-muted">
+                                                <span class="server-label-compact">{{ config.imap_server }}</span>
+                                                <span v-if="config.auto_sync_enabled"
+                                                    class="text-green-600 font-bold flex items-center gap-0.5">
+                                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="3">
+                                                        <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                                    </svg>
+                                                    Auto
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center gap-1 shrink-0">
+                                        <button @click="openHistoryModal(config)"
+                                            class="p-1.5 rounded-md hover:bg-white text-gray-400 hover:text-indigo-600 transition-colors"
+                                            title="History">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                                                 stroke="currentColor" stroke-width="2">
-                                                <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
-                                            Auto
-                                        </span>
+                                        </button>
+                                        <button @click="openEditEmailModal(config)"
+                                            class="p-1.5 rounded-md hover:bg-white text-gray-400 hover:text-indigo-600 transition-colors"
+                                            title="Settings">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                            </svg>
+                                        </button>
                                     </div>
-                                    <h3 class="email-address">{{ config.email }}</h3>
                                 </div>
-                                <div class="header-actions">
-                                    <button @click="openHistoryModal(config)" class="icon-btn-premium"
-                                        title="Sync History">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+
+                                <!-- Footer: Sync Info + Action -->
+                                <div class="flex items-center justify-between mt-auto pt-3 border-t border-gray-50/50">
+                                    <div class="text-[10px] text-muted flex flex-col">
+                                        <span class="uppercase tracking-wider font-bold opacity-60">Last Sync</span>
+                                        <span v-if="config.last_sync_at">{{ formatDate(config.last_sync_at).meta }}
+                                            ({{ formatDate(config.last_sync_at).day }})</span>
+                                        <span v-else class="text-amber-600">Never</span>
+                                    </div>
+
+                                    <button @click="handleSync(config.id)"
+                                        :disabled="syncStatus && syncStatus.status === 'running'"
+                                        class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                                        :class="syncStatus && syncStatus.status === 'running'
+                                            ? 'bg-indigo-50 text-indigo-400 cursor-wait'
+                                            : 'bg-white border border-gray-200 text-gray-700 hover:border-indigo-300 hover:text-indigo-700 shadow-sm hover:shadow'">
+                                        <svg v-if="syncStatus && syncStatus.status === 'running'" class="animate-spin"
+                                            width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="3">
+                                            <path d="M21 12a9 9 0 11-6.219-8.56" />
                                         </svg>
-                                    </button>
-                                    <button @click="openEditEmailModal(config)" class="icon-btn-premium"
-                                        title="Edit Config">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2.5">
+                                            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
                                         </svg>
+                                        {{ syncStatus && syncStatus.status === 'running' ? 'Scanning...' : 'Sync' }}
                                     </button>
                                 </div>
                             </div>
-
-                            <!-- User Assignment Section -->
-                            <div class="user-assignment-section">
-                                <div v-if="config.user_id" class="assigned-user">
-                                    <div class="user-avatar-ring">
-                                        <span class="user-avatar">
-                                            {{familyMembers.find(u => u.id === config.user_id)?.avatar || '👤'}}
-                                        </span>
-                                    </div>
-                                    <div class="user-details">
-                                        <span class="user-name">{{familyMembers.find(u => u.id ===
-                                            config.user_id)?.full_name || 'Unknown User'}}</span>
-                                        <span class="user-label">Inbox Owner</span>
-                                    </div>
-                                </div>
-                                <div v-else class="unassigned-state">
-                                    <div class="unassigned-icon">👥</div>
-                                    <div class="unassigned-text">
-                                        <span class="unassigned-label">Unassigned</span>
-                                        <span class="unassigned-hint">Click edit to assign</span>
-                                    </div>
-                                </div>
-                                <div class="folder-tag">{{ config.folder }}</div>
-                            </div>
-
-                            <!-- Sync Status Timeline -->
-                            <div class="sync-timeline">
-                                <div v-if="syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running'"
-                                    class="syncing-state">
-                                    <div class="sync-spinner"></div>
-                                    <span class="sync-text">Scanning inbox...</span>
-                                </div>
-                                <div v-else-if="config.last_sync_at" class="last-sync">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" class="sync-icon">
-                                        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    <span>Last synced {{ formatDate(config.last_sync_at).day }}</span>
-                                </div>
-                                <div v-else class="never-synced">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2" class="warn-icon">
-                                        <path
-                                            d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                                        <line x1="12" y1="9" x2="12" y2="13" />
-                                        <line x1="12" y1="17" x2="12.01" y2="17" />
-                                    </svg>
-                                    <span>Never synced</span>
-                                </div>
-                            </div>
-
-                            <!-- Primary Action -->
-                            <button @click="handleSync(config.id)" class="sync-btn-premium"
-                                :disabled="syncStatus && syncStatus.status === 'running'"
-                                :class="{ 'syncing': syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running' }">
-                                <div class="btn-glow-effect"></div>
-                                <span
-                                    v-if="syncStatus && syncStatus.configId === config.id && syncStatus.status === 'running'">
-                                    <svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                        stroke="currentColor" stroke-width="2">
-                                        <path d="M21 12a9 9 0 11-6.219-8.56" />
-                                    </svg>
-                                    Syncing...
-                                </span>
-                                <span v-else>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
-                                        <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
-                                    </svg>
-                                    Sync Now
-                                </span>
-                            </button>
                         </div>
 
                         <!-- Add New Email Card -->
-                        <div v-if="emailConfigs.length > 0" class="glass-card add-account-card"
-                            @click="showEmailModal = true">
+                        <div v-if="!searchQuery" class="glass-card add-account-card" @click="showEmailModal = true">
                             <div class="add-icon-circle">+</div>
                             <span>Add Email Account</span>
                         </div>
 
-                        <div v-if="emailConfigs.length === 0" class="empty-email-state">
-                            <div class="empty-icon">
-                                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="1.5">
-                                    <path
-                                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                </svg>
+                        <div v-if="emailConfigs.length === 0 && searchQuery" class="empty-placeholder">
+                            <p>No emails match "{{ searchQuery }}"</p>
+                        </div>
+                    </div>
+
+                    <!-- RECENT EMAIL SCAN LOGS -->
+                    <div
+                        class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-4">
+                                <h3 class="text-lg font-bold flex items-center gap-2">
+                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📨</span>
+                                    Recent Scan Activity
+                                </h3>
                             </div>
-                            <h3>No Email Accounts Linked</h3>
-                            <p>Connect your bank email to automatically sync transactions</p>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total: {{
+                                    emailLogPagination.total }}</span>
+                                <button @click="fetchEmailLogs(undefined, true)" class="btn-icon-circle"
+                                    title="Refresh Log">🔄</button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto min-h-[300px]">
+                            <table class="w-full text-left text-sm">
+                                <thead class="text-muted border-b border-gray-100">
+                                    <tr>
+                                        <th class="pb-3 pr-4 font-semibold">Timestamp</th>
+                                        <th class="pb-3 pr-4 font-semibold">Account</th>
+                                        <th class="pb-3 pr-4 font-semibold">Status</th>
+                                        <th class="pb-3 pr-4 font-semibold">Items</th>
+                                        <th class="pb-3 pr-4 font-semibold">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50">
+                                    <tr v-for="log in emailLogs" :key="log.id"
+                                        class="hover:bg-white/40 transition-colors group">
+                                        <td class="py-3 pr-4 whitespace-nowrap text-xs">
+                                            {{ formatDate(log.started_at).meta }}
+                                        </td>
+                                        <td class="py-3 pr-4 text-xs font-mono text-muted"
+                                            :title="emailConfigs.find(c => c.id === log.config_id)?.email">
+                                            {{(emailConfigs.find(c => c.id === log.config_id)?.email ||
+                                                'Unknown').split('@')[0]}}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span :class="{
+                                                'text-emerald-600 bg-emerald-50': log.status === 'completed',
+                                                'text-blue-600 bg-blue-50': log.status === 'running',
+                                                'text-rose-600 bg-rose-50': log.status === 'error'
+                                            }"
+                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                                                {{ log.status }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 font-mono text-xs">
+                                            {{ log.items_processed || 0 }}
+                                        </td>
+                                        <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="log.message">
+                                            {{ log.message }}
+                                        </td>
+                                    </tr>
+                                    <tr v-if="emailLogs.length === 0">
+                                        <td colspan="5" class="py-12 text-center text-muted italic">
+                                            <div class="flex flex-col items-center gap-2">
+                                                <span class="text-2xl">📭</span>
+                                                No scan history found.
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination Controls -->
+                        <div v-if="emailLogPagination.total > emailLogPagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted">
+                                Showing {{ emailLogPagination.skip + 1 }} to {{ Math.min(emailLogPagination.skip +
+                                    emailLogPagination.limit, emailLogPagination.total) }} of {{ emailLogPagination.total }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button @click="emailLogPagination.skip -= emailLogPagination.limit; fetchEmailLogs()"
+                                    :disabled="emailLogPagination.skip === 0"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Previous
+                                </button>
+                                <button @click="emailLogPagination.skip += emailLogPagination.limit; fetchEmailLogs()"
+                                    :disabled="emailLogPagination.skip + emailLogPagination.limit >= emailLogPagination.total"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -658,6 +714,8 @@
                                     <span class="cat-icon-large">{{ cat.icon }}</span>
                                 </div>
                                 <h3 class="cat-name">{{ cat.name }}</h3>
+                                <span class="cat-type-badge" :class="cat.type || 'expense'">{{ cat.type || 'expense'
+                                }}</span>
                             </div>
                             <div class="card-actions">
                                 <button @click="openEditCategoryModal(cat)" class="btn-icon-circle">✏️</button>
@@ -779,27 +837,299 @@
                                         {{ aiTesting ? 'Analyzing...' : 'Test Extraction' }}
                                     </button>
 
-                                    <div class="console-box">
-                                        <div class="console-header">
-                                            <div class="flex gap-1">
-                                                <span class="console-dot green"></span>
-                                                <span class="console-dot yellow"></span>
-                                            </div>
-                                            <span>DEBUG CONSOLE</span>
-                                        </div>
-                                        <div class="ai-console">
-                                            <div v-if="!aiTestResult && !aiTesting" class="text-slate-500 italic">
-                                                Waiting for data...
-                                            </div>
-                                            <div v-if="aiTesting" class="animate-pulse text-indigo-400">
-                                                > Initializing Gemini provider...
-                                                <br>> Sending payload...
-                                            </div>
-                                            <pre
-                                                v-if="aiTestResult">{{ JSON.stringify(aiTestResult.data || aiTestResult.message, null, 2) }}</pre>
-                                        </div>
+                                </div>
+                                <div class="ai-console">
+                                    <div v-if="!aiTestResult && !aiTesting" class="text-slate-500 italic">
+                                        Waiting for data...
+                                    </div>
+                                    <div v-if="aiTesting" class="animate-pulse text-indigo-400">
+                                        > Initializing Gemini provider...
+                                        <br>> Sending payload...
+                                    </div>
+                                    <pre
+                                        v-if="aiTestResult">{{ JSON.stringify(aiTestResult.data || aiTestResult.message, null, 2) }}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DEVICES TAB (MOBILE) -->
+                <div v-if="activeTab === 'devices'" class="tab-content animate-in">
+                    <!-- Search Bar -->
+                    <div class="account-control-bar mb-6">
+                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" class="search-icon">
+                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <input type="text" v-model="searchQuery" placeholder="Search devices..."
+                                class="search-input">
+                        </div>
+                        <div class="header-with-badge"
+                            style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                            <h3
+                                style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
+                                Mobile Devices</h3>
+                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
+                                devices.length }} Total</span>
+                        </div>
+                    </div>
+
+                    <!-- PENDING DEVICES -->
+                    <div v-if="devices.some(d => !d.is_approved && !d.is_ignored)" class="mb-8">
+                        <div class="device-section-header">
+                            <div class="device-section-title">
+                                <span>🔔 Pending Approval</span>
+                                <span class="badge-count warning">{{devices.filter(d => !d.is_approved &&
+                                    !d.is_ignored).length}}</span>
+                            </div>
+                        </div>
+                        <div class="devices-grid-premium">
+                            <div v-for="device in devices.filter(d => !d.is_approved && !d.is_ignored)" :key="device.id"
+                                class="device-card-premium unapproved">
+                                <div class="dev-header">
+                                    <div class="dev-icon-wrapper"
+                                        :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
+                                        {{ (device.device_name.toLowerCase().includes('iphone') ||
+                                            device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
+                                    </div>
+                                    <div class="dev-info-main">
+                                        <h3 class="dev-name">{{ device.device_name }}</h3>
                                     </div>
                                 </div>
+                                <div class="dev-meta">
+                                    <div class="meta-row">
+                                        <div class="flex items-center gap-1">
+                                            <span class="meta-val text-xs">
+                                                {{ (getDeviceUser(device.user_id)?.full_name ||
+                                                    getDeviceUser(device.user_id)?.email || 'Unassigned').split('@')[0] }}
+                                            </span>
+                                            <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
+                                        </div>
+                                        <span class="meta-val text-xs text-muted" title="First Seen">
+                                            🕒 {{ formatDate(device.created_at).day }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="dev-id-footer">
+                                    <div class="dev-id-row">
+                                        <span class="dev-id-mono">{{ device.device_id }}</span>
+                                        <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
+                                            title="Copy Full ID">📋</button>
+                                    </div>
+                                </div>
+                                <div class="dev-actions">
+                                    <button @click="toggleDeviceApproval(device)"
+                                        class="btn-dev primary">Approve</button>
+                                    <button @click="toggleDeviceIgnored(device, true)"
+                                        class="btn-dev secondary">Ignore</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ACTIVE DEVICES -->
+                    <div class="device-section-header">
+                        <div class="device-section-title">
+                            <span>✅ Active Devices</span>
+                            <span class="badge-count">{{devices.filter(d => d.is_approved).length}}</span>
+                        </div>
+                    </div>
+
+                    <div class="devices-grid-premium mb-12">
+                        <div v-for="device in devices.filter(d => d.is_approved)" :key="device.id"
+                            class="device-card-premium" :class="{
+                                'ignored': device.is_ignored,
+                                'online-accent': isOnline(device.last_seen_at),
+                                'offline-accent': !isOnline(device.last_seen_at)
+                            }">
+                            <div class="dev-header">
+                                <div class="dev-icon-wrapper"
+                                    :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
+                                    {{ (device.device_name.toLowerCase().includes('iphone') ||
+                                        device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
+                                </div>
+                                <div class="dev-info-main">
+                                    <h3 class="dev-name">{{ device.device_name }}</h3>
+                                </div>
+                            </div>
+
+                            <div class="dev-meta">
+                                <div class="meta-row">
+                                    <div class="flex items-center gap-2">
+                                        <span class="meta-val p-0 text-xs flex items-center gap-1">
+                                            <img v-if="getDeviceUser(device.user_id)?.avatar?.length > 4"
+                                                :src="getDeviceUser(device.user_id)?.avatar"
+                                                class="w-4 h-4 rounded-full" />
+                                            {{ getDeviceUser(device.user_id)?.full_name ||
+                                                getDeviceUser(device.user_id)?.email || 'Unassigned' }}
+                                        </span>
+                                        <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
+                                    </div>
+                                    <span class="meta-val text-xs text-muted" title="Last Synchronization">
+                                        Sync: {{ formatDate(device.last_seen_at || device.created_at).meta }}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="dev-id-footer">
+                                <div class="dev-id-row">
+                                    <span class="dev-id-mono">{{ device.device_id }}</span>
+                                    <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
+                                        title="Copy Full ID">📋</button>
+                                </div>
+                            </div>
+
+                            <div class="dev-actions">
+                                <button @click="toggleDeviceEnabled(device)" class="btn-dev secondary">
+                                    {{ device.is_enabled ? 'Pause' : 'Resume' }}
+                                </button>
+                                <button @click="deleteDeviceRequest(device)" class="btn-dev danger"
+                                    style="flex: 0 0 2.25rem;">🗑️</button>
+                            </div>
+                        </div>
+
+                        <div v-if="devices.filter(d => d.is_approved).length === 0"
+                            class="empty-placeholder col-span-full">
+                            <div class="empty-state-content">
+                                <div class="empty-icon-large">📱</div>
+                                <h3>No Devices Connected</h3>
+                                <p>Login from the mobile app to see your devices here.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- IGNORED DEVICES -->
+                    <div v-if="devices.some(d => d.is_ignored)" class="mt-8">
+                        <div class="device-section-header">
+                            <div class="device-section-title text-muted">
+                                <span>🚫 Ignored Devices</span>
+                            </div>
+                        </div>
+                        <div class="devices-grid-premium">
+                            <div v-for="device in devices.filter(d => d.is_ignored)" :key="device.id"
+                                class="device-card-premium ignored">
+                                <div class="dev-header">
+                                    <div class="dev-icon-wrapper">
+                                        📱
+                                    </div>
+                                    <div class="dev-info-main">
+                                        <h3 class="dev-name text-muted">{{ device.device_name }}</h3>
+                                        <span class="dev-id-mono">{{ device.device_id }}</span>
+                                    </div>
+                                    <div class="status-indicator">Ignored</div>
+                                </div>
+                                <div class="dev-actions">
+                                    <button @click="toggleDeviceIgnored(device, false)"
+                                        class="btn-dev secondary">Restore</button>
+                                    <button @click="deleteDeviceRequest(device)" class="btn-dev danger">Delete
+                                        Forever</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RECENT ACTIVITY LOG -->
+                    <div
+                        class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-4">
+                                <h3 class="text-lg font-bold flex items-center gap-2">
+                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📋</span>
+                                    Recent Activity Log
+                                </h3>
+                                <button v-if="selectedEvents.length > 0" @click="handleBulkDeleteEvents"
+                                    class="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-100 transition-all hover:bg-rose-100 flex items-center gap-2 animate-in slide-in-from-left">
+                                    🗑️ Delete {{ selectedEvents.length }} Selected
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total: {{
+                                    eventPagination.total }}</span>
+                                <button @click="fetchIngestionEvents(undefined, true)" class="btn-icon-circle"
+                                    title="Refresh Log">🔄</button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto min-h-[300px]">
+                            <table class="w-full text-left text-sm">
+                                <thead class="text-muted border-b border-gray-100">
+                                    <tr>
+                                        <th class="pb-3 w-8">
+                                            <input type="checkbox" @change="toggleSelectAllEvents"
+                                                :checked="selectedEvents.length === ingestionEvents.length && ingestionEvents.length > 0"
+                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        </th>
+                                        <th class="pb-3 pr-4 font-semibold">Timestamp</th>
+                                        <th class="pb-3 pr-4 font-semibold">Event</th>
+                                        <th class="pb-3 pr-4 font-semibold">Device</th>
+                                        <th class="pb-3 pr-4 font-semibold">Status</th>
+                                        <th class="pb-3 pr-4 font-semibold">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50">
+                                    <tr v-for="event in ingestionEvents" :key="event.id"
+                                        class="hover:bg-white/40 transition-colors group">
+                                        <td class="py-3">
+                                            <input type="checkbox" v-model="selectedEvents" :value="event.id"
+                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        </td>
+                                        <td class="py-3 pr-4 whitespace-nowrap text-xs">
+                                            {{ formatDate(event.created_at).meta }}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span
+                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100">
+                                                {{ event.event_type.replace('_', ' ') }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 text-xs font-mono text-muted">
+                                            {{ event.device_id }}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span :class="{
+                                                'text-emerald-600 bg-emerald-50': event.status === 'success',
+                                                'text-amber-600 bg-amber-50': event.status === 'warning',
+                                                'text-rose-600 bg-rose-50': event.status === 'error',
+                                                'text-slate-600 bg-slate-50': event.status === 'skipped'
+                                            }" class="px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                                {{ event.status }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="event.message">
+                                            {{ event.message }}
+                                        </td>
+                                    </tr>
+                                    <tr v-if="ingestionEvents.length === 0">
+                                        <td colspan="6" class="py-12 text-center text-muted italic">
+                                            <div class="flex flex-col items-center gap-2">
+                                                <span class="text-2xl">🔍</span>
+                                                No activity logs found.
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination Controls -->
+                        <div v-if="eventPagination.total > eventPagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted">
+                                Showing {{ eventPagination.skip + 1 }} to {{ Math.min(eventPagination.skip +
+                                    eventPagination.limit, eventPagination.total) }} of {{ eventPagination.total }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button @click="eventPagination.skip -= eventPagination.limit; fetchIngestionEvents()"
+                                    :disabled="eventPagination.skip === 0"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Previous
+                                </button>
+                                <button @click="eventPagination.skip += eventPagination.limit; fetchIngestionEvents()"
+                                    :disabled="eventPagination.skip + eventPagination.limit >= eventPagination.total"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Next
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1193,6 +1523,14 @@
                         <input v-model="newCategory.name" class="form-input" required
                             placeholder="e.g. Subscriptions" />
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Category Type</label>
+                        <CustomSelect v-model="newCategory.type" :options="[
+                            { label: '🔴 Expense', value: 'expense' },
+                            { label: '🟢 Income', value: 'income' },
+                            { label: '🔄 Transfer', value: 'transfer' }
+                        ]" />
+                    </div>
                     <div class="modal-footer">
                         <button type="button" @click="showCategoryModal = false" class="btn-secondary">Cancel</button>
                         <button type="submit" class="btn-primary-glow">Save Category</button>
@@ -1300,7 +1638,7 @@
 
                     <div class="form-group">
                         <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                            }}</label>
+                        }}</label>
                         <input v-model="memberForm.password" class="form-input" type="password"
                             :required="!isEditingMember" />
                     </div>
@@ -1322,6 +1660,51 @@
                 </form>
             </div>
         </div>
+        <!-- Device Assignment Modal -->
+        <div v-if="showDeviceAssignModal" class="modal-overlay-global">
+            <div class="modal-global glass text-center">
+                <div class="modal-header">
+                    <h2 class="modal-title">Edit Device Settings</h2>
+                    <button class="btn-icon-circle" @click="showDeviceAssignModal = false">✕</button>
+                </div>
+                <div class="p-4" style="text-align: left;">
+                    <div class="form-group mb-4">
+                        <label class="form-label">Display Name</label>
+                        <input v-model="editDeviceName" class="form-input" placeholder="e.g. My Phone" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Assign Family Member</label>
+                        <CustomSelect v-model="selectedAssignUserId as any" :options="[
+                            { label: '👤 Unassigned', value: null as any },
+                            ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
+                        ]" placeholder="Select Owner" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button @click="showDeviceAssignModal = false" class="btn-secondary">Cancel</button>
+                    <button @click="confirmAssignUser" class="btn-primary-glow">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Device Delete Confirmation Modal -->
+        <div v-if="showDeviceDeleteConfirm" class="modal-overlay-global">
+            <div class="modal-global glass text-center" style="max-width: 400px;">
+                <div class="p-6">
+                    <div class="text-4xl mb-4">🗑️</div>
+                    <h2 class="text-xl font-bold mb-2">Delete Device?</h2>
+                    <p class="text-muted mb-6">Are you sure you want to permanently remove <strong>{{
+                        deviceToDelete?.device_name }}</strong>? This action cannot be undone.</p>
+
+                    <div class="flex gap-3">
+                        <button @click="showDeviceDeleteConfirm = false" class="btn-dev secondary flex-1">Keep
+                            Device</button>
+                        <button @click="confirmDeleteDevice" class="btn-dev danger flex-1">Delete Permanently</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Tenant Rename Modal -->
         <div v-if="showTenantModal" class="modal-overlay-global">
             <div class="modal-global glass">
@@ -1348,7 +1731,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
-import { financeApi, aiApi } from '@/api/client'
+import { financeApi, aiApi, mobileApi } from '@/api/client'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
 import { useSettingsStore } from '@/stores/settings'
@@ -1375,6 +1758,29 @@ const currentUser = ref<any>(null)
 const loading = ref(true)
 const isSyncing = ref(false)
 const syncStatus = ref<any>(null)
+const ingestionEvents = ref<any[]>([])
+const eventPagination = ref({ total: 0, limit: 10, skip: 0 })
+const selectedEvents = ref<string[]>([])
+const isDeletingEvents = ref(false)
+
+// Email Logs State
+const emailLogs = ref<any[]>([])
+const emailLogPagination = ref({ total: 0, limit: 10, skip: 0 })
+
+const fetchEmailLogs = async (configId?: string, resetSkip = false) => {
+    try {
+        if (resetSkip) emailLogPagination.value.skip = 0
+        const res = await financeApi.getEmailLogs({
+            limit: emailLogPagination.value.limit,
+            skip: emailLogPagination.value.skip,
+            config_id: configId
+        })
+        emailLogs.value = res.data.items
+        emailLogPagination.value.total = res.data.total
+    } catch (e) {
+        console.error("Failed to fetch email logs", e)
+    }
+}
 
 // Tenant Rename Modal State
 const showTenantModal = ref(false)
@@ -1414,6 +1820,7 @@ const memberForm = ref({
 })
 
 const showPan = ref(false)
+const devices = ref<any[]>([])
 
 const searchQuery = ref('')
 const verifiedAccounts = computed(() => {
@@ -1594,7 +2001,7 @@ async function testAi() {
         aiTesting.value = false
     }
 }
-const newCategory = ref({ name: '', icon: '🏷️', color: '#3B82F6' })
+const newCategory = ref({ name: '', icon: '🏷️', color: '#3B82F6', type: 'expense' })
 
 const categoryOptions = computed(() => {
     return categories.value.map(c => ({
@@ -1606,7 +2013,7 @@ const categoryOptions = computed(() => {
 async function fetchData() {
     loading.value = true
     try {
-        const [accRes, rulesRes, catRes, sugRes, emailRes, tenantRes, usersRes, meRes] = await Promise.all([
+        const [accRes, rulesRes, catRes, sugRes, emailRes, tenantRes, usersRes, meRes, devicesRes] = await Promise.all([
             financeApi.getAccounts(),
             financeApi.getRules(),
             financeApi.getCategories(),
@@ -1614,7 +2021,8 @@ async function fetchData() {
             financeApi.getEmailConfigs(),
             financeApi.getTenants(),
             financeApi.getUsers(),
-            financeApi.getMe()
+            financeApi.getMe(),
+            mobileApi.getDevices()
         ])
         accounts.value = accRes.data
         rules.value = rulesRes.data
@@ -1624,11 +2032,52 @@ async function fetchData() {
         tenants.value = tenantRes.data
         familyMembers.value = usersRes.data
         currentUser.value = meRes.data
+        devices.value = devicesRes.data
         fetchAiSettings()
+        fetchIngestionEvents()
+        fetchEmailLogs()
     } catch (err) {
         console.error('Failed to fetch settings data', err)
     } finally {
         loading.value = false
+    }
+}
+
+const fetchIngestionEvents = async (deviceId?: string, resetSkip = false) => {
+    try {
+        if (resetSkip) eventPagination.value.skip = 0
+        const res = await financeApi.getIngestionEvents({
+            limit: eventPagination.value.limit,
+            skip: eventPagination.value.skip,
+            device_id: deviceId
+        })
+        ingestionEvents.value = res.data.items
+        eventPagination.value.total = res.data.total
+        selectedEvents.value = []
+    } catch (e) {
+        console.error("Failed to fetch events", e)
+    }
+}
+
+const handleBulkDeleteEvents = async () => {
+    if (selectedEvents.value.length === 0) return
+    isDeletingEvents.value = true
+    try {
+        await financeApi.bulkDeleteEvents(selectedEvents.value)
+        notify.success(`Deleted ${selectedEvents.value.length} events`)
+        fetchIngestionEvents()
+    } catch (e) {
+        notify.error("Failed to delete events")
+    } finally {
+        isDeletingEvents.value = false
+    }
+}
+
+const toggleSelectAllEvents = () => {
+    if (selectedEvents.value.length === ingestionEvents.value.length) {
+        selectedEvents.value = []
+    } else {
+        selectedEvents.value = ingestionEvents.value.map(e => e.id)
     }
 }
 
@@ -1733,7 +2182,94 @@ const getRoleColorClass = (role: string) => {
         default: return 'ring-gray'
     }
 }
-// --- Email UI Logic ---
+
+
+
+// --- Device Assignment & Helpers ---
+const showDeviceAssignModal = ref(false)
+const deviceToAssign = ref<any>(null)
+const selectedAssignUserId = ref<string | null>(null)
+const editDeviceName = ref('')
+const showDeviceDeleteConfirm = ref(false)
+const deviceToDelete = ref<any>(null)
+
+const getDeviceUser = (userId: string) => {
+    if (!userId) return null
+    return familyMembers.value.find(u => u.id === userId)
+}
+
+const isOnline = (dateStr: string) => {
+    if (!dateStr) return false
+    const lastSeen = new Date(dateStr).getTime()
+    const now = new Date().getTime()
+    return (now - lastSeen) < (10 * 60 * 1000) // 10 minutes
+}
+
+const toggleDeviceEnabled = async (device: any) => {
+    try {
+        const newStatus = !device.is_enabled
+        const res = await mobileApi.toggleEnabled(device.id, newStatus)
+        const idx = devices.value.findIndex(d => d.id === device.id)
+        if (idx !== -1) devices.value[idx] = res.data
+        notify.success(newStatus ? "Device ingestion enabled" : "Device ingestion disabled")
+    } catch (e) {
+        notify.error("Failed to update device status")
+    }
+}
+
+function openAssignModal(device: any) {
+    deviceToAssign.value = device
+    selectedAssignUserId.value = device.user_id || null
+    editDeviceName.value = device.device_name || ''
+    showDeviceAssignModal.value = true
+}
+
+async function confirmAssignUser() {
+    if (!deviceToAssign.value) return
+    try {
+        await mobileApi.updateDevice(deviceToAssign.value.id, {
+            device_name: editDeviceName.value,
+            user_id: selectedAssignUserId.value
+        })
+        notify.success("Device settings updated")
+
+        // Refresh data to ensure UI is in sync
+        await fetchData()
+
+        showDeviceAssignModal.value = false
+    } catch (e: any) {
+        console.error("Update failed", e)
+        notify.error("Failed to update device")
+    }
+}
+
+const toggleDeviceIgnored = async (device: any, ignored: boolean) => {
+    try {
+        const res = await mobileApi.toggleIgnored(device.id, ignored)
+        const idx = devices.value.findIndex(d => d.id === device.id)
+        if (idx !== -1) devices.value[idx] = res.data
+        notify.success(ignored ? "Device ignored" : "Device restored")
+    } catch (e) {
+        notify.error("Failed to update status")
+    }
+}
+
+
+const toggleDeviceApproval = async (device: any) => {
+    try {
+        const newStatus = !device.is_approved
+        const res = await mobileApi.toggleApproval(device.id, newStatus)
+        // Update local state
+        const idx = devices.value.findIndex(d => d.id === device.id)
+        if (idx !== -1) {
+            devices.value[idx] = res.data
+        }
+    } catch (e) {
+        console.error("Failed to toggle device approval", e)
+    }
+}
+
+// --- Lifecycle ---
 const showEmailEditModal = ref(false)
 const editingEmailConfig = ref<string | null>(null)
 const showHistoryModal = ref(false)
@@ -1867,7 +2403,8 @@ function formatDate(dateStr: string) {
     const d = new Date(dateStr)
     return {
         day: d.toLocaleDateString(),
-        meta: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        meta: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        full: d.toLocaleString()
     }
 }
 
@@ -1894,7 +2431,29 @@ function getAccountTypeLabel(type: string) {
 }
 
 
-function getLogIcon(status: string) {
+
+
+
+const deleteDeviceRequest = (device: any) => {
+    deviceToDelete.value = device
+    showDeviceDeleteConfirm.value = true
+}
+
+const confirmDeleteDevice = async () => {
+    if (!deviceToDelete.value) return
+    try {
+        await mobileApi.deleteDevice(deviceToDelete.value.id)
+        devices.value = devices.value.filter(d => d.id !== deviceToDelete.value.id)
+        notify.success("Device permanently removed")
+        showDeviceDeleteConfirm.value = false
+    } catch (e) {
+        notify.error("Failed to delete device")
+    } finally {
+        deviceToDelete.value = null
+    }
+}
+
+const getLogIcon = (status: string) => {
     if (status === 'completed') return '✅'
     if (status === 'error') return '❌'
     return '⏳'
@@ -2000,14 +2559,19 @@ async function saveRule() {
 function openAddCategoryModal() {
     isEditingCategory.value = false
     editingCategoryId.value = null
-    newCategory.value = { name: '', icon: '🏷️', color: '#3B82F6' }
+    newCategory.value = { name: '', icon: '🏷️', color: '#3B82F6', type: 'expense' }
     showCategoryModal.value = true
 }
 
 function openEditCategoryModal(cat: any) {
     isEditingCategory.value = true
     editingCategoryId.value = cat.id
-    newCategory.value = { name: cat.name, icon: cat.icon, color: cat.color || '#3B82F6' }
+    newCategory.value = {
+        name: cat.name,
+        icon: cat.icon,
+        color: cat.color || '#3B82F6',
+        type: cat.type || 'expense'
+    }
     showCategoryModal.value = true
 }
 
@@ -2141,6 +2705,12 @@ async function handleMemberSubmit() {
     } catch (err: any) {
         notify.error(err.response?.data?.detail || "Action failed")
     }
+}
+
+// --- Devices Logic ---
+const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    notify.success("Device ID copied!")
 }
 
 </script>
@@ -2614,6 +3184,33 @@ async function handleMemberSubmit() {
     color: var(--color-text-main);
     margin: 0;
 }
+
+.cat-type-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.025em;
+    display: inline-block;
+    margin-top: 2px;
+}
+
+.cat-type-badge.expense {
+    background: #fef2f2;
+    color: #ef4444;
+}
+
+.cat-type-badge.income {
+    background: #f0fdf4;
+    color: #22c55e;
+}
+
+.cat-type-badge.transfer {
+    background: #eff6ff;
+    color: #3b82f6;
+}
+
 
 /* Rules Styling */
 .rule-flow {
@@ -3727,18 +4324,20 @@ input:checked+.slider-premium:before {
 /* ==================== PREMIUM EMAIL CARDS ==================== */
 .email-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 1.5rem;
 }
 
 .email-card-premium {
     position: relative;
     background: white;
-    border-radius: 1.25rem;
-    padding: 1.5rem;
+    border-radius: 1rem;
+    /* padding: 1.5rem;  Removed to allow inner padding control */
     border: 1px solid #e5e7eb;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .email-card-premium:hover {
@@ -3748,37 +4347,47 @@ input:checked+.slider-premium:before {
 }
 
 /* Status Stripe */
-.status-stripe {
+.status-stripe-compact {
     position: absolute;
     top: 0;
     left: 0;
-    right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, #10b981, #34d399);
+    bottom: 0;
+    width: 4px;
+    /* Vertical stripe on left */
+    background: linear-gradient(180deg, #10b981, #34d399);
     opacity: 0.8;
 }
 
-.status-stripe.inactive {
-    background: linear-gradient(90deg, #9ca3af, #d1d5db);
+.status-stripe-compact.inactive {
+    background: linear-gradient(180deg, #9ca3af, #d1d5db);
     opacity: 0.5;
 }
 
-.status-stripe.auto-sync {
-    background: linear-gradient(90deg, #6366f1, #818cf8, #6366f1);
-    background-size: 200% 100%;
-    animation: gradient-slide 3s ease infinite;
+.status-stripe-compact.auto-sync {
+    background: linear-gradient(180deg, #6366f1, #818cf8, #6366f1);
+    background-size: 100% 200%;
+    animation: gradient-slide-v 3s ease infinite;
 }
 
-@keyframes gradient-slide {
+@keyframes gradient-slide-v {
 
     0%,
     100% {
-        background-position: 0% 50%;
+        background-position: 50% 0%;
     }
 
     50% {
-        background-position: 100% 50%;
+        background-position: 50% 100%;
     }
+}
+
+.server-label-compact {
+    font-size: 0.65rem;
+    color: #6b7280;
+    font-weight: 600;
+    background: #f3f4f6;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
 }
 
 /* Card Header */
@@ -5325,5 +5934,576 @@ input:checked+.slider-premium:before {
 
 .glow-border-indigo {
     border: 1px solid rgba(79, 70, 229, 0.2);
+}
+
+/* ==================== PREMIUM DEVICE CARDS ==================== */
+.device-section-header {
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.device-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-count {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    background: #e5e7eb;
+    color: #4b5563;
+    border-radius: 9999px;
+    font-weight: 700;
+}
+
+.badge-count.warning {
+    background: #fffbeb;
+    color: #d97706;
+}
+
+.devices-grid-premium {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.75rem;
+}
+
+.device-card-premium {
+    background: white;
+    border: 1px solid #f1f5f9;
+    border-radius: 0.5rem;
+    padding: 0.625rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.device-card-premium:hover {
+    border-color: #4f46e5;
+    box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.08);
+}
+
+.device-card-premium.unapproved {
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+}
+
+.device-card-premium.ignored {
+    opacity: 0.6;
+    background: #f8fafc;
+}
+
+.dev-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.dev-icon-wrapper {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.dev-icon-wrapper.apple {
+    background: #e0f2fe;
+    color: #0284c7;
+}
+
+.dev-icon-wrapper.android {
+    background: #dcfce7;
+    color: #059669;
+}
+
+.dev-info-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.dev-name {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dev-id-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.625rem;
+    color: #64748b;
+    background: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    word-break: break-all;
+    flex: 1;
+}
+
+.dev-id-footer {
+    padding: 0.375rem 0.5rem;
+    background: #f8fafc;
+    border-radius: 0.375rem;
+    border: 1px solid #f1f5f9;
+}
+
+.dev-id-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.device-card-premium.online-accent {
+    border-top: 3px solid #10b981;
+}
+
+.device-card-premium.offline-accent {
+    border-top: 3px solid #ef4444;
+}
+
+.device-card-premium.unapproved {
+    background: #fffbeb;
+    border-top: 3px solid #f59e0b;
+}
+
+.meta-val {
+    color: #1e293b;
+    font-weight: 500;
+}
+
+.meta-label {
+    font-size: 0.65rem;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.025em;
+}
+
+.meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dev-actions {
+    display: flex;
+    gap: 0.375rem;
+    margin-top: 0.25rem;
+}
+
+.btn-dev {
+    flex: 1;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-dev.primary {
+    background: #4f46e5;
+    color: white;
+}
+
+.btn-dev.primary:hover {
+    background: #4338ca;
+}
+
+.btn-dev.secondary {
+    background: white;
+    color: #475569;
+    border-color: #e2e8f0;
+}
+
+.btn-dev.secondary:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+}
+
+.btn-dev.danger {
+    background: #fff1f2;
+    color: #e11d48;
+    border-color: #fecdd3;
+}
+
+.btn-dev.danger:hover {
+    background: #ffe4e6;
+}
+
+.copy-small-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    padding: 2px;
+}
+
+.copy-small-btn:hover {
+    opacity: 1;
+    color: #4f46e5;
+}
+
+.btn-icon-tiny {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: #4f46e5;
+    padding: 2px;
+    line-height: 1;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.btn-icon-tiny:hover {
+    opacity: 1;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    background: #f3f4f6;
+}
+
+.status-indicator.pending {
+    background: #fffbeb;
+    color: #d97706;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.status-dot.pulse {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+}
+
+/* --- UTILITY SHIM (For Compact Layouts) --- */
+.flex {
+    display: flex;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.items-start {
+    align-items: flex-start;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.justify-center {
+    justify-content: center;
+}
+
+.gap-0\.5 {
+    gap: 0.125rem;
+}
+
+.gap-1 {
+    gap: 0.25rem;
+}
+
+.gap-1\.5 {
+    gap: 0.375rem;
+}
+
+.gap-2 {
+    gap: 0.5rem;
+}
+
+.p-1\.5 {
+    padding: 0.375rem;
+}
+
+.p-4 {
+    padding: 1rem;
+}
+
+.pt-3 {
+    padding-top: 0.75rem;
+}
+
+.px-3 {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
+
+.py-1\.5 {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+}
+
+.mt-auto {
+    margin-top: auto;
+}
+
+.mb-3 {
+    margin-bottom: 0.75rem;
+}
+
+.w-8 {
+    width: 2rem;
+}
+
+.h-8 {
+    height: 2rem;
+}
+
+.w-full {
+    width: 100%;
+}
+
+.h-full {
+    height: 100%;
+}
+
+.rounded-full {
+    border-radius: 9999px;
+}
+
+.rounded-lg {
+    border-radius: 0.5rem;
+}
+
+.rounded-md {
+    border-radius: 0.375rem;
+}
+
+.bg-white {
+    background-color: white;
+}
+
+.bg-indigo-50 {
+    background-color: #eef2ff;
+}
+
+.border {
+    border-width: 1px;
+}
+
+.border-t {
+    border-top-width: 1px;
+}
+
+.border-gray-50\/50 {
+    border-color: rgba(249, 250, 251, 0.5);
+}
+
+.border-gray-200 {
+    border-color: #e5e7eb;
+}
+
+.border-indigo-100 {
+    border-color: #e0e7ff;
+}
+
+.text-xs {
+    font-size: 0.75rem;
+    line-height: 1rem;
+}
+
+.text-sm {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.text-\[10px\] {
+    font-size: 10px;
+}
+
+.font-bold {
+    font-weight: 700;
+}
+
+.text-gray-400 {
+    color: #9ca3af;
+}
+
+.text-gray-700 {
+    color: #374151;
+}
+
+.text-gray-800 {
+    color: #1f2937;
+}
+
+.text-indigo-400 {
+    color: #818cf8;
+}
+
+.text-indigo-600 {
+    color: #4f46e5;
+}
+
+.text-green-600 {
+    color: #16a34a;
+}
+
+.text-amber-600 {
+    color: #d97706;
+}
+
+.shrink-0 {
+    flex-shrink: 0;
+}
+
+.min-w-0 {
+    min-width: 0;
+}
+
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.overflow-hidden {
+    overflow: hidden;
+}
+
+.transition-colors {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+.shadow-sm {
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.hover\:shadow:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.hover\:bg-white:hover {
+    background-color: white;
+}
+
+.hover\:text-indigo-600:hover {
+    color: #4f46e5;
+}
+
+.hover\:text-indigo-700:hover {
+    color: #4338ca;
+}
+
+.hover\:border-indigo-300:hover {
+    border-color: #a5b4fc;
+}
+
+.cursor-wait {
+    cursor: wait;
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Status Stripe */
+.status-stripe-compact {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 4px;
+    /* Vertical stripe on left */
+    background: linear-gradient(180deg, #10b981, #34d399);
+    opacity: 0.8;
+}
+
+.status-stripe-compact.inactive {
+    background: linear-gradient(180deg, #9ca3af, #d1d5db);
+    opacity: 0.5;
+}
+
+.status-stripe-compact.auto-sync {
+    background: linear-gradient(180deg, #6366f1, #818cf8, #6366f1);
+    background-size: 100% 200%;
+    animation: gradient-slide-v 3s ease infinite;
+}
+
+@keyframes gradient-slide-v {
+
+    0%,
+    100% {
+        background-position: 50% 0%;
+    }
+
+    50% {
+        background-position: 50% 100%;
+    }
+}
+
+.server-label-compact {
+    font-size: 0.65rem;
+    color: #6b7280;
+    font-weight: 600;
+    background: #f3f4f6;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
 }
 </style>

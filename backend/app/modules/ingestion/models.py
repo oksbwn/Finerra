@@ -58,6 +58,24 @@ class PendingTransaction(Base):
     to_account_id = Column(String, nullable=True) # Destination Account ID for transfers
     balance = Column(Numeric(15, 2), nullable=True)
     credit_limit = Column(Numeric(15, 2), nullable=True)
+    latitude = Column(Numeric(10, 8), nullable=True)
+    longitude = Column(Numeric(11, 8), nullable=True)
+    location_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class MobileDevice(Base):
+    __tablename__ = "mobile_devices"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True) # Optional link to specific user
+    device_name = Column(String, nullable=False)
+    device_id = Column(String, nullable=False, unique=True)
+    fcm_token = Column(String, nullable=True)
+    is_approved = Column(Boolean, default=False)
+    is_enabled = Column(Boolean, default=True)  # Toggle for ingestion
+    is_ignored = Column(Boolean, default=False) # Soft Reject
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class UnparsedMessage(Base):
@@ -109,4 +127,16 @@ class AICallCache(Base):
     provider = Column(String, nullable=False)
     model_name = Column(String, nullable=False)
     response_json = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class IngestionEvent(Base):
+    __tablename__ = "ingestion_events"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    device_id = Column(String, nullable=True, index=True) # Optional link to MobileDevice.device_id
+    event_type = Column(String, nullable=False) # sms_received, heartbeat, email_received, parse_failed, etc.
+    status = Column(String, nullable=False) # success, error, warning, skipped
+    message = Column(String, nullable=True)
+    data_json = Column(String, nullable=True) # Extra metadata like sender, message preview, etc.
     created_at = Column(DateTime, default=datetime.utcnow)

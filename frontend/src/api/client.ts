@@ -128,12 +128,17 @@ export const financeApi = {
     updateTenant: (id: string, data: any) => apiClient.put(`/auth/tenants/${id}`, data),
 
     // Triage & Training
-    getTriage: () => apiClient.get('/ingestion/triage'),
+    getTriage: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/triage', { params }),
     approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
     rejectTriage: (id: string) => apiClient.delete(`/ingestion/triage/${id}`),
-    getTraining: () => apiClient.get('/ingestion/training'),
+    bulkRejectTriage: (ids: string[]) => apiClient.post('/ingestion/triage/bulk-reject', { pending_ids: ids }),
+    getTraining: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/training', { params }),
     labelMessage: (id: string, data: any) => apiClient.post(`/ingestion/training/${id}/label`, data),
     dismissTrainingMessage: (id: string) => apiClient.delete(`/ingestion/training/${id}`),
+    bulkDismissTraining: (ids: string[]) => apiClient.post('/ingestion/training/bulk-dismiss', { message_ids: ids }),
+    getIngestionEvents: (params?: { limit?: number, skip?: number, device_id?: string }) => apiClient.get('/ingestion/events', { params }),
+    bulkDeleteEvents: (ids: string[]) => apiClient.post('/ingestion/events/bulk-delete', { event_ids: ids }),
+    getEmailLogs: (params?: { limit?: number, skip?: number, config_id?: string }) => apiClient.get('/ingestion/email/logs', { params }),
 
     // User Management
     getMe: () => apiClient.get<any>('/auth/me'),
@@ -182,4 +187,15 @@ export const aiApi = {
     testConnection: (content: string) => apiClient.post('/ingestion/ai/test', { content }),
     listModels: (provider: string, apiKey?: string) => apiClient.get('/ingestion/ai/models', { params: { provider, api_key: apiKey } }),
     generateSummaryInsights: (summary_data: any) => apiClient.post('/ingestion/ai/generate-insights', { summary_data })
+}
+
+export const mobileApi = {
+    getDevices: () => apiClient.get('/mobile/devices'),
+    toggleApproval: (id: string, is_approved: boolean) => apiClient.patch(`/mobile/devices/${id}/approve`, { is_approved }),
+    toggleEnabled: (id: string, is_enabled: boolean) => apiClient.patch(`/mobile/devices/${id}/enable`, null, { params: { enabled: is_enabled } }),
+    toggleIgnored: (id: string, is_ignored: boolean) => apiClient.patch(`/mobile/devices/${id}/ignore`, null, { params: { ignored: is_ignored } }),
+    assignUser: (id: string, userId: string | null) => apiClient.patch(`/mobile/devices/${id}/assign`, { user_id: userId }),
+    updateDevice: (id: string, data: { device_name?: string, is_enabled?: boolean, is_ignored?: boolean, user_id?: string | null }) =>
+        apiClient.patch(`/mobile/devices/${id}`, data),
+    deleteDevice: (id: string) => apiClient.delete(`/mobile/devices/${id}`)
 }

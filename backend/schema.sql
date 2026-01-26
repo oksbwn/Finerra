@@ -49,6 +49,7 @@ CREATE TABLE categories (
 	name VARCHAR NOT NULL, 
 	icon VARCHAR, 
 	color VARCHAR DEFAULT '#3B82F6',
+	type VARCHAR DEFAULT 'expense',
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -69,6 +70,9 @@ CREATE TABLE transactions (
 	is_transfer BOOLEAN DEFAULT FALSE NOT NULL,
 	linked_transaction_id VARCHAR,
 	source VARCHAR NOT NULL DEFAULT 'MANUAL',
+	latitude DECIMAL(10, 8),
+	longitude DECIMAL(11, 8),
+	location_name VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -191,7 +195,7 @@ CREATE TABLE email_configurations (
 	auto_sync_enabled BOOLEAN DEFAULT FALSE, 
 	last_sync_at TIMESTAMP WITHOUT TIME ZONE, 
 	cas_last_sync_at TIMESTAMP WITHOUT TIME ZONE, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
@@ -200,7 +204,7 @@ CREATE TABLE email_sync_logs (
 	id VARCHAR NOT NULL, 
 	config_id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 
-	started_at TIMESTAMP WITHOUT TIME ZONE, 
+	started_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	completed_at TIMESTAMP WITHOUT TIME ZONE, 
 	status VARCHAR DEFAULT 'running', 
 	items_processed NUMERIC(10, 0) DEFAULT 0, 
@@ -226,6 +230,9 @@ CREATE TABLE pending_transactions (
 	to_account_id VARCHAR,
 	balance NUMERIC(15, 2),
 	credit_limit NUMERIC(15, 2),
+	latitude DECIMAL(10, 8),
+	longitude DECIMAL(11, 8),
+	location_name VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -296,3 +303,36 @@ CREATE INDEX ix_email_configs_tenant ON email_configurations (tenant_id);
 CREATE INDEX ix_email_logs_lookup ON email_sync_logs (tenant_id, config_id);
 CREATE INDEX ix_pending_txns_lookup ON pending_transactions (tenant_id, account_id);
 CREATE INDEX ix_user_tenant ON users (tenant_id);
+
+CREATE TABLE mobile_devices (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+    user_id VARCHAR,
+	device_name VARCHAR NOT NULL, 
+	device_id VARCHAR NOT NULL, 
+	fcm_token VARCHAR, 
+	is_approved BOOLEAN DEFAULT FALSE, 
+	is_enabled BOOLEAN DEFAULT TRUE, 
+	is_ignored BOOLEAN DEFAULT FALSE, 
+	last_seen_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+    FOREIGN KEY(user_id) REFERENCES users (id),
+    UNIQUE(device_id)
+);
+CREATE INDEX ix_mobile_devices_tenant ON mobile_devices (tenant_id);
+
+CREATE TABLE ingestion_events (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	device_id VARCHAR, 
+	event_type VARCHAR NOT NULL, 
+	status VARCHAR NOT NULL, 
+	message VARCHAR, 
+	data_json TEXT, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+CREATE INDEX ix_ingestion_events_tenant_device ON ingestion_events (tenant_id, device_id);

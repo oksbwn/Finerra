@@ -58,6 +58,9 @@ class TransactionBase(BaseModel):
     tags: Optional[List[str]] = None
     is_transfer: bool = False
     linked_transaction_id: Optional[str] = None
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+    location_name: Optional[str] = None
 
 class TransactionCreate(TransactionBase):
     account_id: UUID
@@ -143,6 +146,7 @@ class IgnoredSuggestionCreate(BaseModel):
 
 class CategoryBase(BaseModel):
     name: str
+    type: str = "expense"
     icon: Optional[str] = "🏷️"
     color: Optional[str] = "#3B82F6"
 
@@ -151,6 +155,7 @@ class CategoryCreate(CategoryBase):
 
 class CategoryUpdate(BaseModel):
     name: Optional[str] = None
+    type: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
 
