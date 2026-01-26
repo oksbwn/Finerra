@@ -54,6 +54,7 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   device_info_plus: ^12.3.0
   webview_flutter_web: any
+  fl_chart: ^1.1.1
 
 dev_dependencies:
   flutter_test:
