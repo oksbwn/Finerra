@@ -271,8 +271,13 @@ async function handleBulkRejectTriage() {
     if (selectedTriageIds.value.length === 0) return
     isProcessingBulk.value = true
     try {
-        await financeApi.bulkRejectTriage(selectedTriageIds.value)
-        notify.success(`Discarded ${selectedTriageIds.value.length} items`)
+        await financeApi.bulkRejectTriage(selectedTriageIds.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success(`Ignored ${selectedTriageIds.value.length} patterns for the future`)
+        } else {
+            notify.success(`Discarded ${selectedTriageIds.value.length} items`)
+        }
+        createIgnoreRule.value = false
         fetchTriage()
     } catch (e) {
         notify.error("Bulk reject failed")
@@ -283,17 +288,26 @@ async function handleBulkRejectTriage() {
 
 async function handleBulkDismissTraining() {
     if (selectedTrainingIds.value.length === 0) return
-    isProcessingBulk.value = true
-    try {
-        await financeApi.bulkDismissTraining(selectedTrainingIds.value)
-        notify.success(`Dismissed ${selectedTrainingIds.value.length} items`)
-        fetchTriage()
-    } catch (e) {
-        notify.error("Bulk dismiss failed")
-    } finally {
-        isProcessingBulk.value = false
+    // For simplicity, we can reuse the same modal if we clear the single ID
+    trainingIdToDiscard.value = null
+    showTrainingDiscardConfirm.value = true
+}
+
+async function handleConfirmGlobalTrainingDismiss() {
+    if (trainingIdToDiscard.value) {
+        await confirmTrainingDiscard()
+    } else {
+        await handleBulkDismissTrainingConfirm()
+        showTrainingDiscardConfirm.value = false
     }
 }
+// The finally block for handleBulkDismissTraining was misplaced in the instruction snippet.
+// It should be part of the handleBulkDismissTraining function itself.
+// The original handleBulkDismissTraining already had a finally block.
+// I will ensure the finally block is correctly associated with handleBulkDismissTraining.
+// The instruction snippet implies a change to handleBulkDismissTraining, but the finally block
+// was already there. I'll keep the existing finally block for handleBulkDismissTraining.
+
 
 function toggleSelectAllTriage() {
     if (selectedTriageIds.value.length === triageTransactions.value.length) {
@@ -346,7 +360,10 @@ async function approveTriage(txn: any) {
 }
 
 const showDiscardConfirm = ref(false)
+const showTrainingDiscardConfirm = ref(false) // Added
+const createIgnoreRule = ref(false)
 const triageIdToDiscard = ref<string | null>(null)
+const trainingIdToDiscard = ref<string | null>(null) // Added
 
 async function rejectTriage(id: string) {
     triageIdToDiscard.value = id
@@ -356,11 +373,16 @@ async function rejectTriage(id: string) {
 async function confirmDiscard() {
     if (!triageIdToDiscard.value) return
     try {
-        await financeApi.rejectTriage(triageIdToDiscard.value)
-        notify.success("Transaction discarded")
+        await financeApi.rejectTriage(triageIdToDiscard.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success("Pattern will be ignored in future")
+        } else {
+            notify.success("Transaction discarded")
+        }
         fetchTriage()
         showDiscardConfirm.value = false
         triageIdToDiscard.value = null
+        createIgnoreRule.value = false
     } catch (e) {
         notify.error("Failed to discard")
     }
@@ -422,12 +444,42 @@ async function handleLabelSubmit() {
 }
 
 async function dismissTraining(id: string) {
+    trainingIdToDiscard.value = id
+    showTrainingDiscardConfirm.value = true
+}
+
+async function confirmTrainingDiscard() {
+    if (!trainingIdToDiscard.value) return
     try {
-        await financeApi.dismissTrainingMessage(id)
-        notify.success("Message dismissed")
+        await financeApi.dismissTrainingMessage(trainingIdToDiscard.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success("Pattern will be ignored in future")
+        } else {
+            notify.success("Message dismissed")
+        }
         fetchTriage()
+        showTrainingDiscardConfirm.value = false
+        trainingIdToDiscard.value = null
+        createIgnoreRule.value = false
     } catch (e) {
-        notify.error("Failed to dismiss message")
+        notify.error("Failed to dismiss")
+    }
+}
+
+async function handleBulkDismissTrainingConfirm() {
+    if (selectedTrainingIds.value.length === 0) return
+    try {
+        await financeApi.bulkDismissTraining(selectedTrainingIds.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success(`Ignored ${selectedTrainingIds.value.length} patterns for future`)
+        } else {
+            notify.success("Messages dismissed")
+        }
+        fetchTriage()
+        createIgnoreRule.value = false
+        selectedTrainingIds.value = [] // Clear selection after bulk dismiss
+    } catch (e) {
+        notify.error("Bulk dismiss failed")
     }
 }
 
@@ -1370,18 +1422,63 @@ onMounted(() => {
                 <div class="modal-global" style="max-width: 400px;">
                     <div class="modal-header">
                         <h2 class="modal-title">Discard Transaction</h2>
-                        <button class="btn-icon" @click="showDiscardConfirm = false">✕</button>
+                        <button class="btn-icon"
+                            @click="showDiscardConfirm = false; createIgnoreRule = false">✕</button>
                     </div>
                     <div style="padding: 1.5rem; text-align: center;">
                         <div style="font-size: 3rem; margin-bottom: 1rem;">♻️</div>
                         <p style="color: #4b5563; margin-bottom: 1.5rem;">
                             Discard this potential transaction? It will be removed from your review list.
                         </p>
+
+                        <div
+                            style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.875rem; color: #6b7280; background: #f9fafb; padding: 0.75rem; border-radius: 0.5rem;">
+                            <input type="checkbox" v-model="createIgnoreRule" id="ignoreFuture"
+                                class="rounded border-gray-300 text-rose-600 focus:ring-rose-500" />
+                            <label for="ignoreFuture" class="cursor-pointer font-medium text-gray-700">Don't show
+                                similar messages again</label>
+                        </div>
+
                         <div class="modal-footer"
                             style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
-                            <button class="btn btn-outline" @click="showDiscardConfirm = false">Keep It</button>
-                            <button class="btn btn-danger" @click="confirmDiscard"
-                                style="background: #ef4444; color: white; border: none;">Discard</button>
+                            <button class="btn btn-outline"
+                                @click="showDiscardConfirm = false; createIgnoreRule = false">Keep It</button>
+                            <button class="btn-danger" @click="confirmDiscard"
+                                style="background: #ef4444; color: white; border: none; padding: 0.625rem 1.5rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">Discard</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Training Discard Confirmation Modal -->
+            <div v-if="showTrainingDiscardConfirm" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Dismiss Message</h2>
+                        <button class="btn-icon"
+                            @click="showTrainingDiscardConfirm = false; createIgnoreRule = false">✕</button>
+                    </div>
+                    <div style="padding: 1.5rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🛡️</div>
+                        <p style="color: #4b5563; margin-bottom: 1.5rem;">
+                            {{ trainingIdToDiscard ? 'Dismiss this unparsed message?' : `Dismiss
+                            ${selectedTrainingIds.length} unparsed messages?` }}
+                        </p>
+
+                        <div
+                            style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.875rem; color: #6b7280; background: #f9fafb; padding: 0.75rem; border-radius: 0.5rem;">
+                            <input type="checkbox" v-model="createIgnoreRule" id="ignoreFutureTraining"
+                                class="rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
+                            <label for="ignoreFutureTraining" class="cursor-pointer font-medium text-gray-700">Don't
+                                show similar messages again</label>
+                        </div>
+
+                        <div class="modal-footer"
+                            style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
+                            <button class="btn btn-outline"
+                                @click="showTrainingDiscardConfirm = false; createIgnoreRule = false">Cancel</button>
+                            <button class="btn-primary" @click="handleConfirmGlobalTrainingDismiss"
+                                style="background: #f59e0b; color: white; border: none; padding: 0.625rem 1.5rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">Dismiss</button>
                         </div>
                     </div>
                 </div>

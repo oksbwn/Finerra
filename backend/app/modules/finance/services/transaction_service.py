@@ -58,7 +58,8 @@ class TransactionService:
             type=txn_type,
             is_transfer=transaction.is_transfer,
             linked_transaction_id=getattr(transaction, 'linked_transaction_id', None),
-            source=transaction.source if hasattr(transaction, 'source') else "MANUAL"
+            source=transaction.source if hasattr(transaction, 'source') else "MANUAL",
+            content_hash=getattr(transaction, 'content_hash', None)
         )
         
         # Update Account Balance
@@ -327,19 +328,57 @@ class TransactionService:
         return real_txn
 
     @staticmethod
-    def reject_pending_transaction(db: Session, pending_id: str, tenant_id: str):
+    def reject_pending_transaction(db: Session, pending_id: str, tenant_id: str, create_ignore_rule: bool = False):
         pending = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.id == pending_id,
             ingestion_models.PendingTransaction.tenant_id == tenant_id
         ).first()
         if not pending: return False
+        
+        if create_ignore_rule:
+            pattern = pending.recipient or pending.description
+            if pattern:
+                # Check if already exists
+                existing = db.query(ingestion_models.IgnoredPattern).filter(
+                    ingestion_models.IgnoredPattern.tenant_id == tenant_id,
+                    ingestion_models.IgnoredPattern.pattern == pattern
+                ).first()
+                if not existing:
+                    new_ignore = ingestion_models.IgnoredPattern(
+                        tenant_id=tenant_id,
+                        pattern=pattern,
+                        source=pending.source
+                    )
+                    db.add(new_ignore)
+
         db.delete(pending)
         db.commit()
         return True
 
     @staticmethod
-    def bulk_reject_pending_transactions(db: Session, pending_ids: List[str], tenant_id: str):
+    def bulk_reject_pending_transactions(db: Session, pending_ids: List[str], tenant_id: str, create_ignore_rules: bool = False):
         if not pending_ids: return 0
+        
+        if create_ignore_rules:
+            pendings = db.query(ingestion_models.PendingTransaction).filter(
+                ingestion_models.PendingTransaction.id.in_(pending_ids),
+                ingestion_models.PendingTransaction.tenant_id == tenant_id
+            ).all()
+            for p in pendings:
+                pattern = p.recipient or p.description
+                if pattern:
+                    existing = db.query(ingestion_models.IgnoredPattern).filter(
+                        ingestion_models.IgnoredPattern.tenant_id == tenant_id,
+                        ingestion_models.IgnoredPattern.pattern == pattern
+                    ).first()
+                    if not existing:
+                        new_ignore = ingestion_models.IgnoredPattern(
+                            tenant_id=tenant_id,
+                            pattern=pattern,
+                            source=p.source
+                        )
+                        db.add(new_ignore)
+        
         count = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.id.in_(pending_ids),
             ingestion_models.PendingTransaction.tenant_id == tenant_id

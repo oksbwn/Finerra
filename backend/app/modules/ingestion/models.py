@@ -53,6 +53,7 @@ class PendingTransaction(Base):
     category = Column(String, nullable=True)
     source = Column(String, nullable=False) # SMS, EMAIL
     raw_message = Column(String, nullable=True)
+    content_hash = Column(String, nullable=True, index=True)
     external_id = Column(String, nullable=True) # Reference Number/UTR
     is_transfer = Column(Boolean, default=False, nullable=False)
     to_account_id = Column(String, nullable=True) # Destination Account ID for transfers
@@ -85,6 +86,7 @@ class UnparsedMessage(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     source = Column(String, nullable=False) # SMS, EMAIL
     raw_content = Column(String, nullable=False)
+    content_hash = Column(String, nullable=True, index=True)
     subject = Column(String, nullable=True)
     sender = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -139,4 +141,13 @@ class IngestionEvent(Base):
     status = Column(String, nullable=False) # success, error, warning, skipped
     message = Column(String, nullable=True)
     data_json = Column(String, nullable=True) # Extra metadata like sender, message preview, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class IgnoredPattern(Base):
+    __tablename__ = "ignored_patterns"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    pattern = Column(String, nullable=False) # merchant, description or recipient
+    source = Column(String, nullable=True) # SMS, EMAIL, ALL
     created_at = Column(DateTime, default=datetime.utcnow)

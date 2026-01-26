@@ -126,6 +126,23 @@ def run_auto_migrations(engine: Engine):
             );
             """))
             
+            # 8. Deduplication Feature
+            safe_add_column("transactions", "content_hash", "VARCHAR")
+            safe_add_column("pending_transactions", "content_hash", "VARCHAR")
+            safe_add_column("unparsed_messages", "content_hash", "VARCHAR")
+
+            # 9. Ignore Patterns (Noise Reduction)
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS ignored_patterns (
+                id VARCHAR PRIMARY KEY,
+                tenant_id VARCHAR NOT NULL,
+                pattern VARCHAR NOT NULL,
+                source VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+            );
+            """))
+
             # Explicitly commit the transaction!
             connection.commit()
             print("Auto-migration complete.")

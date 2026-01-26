@@ -1,7 +1,8 @@
 import json
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
+import hashlib
+from typing import Optional, Dict, Any, List
 from backend.app.modules.finance import models as finance_models
 from backend.app.modules.finance.services.transaction_service import TransactionService
 from backend.app.modules.finance import schemas as finance_schemas
@@ -89,8 +90,12 @@ class IngestionService:
             final_amount = abs(parsed.amount)
 
         # --- DEDUPLICATION CHECK ---
+        message_hash = None
+        if parsed.raw_message:
+            message_hash = hashlib.md5(parsed.raw_message.encode()).hexdigest()
+
+        # 1. Check by Reference ID (if available)
         if parsed.ref_id:
-            # 1. Check if already exists in confirmed transactions
             existing_txn = db.query(finance_models.Transaction).filter(
                 finance_models.Transaction.tenant_id == tenant_id,
                 finance_models.Transaction.external_id == parsed.ref_id
@@ -98,13 +103,37 @@ class IngestionService:
             if existing_txn:
                 return {"status": "skipped", "reason": f"Deduplicated (already exists in confirmed: {existing_txn.id})", "deduplicated": True}
                 
-            # 2. Check if already exists in pending (triage)
             existing_pending = db.query(ingestion_models.PendingTransaction).filter(
                 ingestion_models.PendingTransaction.tenant_id == tenant_id,
                 ingestion_models.PendingTransaction.external_id == parsed.ref_id
             ).first()
             if existing_pending:
                 return {"status": "skipped", "reason": f"Deduplicated (already exists in triage: {existing_pending.id})", "deduplicated": True}
+        
+        # 2. Check by Content Hash (if ref_id is missing or as secondary check)
+        if message_hash:
+            existing_txn = db.query(finance_models.Transaction).filter(
+                finance_models.Transaction.tenant_id == tenant_id,
+                finance_models.Transaction.content_hash == message_hash
+            ).first()
+            if existing_txn:
+                 return {"status": "skipped", "reason": "Deduplicated by content hash (already in transactions)", "deduplicated": True}
+
+            existing_pending = db.query(ingestion_models.PendingTransaction).filter(
+                ingestion_models.PendingTransaction.tenant_id == tenant_id,
+                ingestion_models.PendingTransaction.content_hash == message_hash
+            ).first()
+            if existing_pending:
+                 return {"status": "skipped", "reason": "Deduplicated by content hash (already in triage)", "deduplicated": True}
+
+        # --- IGNORE PATTERN CHECK ---
+        check_text = f"{(parsed.recipient or '')} {(parsed.description or '')}".lower()
+        ignored_patterns = db.query(ingestion_models.IgnoredPattern).filter(
+            ingestion_models.IgnoredPattern.tenant_id == tenant_id
+        ).all()
+        for ip in ignored_patterns:
+            if ip.pattern.lower() in check_text:
+                return {"status": "skipped", "reason": f"Ignored by user pattern: {ip.pattern}"}
         
         
         # 1. Try to detect internal transfer
@@ -142,7 +171,10 @@ class IngestionService:
                 tags=[],
                 latitude=extra_data.get("latitude") if extra_data else None,
                 longitude=extra_data.get("longitude") if extra_data else None,
-                location_name=None # TODO: Reverse Geocoding
+                location_name=None, # TODO: Reverse Geocoding
+                content_hash=message_hash,
+                is_transfer=is_transfer,
+                to_account_id=to_account_id
             )
             try:
                 db_txn = TransactionService.create_transaction(db, txn_create, tenant_id)
@@ -161,6 +193,7 @@ class IngestionService:
                 category="Uncategorized",
                 source=parsed.source,
                 raw_message=parsed.raw_message,
+                content_hash=message_hash,
                 external_id=parsed.ref_id, # Store the ref_id for triage too!
                 is_transfer=is_transfer,
                 to_account_id=to_account_id,
@@ -180,10 +213,21 @@ class IngestionService:
         """
         Save a message that looks like a transaction but failed all parsers.
         """
-        # Check if already exists to avoid spam
+        msg_hash = hashlib.md5(raw_content.encode()).hexdigest()
+
+        # 1. Ignore Pattern Check
+        check_text = f"{(subject or '')} {(raw_content or '')}".lower()
+        ignored_patterns = db.query(ingestion_models.IgnoredPattern).filter(
+            ingestion_models.IgnoredPattern.tenant_id == tenant_id
+        ).all()
+        for ip in ignored_patterns:
+            if ip.pattern.lower() in check_text:
+                return # Skip noise
+
+        # 2. Check if already exists to avoid spam
         existing = db.query(ingestion_models.UnparsedMessage).filter(
             ingestion_models.UnparsedMessage.tenant_id == tenant_id,
-            ingestion_models.UnparsedMessage.raw_content == raw_content
+            ingestion_models.UnparsedMessage.content_hash == msg_hash
         ).first()
         if existing: return
         
@@ -191,6 +235,7 @@ class IngestionService:
             tenant_id=tenant_id,
             source=source,
             raw_content=raw_content,
+            content_hash=msg_hash,
             subject=subject,
             sender=sender
         )

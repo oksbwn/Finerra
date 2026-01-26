@@ -68,6 +68,7 @@ class TransactionCreate(TransactionBase):
     source: Optional[str] = "MANUAL"
     is_transfer: bool = False
     to_account_id: Optional[str] = None
+    content_hash: Optional[str] = None
 
 class TransactionUpdate(BaseModel):
     description: Optional[str] = None
@@ -95,6 +96,7 @@ class TransactionRead(TransactionBase):
     type: Optional[str] = "DEBIT"
     source: Optional[str] = "MANUAL"
     external_id: Optional[str] = None
+    content_hash: Optional[str] = None
     transfer_account_id: Optional[UUID] = None
 
     class Config:

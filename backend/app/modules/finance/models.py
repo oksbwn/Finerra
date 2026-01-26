@@ -56,6 +56,7 @@ class Transaction(Base):
     recipient = Column(String, nullable=True) # Extracted merchant/payee name
     category = Column(String, nullable=True) # Keeping simple string for now, could be FK later
     tags = Column(String, nullable=True) # JSON Array string
+    content_hash = Column(String, nullable=True, index=True)
     external_id = Column(String, nullable=True) # For de-duplication
     is_transfer = Column(Boolean, default=False, nullable=False)
     linked_transaction_id = Column(String, nullable=True) # ID of the other leg of a transfer
