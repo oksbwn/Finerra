@@ -37,8 +37,7 @@ class AccountUpdate(BaseModel):
     import_config: Optional[str] = None
     tenant_id: Optional[Union[UUID, str]] = None
 
-from typing import Optional, List, Union
-# ...
+
 class AccountRead(AccountBase):
     id: Union[UUID, str]
     tenant_id: Union[UUID, str]
@@ -191,6 +190,22 @@ class BudgetProgress(BudgetRead):
     spent: Decimal
     remaining: Decimal
     percentage: float
+
+class CategoryBudgetProgress(BaseModel):
+    id: Optional[Union[UUID, str]] = None # Backward compatibility
+    budget_id: Optional[Union[UUID, str]] = None
+    tenant_id: Optional[Union[UUID, str]] = None
+    category: str
+    amount_limit: Optional[Decimal] = None
+    spent: Decimal
+    income: Decimal = 0.0
+    remaining: Optional[Decimal] = None
+    percentage: Optional[float] = None
+    period: str = "MONTHLY"
+    updated_at: Optional[datetime] = None
+    type: str = "expense"
+    icon: Optional[str] = "🏷️"
+    color: Optional[str] = "#3B82F6"
 
 class SmartCategorizeRequest(BaseModel):
     transaction_id: str
