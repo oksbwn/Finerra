@@ -98,7 +98,9 @@ class TransactionService:
         search: Optional[str] = None,
         category: Optional[str] = None,
         user_role: str = "ADULT",
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        exclude_from_reports: bool = False,
+        exclude_transfers: bool = False
     ) -> List[models.Transaction]:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
         
@@ -124,6 +126,11 @@ class TransactionService:
         if category:
             query = query.filter(models.Transaction.category == category)
 
+        if exclude_from_reports:
+            query = query.filter(models.Transaction.exclude_from_reports == False)
+        if exclude_transfers:
+            query = query.filter(models.Transaction.is_transfer == False)
+
         if user_id:
             # Filter by account ownership: show user's accounts OR shared accounts
             from sqlalchemy import or_
@@ -141,7 +148,9 @@ class TransactionService:
         end_date: Optional[datetime] = None,
         search: Optional[str] = None,
         category: Optional[str] = None,
-        user_role: str = "ADULT"
+        user_role: str = "ADULT",
+        exclude_from_reports: bool = False,
+        exclude_transfers: bool = False
     ) -> int:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
 
@@ -166,6 +175,11 @@ class TransactionService:
             
         if category:
             query = query.filter(models.Transaction.category == category)
+            
+        if exclude_from_reports:
+            query = query.filter(models.Transaction.exclude_from_reports == False)
+        if exclude_transfers:
+            query = query.filter(models.Transaction.is_transfer == False)
             
         return query.count()
 

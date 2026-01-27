@@ -7,7 +7,7 @@ from backend.app.modules.finance.services.transaction_service import Transaction
 
 class AnalyticsService:
     @staticmethod
-    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT", account_id: str = None, start_date: datetime = None, end_date: datetime = None, user_id: str = None):
+    def get_summary_metrics(db: Session, tenant_id: str, user_role: str = "ADULT", account_id: str = None, start_date: datetime = None, end_date: datetime = None, user_id: str = None, exclude_hidden: bool = False):
         
         # 1. Accounts & Net Worth (Accounts are filtered by owner_id if user_id is provided)
         accounts_query = db.query(models.Account).filter(models.Account.tenant_id == tenant_id)
@@ -139,7 +139,7 @@ class AnalyticsService:
         }
         
         # 4. Recent Transactions (with owner names)
-        recent_txns = TransactionService.get_transactions(db, tenant_id, limit=5, user_role=user_role, user_id=user_id)
+        recent_txns = TransactionService.get_transactions(db, tenant_id, limit=5, user_role=user_role, user_id=user_id, exclude_from_reports=exclude_hidden, exclude_transfers=exclude_hidden)
         
         # Enrich with account owner names
         enriched_txns = []
@@ -150,7 +150,9 @@ class AnalyticsService:
                 "description": txn.description,
                 "amount": float(txn.amount),
                 "category": txn.category,
-                "account_id": txn.account_id
+                "account_id": txn.account_id,
+                "is_transfer": txn.is_transfer,
+                "exclude_from_reports": txn.exclude_from_reports
             }
             
             # Get account owner name

@@ -417,7 +417,8 @@ def get_mobile_dashboard(
         user_role=current_user.role,
         user_id=target_user_id, # Can be None for All
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        exclude_hidden=True
     )
     
     # --- 1. Category Distribution (Pie Chart) ---
@@ -431,6 +432,7 @@ def get_mobile_dashboard(
         models.Transaction.tenant_id == str(current_user.tenant_id),
         models.Transaction.amount < 0,
         models.Transaction.is_transfer == False,
+        models.Transaction.exclude_from_reports == False,
         models.Transaction.date >= start_date,
         models.Transaction.date <= end_date
     )
@@ -460,6 +462,7 @@ def get_mobile_dashboard(
         models.Transaction.tenant_id == str(current_user.tenant_id),
         models.Transaction.amount < 0,
         models.Transaction.is_transfer == False,
+        models.Transaction.exclude_from_reports == False,
         models.Transaction.date >= start_date,
         models.Transaction.date <= end_date
     )
@@ -484,6 +487,10 @@ def get_mobile_dashboard(
             daily_limit=daily_budget_limit
         ))
         
+    # Filter recent transactions to match dashboard logic (Safe display)
+    # Filtered by service
+    filtered_recent = metrics["recent_transactions"]
+
     return {
         "summary": {
             "today_total": metrics["today_total"],
@@ -493,7 +500,7 @@ def get_mobile_dashboard(
         "budget": metrics["budget_health"],
         "spending_trend": spending_trend,
         "category_distribution": category_distribution,
-        "recent_transactions": metrics["recent_transactions"]
+        "recent_transactions": filtered_recent
     }
 
 @router.get("/transactions", response_model=schemas.TransactionResponse)
@@ -513,7 +520,8 @@ def list_mobile_transactions(
     
     query = db.query(models.Transaction).filter(
         models.Transaction.tenant_id == str(current_user.tenant_id),
-        models.Transaction.is_transfer == False
+        models.Transaction.is_transfer == False,
+        models.Transaction.exclude_from_reports == False
     )
     
     # Filter by user ownership
