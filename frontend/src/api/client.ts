@@ -56,8 +56,13 @@ export interface AccountUpdate {
 }
 
 export interface TransactionUpdate {
-    category?: string;
     description?: string;
+    category?: string;
+    amount?: number;
+    date?: string;
+    is_transfer?: boolean;
+    to_account_id?: string;
+    exclude_from_reports?: boolean;
 }
 
 export const financeApi = {
@@ -66,11 +71,11 @@ export const financeApi = {
     updateAccount: (id: string, data: AccountUpdate) => apiClient.put(`/finance/accounts/${id}`, data),
     deleteAccount: (id: string) => apiClient.delete(`/finance/accounts/${id}`),
     getAccountTransactionCount: (id: string) => apiClient.get(`/finance/accounts/${id}/transaction-count`),
-    getTransactions: (accountId?: string, page: number = 1, limit: number = 50, startDate?: string, endDate?: string) =>
-        apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate } }),
+    getTransactions: (accountId?: string, page: number = 1, limit: number = 50, startDate?: string, endDate?: string, search?: string, category?: string) =>
+        apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate, search, category } }),
     createTransaction: (data: any) => apiClient.post('/finance/transactions', data),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),
-    smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean }) =>
+    smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean, exclude_from_reports?: boolean }) =>
         apiClient.post('/finance/transactions/smart-categorize', data),
     bulkDeleteTransactions: (ids: string[]) => apiClient.post('/finance/transactions/bulk-delete', { transaction_ids: ids }),
     getMetrics: (accountId?: string, startDate?: string, endDate?: string, userId?: string) =>
@@ -87,7 +92,8 @@ export const financeApi = {
     updateCategory: (id: string, data: any) => apiClient.put(`/finance/categories/${id}`, data),
     deleteCategory: (id: string) => apiClient.delete(`/finance/categories/${id}`),
 
-    getBudgets: () => apiClient.get('/finance/budgets'),
+    getBudgets: (year?: number, month?: number) => apiClient.get('/finance/budgets', { params: { year, month } }),
+    getBudgetsInsights: (year?: number, month?: number) => apiClient.get('/finance/budgets/insights', { params: { year, month } }),
     setBudget: (data: any) => apiClient.post('/finance/budgets', data),
     deleteBudget: (id: string) => apiClient.delete(`/finance/budgets/${id}`),
 
@@ -129,13 +135,13 @@ export const financeApi = {
 
     // Triage & Training
     getTriage: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/triage', { params }),
-    approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
-    rejectTriage: (id: string) => apiClient.delete(`/ingestion/triage/${id}`),
-    bulkRejectTriage: (ids: string[]) => apiClient.post('/ingestion/triage/bulk-reject', { pending_ids: ids }),
+    approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean, exclude_from_reports?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
+    rejectTriage: (id: string, createIgnoreRule: boolean = false) => apiClient.delete(`/ingestion/triage/${id}`, { params: { create_ignore_rule: createIgnoreRule } }),
+    bulkRejectTriage: (ids: string[], createIgnoreRules: boolean = false) => apiClient.post('/ingestion/triage/bulk-reject', { pending_ids: ids, create_ignore_rules: createIgnoreRules }),
     getTraining: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/training', { params }),
     labelMessage: (id: string, data: any) => apiClient.post(`/ingestion/training/${id}/label`, data),
-    dismissTrainingMessage: (id: string) => apiClient.delete(`/ingestion/training/${id}`),
-    bulkDismissTraining: (ids: string[]) => apiClient.post('/ingestion/training/bulk-dismiss', { message_ids: ids }),
+    dismissTrainingMessage: (id: string, createIgnoreRule: boolean = false) => apiClient.delete(`/ingestion/training/${id}`, { params: { create_ignore_rule: createIgnoreRule } }),
+    bulkDismissTraining: (ids: string[], createIgnoreRules: boolean = false) => apiClient.post('/ingestion/training/bulk-dismiss', { message_ids: ids, create_ignore_rules: createIgnoreRules }),
     getIngestionEvents: (params?: { limit?: number, skip?: number, device_id?: string }) => apiClient.get('/ingestion/events', { params }),
     bulkDeleteEvents: (ids: string[]) => apiClient.post('/ingestion/events/bulk-delete', { event_ids: ids }),
     getEmailLogs: (params?: { limit?: number, skip?: number, config_id?: string }) => apiClient.get('/ingestion/email/logs', { params }),

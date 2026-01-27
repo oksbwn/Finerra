@@ -521,6 +521,7 @@ class PendingTransactionRead(BaseModel):
     credit_limit: Optional[float] = None
     is_transfer: bool = False
     to_account_id: Optional[str] = None
+    exclude_from_reports: bool = False
     created_at: datetime
 
     class Config:
@@ -545,6 +546,7 @@ class TriageApproveRequest(BaseModel):
     category: Optional[str] = None
     is_transfer: bool = False
     to_account_id: Optional[str] = None
+    exclude_from_reports: Optional[bool] = None
     create_rule: bool = False
 
 @router.post("/triage/{pending_id}/approve")
@@ -561,6 +563,7 @@ def approve_triage(
         category_override=payload.category,
         is_transfer_override=payload.is_transfer,
         to_account_id_override=payload.to_account_id,
+        exclude_from_reports_override=payload.exclude_from_reports,
         create_rule=payload.create_rule
     )
     if not txn:
@@ -570,16 +573,20 @@ def approve_triage(
 @router.delete("/triage/{pending_id}")
 def reject_triage(
     pending_id: str,
+    create_ignore_rule: bool = False,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    success = TransactionService.reject_pending_transaction(db, pending_id, str(current_user.tenant_id))
+    success = TransactionService.reject_pending_transaction(
+        db, pending_id, str(current_user.tenant_id), create_ignore_rule=create_ignore_rule
+    )
     if not success:
         raise HTTPException(status_code=404, detail="Pending transaction not found")
     return {"status": "rejected"}
 
 class BulkTriageRequest(BaseModel):
     pending_ids: List[str]
+    create_ignore_rules: bool = False
 
 @router.post("/triage/bulk-reject")
 def bulk_reject_triage(
@@ -588,7 +595,7 @@ def bulk_reject_triage(
     db: Session = Depends(get_db)
 ):
     count = TransactionService.bulk_reject_pending_transactions(
-        db, payload.pending_ids, str(current_user.tenant_id)
+        db, payload.pending_ids, str(current_user.tenant_id), create_ignore_rules=payload.create_ignore_rules
     )
     return {"status": "deleted", "count": count}
 
@@ -717,6 +724,8 @@ def label_message(
 @router.delete("/training/{message_id}")
 def dismiss_training_message(
     message_id: str,
+    create_ignore_rule: bool = False,
+    ignore_pattern: Optional[str] = None,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -728,12 +737,30 @@ def dismiss_training_message(
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
         
+    if create_ignore_rule:
+        pattern = ignore_pattern or msg.subject or msg.raw_content[:30]
+        if pattern:
+             existing = db.query(ingestion_models.IgnoredPattern).filter(
+                ingestion_models.IgnoredPattern.tenant_id == str(current_user.tenant_id),
+                ingestion_models.IgnoredPattern.pattern == pattern
+            ).first()
+             if not existing:
+                new_ignore = ingestion_models.IgnoredPattern(
+                    tenant_id=str(current_user.tenant_id),
+                    pattern=pattern,
+                    source=msg.source
+                )
+                db.add(new_ignore)
+
     db.delete(msg)
     db.commit()
     return {"status": "dismissed"}
 
 class BulkTrainingRequest(BaseModel):
     message_ids: List[str]
+    create_ignore_rules: bool = False
+    # For bulk, we don't easily support custom patterns per item here, 
+    # so we'll just use the subjects/prefixes of the selected items.
 
 @router.post("/training/bulk-dismiss")
 def bulk_dismiss_training(
@@ -741,6 +768,25 @@ def bulk_dismiss_training(
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    if payload.create_ignore_rules:
+        msgs = db.query(ingestion_models.UnparsedMessage).filter(
+            ingestion_models.UnparsedMessage.id.in_(payload.message_ids),
+            ingestion_models.UnparsedMessage.tenant_id == str(current_user.tenant_id)
+        ).all()
+        for m in msgs:
+            pattern = m.subject or m.raw_content[:30]
+            if pattern:
+                existing = db.query(ingestion_models.IgnoredPattern).filter(
+                    ingestion_models.IgnoredPattern.tenant_id == str(current_user.tenant_id),
+                    ingestion_models.IgnoredPattern.pattern == pattern
+                ).first()
+                if not existing:
+                    db.add(ingestion_models.IgnoredPattern(
+                        tenant_id=str(current_user.tenant_id),
+                        pattern=pattern,
+                        source=m.source
+                    ))
+
     count = db.query(ingestion_models.UnparsedMessage).filter(
         ingestion_models.UnparsedMessage.id.in_(payload.message_ids),
         ingestion_models.UnparsedMessage.tenant_id == str(current_user.tenant_id)

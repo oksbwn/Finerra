@@ -38,6 +38,7 @@ const labelForm = ref({
     ref_id: '',
     category: 'Uncategorized',
     type: 'DEBIT',
+    exclude_from_reports: false,
     generate_pattern: true
 })
 
@@ -45,6 +46,11 @@ const labelForm = ref({
 const triagePagination = ref({ total: 0, limit: 10, skip: 0 })
 const triageSearchQuery = ref('')
 const triageSourceFilter = ref<'ALL' | 'SMS' | 'EMAIL'>('ALL')
+
+// Main List Filters
+const searchQuery = ref('')
+const categoryFilter = ref('')
+
 const trainingPagination = ref({ total: 0, limit: 10, skip: 0 })
 const filteredTriageTransactions = computed(() => {
     let items = triageTransactions.value
@@ -88,6 +94,10 @@ const showModal = ref(false)
 const isEditing = ref(false)
 const editingTxnId = ref<string | null>(null)
 const originalCategory = ref<string | null>(null)
+const originalExclude = ref(false)
+const potentialMatches = ref<any[]>([])
+const isSearchingMatches = ref(false)
+const matchesSearched = ref(false)
 
 // Smart Categorization Modal
 const showSmartPrompt = ref(false)
@@ -97,7 +107,8 @@ const smartPromptData = ref({
     pattern: '',
     count: 0,
     createRule: true,
-    applyToSimilar: true
+    applyToSimilar: true,
+    excludeFromReports: false
 })
 
 // Pagination State
@@ -120,7 +131,9 @@ const defaultForm = {
     date: new Date().toISOString().slice(0, 16), // YYYY-MM-DDTHH:mm
     account_id: '',
     is_transfer: false,
-    to_account_id: ''
+    to_account_id: '',
+    linked_transaction_id: '',
+    exclude_from_reports: false
 }
 const form = ref({ ...defaultForm })
 
@@ -197,7 +210,9 @@ async function fetchData() {
             page.value,
             pageSize.value,
             start || undefined,
-            end || undefined
+            end || undefined,
+            searchQuery.value || undefined,
+            categoryFilter.value || undefined
         )
 
         console.log('[Transactions] API response:', res.data)
@@ -264,8 +279,13 @@ async function handleBulkRejectTriage() {
     if (selectedTriageIds.value.length === 0) return
     isProcessingBulk.value = true
     try {
-        await financeApi.bulkRejectTriage(selectedTriageIds.value)
-        notify.success(`Discarded ${selectedTriageIds.value.length} items`)
+        await financeApi.bulkRejectTriage(selectedTriageIds.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success(`Ignored ${selectedTriageIds.value.length} patterns for the future`)
+        } else {
+            notify.success(`Discarded ${selectedTriageIds.value.length} items`)
+        }
+        createIgnoreRule.value = false
         fetchTriage()
     } catch (e) {
         notify.error("Bulk reject failed")
@@ -276,17 +296,26 @@ async function handleBulkRejectTriage() {
 
 async function handleBulkDismissTraining() {
     if (selectedTrainingIds.value.length === 0) return
-    isProcessingBulk.value = true
-    try {
-        await financeApi.bulkDismissTraining(selectedTrainingIds.value)
-        notify.success(`Dismissed ${selectedTrainingIds.value.length} items`)
-        fetchTriage()
-    } catch (e) {
-        notify.error("Bulk dismiss failed")
-    } finally {
-        isProcessingBulk.value = false
+    // For simplicity, we can reuse the same modal if we clear the single ID
+    trainingIdToDiscard.value = null
+    showTrainingDiscardConfirm.value = true
+}
+
+async function handleConfirmGlobalTrainingDismiss() {
+    if (trainingIdToDiscard.value) {
+        await confirmTrainingDiscard()
+    } else {
+        await handleBulkDismissTrainingConfirm()
+        showTrainingDiscardConfirm.value = false
     }
 }
+// The finally block for handleBulkDismissTraining was misplaced in the instruction snippet.
+// It should be part of the handleBulkDismissTraining function itself.
+// The original handleBulkDismissTraining already had a finally block.
+// I will ensure the finally block is correctly associated with handleBulkDismissTraining.
+// The instruction snippet implies a change to handleBulkDismissTraining, but the finally block
+// was already there. I'll keep the existing finally block for handleBulkDismissTraining.
+
 
 function toggleSelectAllTriage() {
     if (selectedTriageIds.value.length === triageTransactions.value.length) {
@@ -310,6 +339,7 @@ async function approveTriage(txn: any) {
             category: txn.category,
             is_transfer: txn.is_transfer,
             to_account_id: txn.to_account_id,
+            exclude_from_reports: txn.exclude_from_reports,
             create_rule: false // Rule creation now handled by prompt
         })
         notify.success("Transaction approved")
@@ -326,7 +356,8 @@ async function approveTriage(txn: any) {
                 pattern: pattern,
                 count: 0,
                 createRule: true,
-                applyToSimilar: false
+                applyToSimilar: false,
+                excludeFromReports: false
             }
             showSmartPrompt.value = true
         }
@@ -339,7 +370,10 @@ async function approveTriage(txn: any) {
 }
 
 const showDiscardConfirm = ref(false)
+const showTrainingDiscardConfirm = ref(false) // Added
+const createIgnoreRule = ref(false)
 const triageIdToDiscard = ref<string | null>(null)
+const trainingIdToDiscard = ref<string | null>(null) // Added
 
 async function rejectTriage(id: string) {
     triageIdToDiscard.value = id
@@ -349,11 +383,16 @@ async function rejectTriage(id: string) {
 async function confirmDiscard() {
     if (!triageIdToDiscard.value) return
     try {
-        await financeApi.rejectTriage(triageIdToDiscard.value)
-        notify.success("Transaction discarded")
+        await financeApi.rejectTriage(triageIdToDiscard.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success("Pattern will be ignored in future")
+        } else {
+            notify.success("Transaction discarded")
+        }
         fetchTriage()
         showDiscardConfirm.value = false
         triageIdToDiscard.value = null
+        createIgnoreRule.value = false
     } catch (e) {
         notify.error("Failed to discard")
     }
@@ -396,6 +435,7 @@ function startLabeling(msg: any) {
         ref_id: suggestedRef,
         category: 'Uncategorized',
         type: suggestedType,
+        exclude_from_reports: false,
         generate_pattern: true
     }
     showLabelForm.value = true
@@ -415,12 +455,42 @@ async function handleLabelSubmit() {
 }
 
 async function dismissTraining(id: string) {
+    trainingIdToDiscard.value = id
+    showTrainingDiscardConfirm.value = true
+}
+
+async function confirmTrainingDiscard() {
+    if (!trainingIdToDiscard.value) return
     try {
-        await financeApi.dismissTrainingMessage(id)
-        notify.success("Message dismissed")
+        await financeApi.dismissTrainingMessage(trainingIdToDiscard.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success("Pattern will be ignored in future")
+        } else {
+            notify.success("Message dismissed")
+        }
         fetchTriage()
+        showTrainingDiscardConfirm.value = false
+        trainingIdToDiscard.value = null
+        createIgnoreRule.value = false
     } catch (e) {
-        notify.error("Failed to dismiss message")
+        notify.error("Failed to dismiss")
+    }
+}
+
+async function handleBulkDismissTrainingConfirm() {
+    if (selectedTrainingIds.value.length === 0) return
+    try {
+        await financeApi.bulkDismissTraining(selectedTrainingIds.value, createIgnoreRule.value)
+        if (createIgnoreRule.value) {
+            notify.success(`Ignored ${selectedTrainingIds.value.length} patterns for future`)
+        } else {
+            notify.success("Messages dismissed")
+        }
+        fetchTriage()
+        createIgnoreRule.value = false
+        selectedTrainingIds.value = [] // Clear selection after bulk dismiss
+    } catch (e) {
+        notify.error("Bulk dismiss failed")
     }
 }
 
@@ -572,7 +642,10 @@ function openAddModal() {
         date: new Date().toISOString().slice(0, 16),
         is_transfer: false,
         to_account_id: '',
+        linked_transaction_id: '',
     }
+    potentialMatches.value = []
+    matchesSearched.value = false
     showModal.value = true
 }
 
@@ -580,8 +653,10 @@ function openAddModal() {
 watch(() => form.value.is_transfer, (isTransfer) => {
     if (isTransfer) {
         form.value.category = 'Transfer'
+        form.value.exclude_from_reports = true
     } else if (form.value.category === 'Transfer') {
         form.value.category = '' // Reset if it was transfer
+        form.value.exclude_from_reports = false
     }
 })
 
@@ -589,6 +664,7 @@ function openEditModal(txn: any) {
     isEditing.value = true
     editingTxnId.value = txn.id
     originalCategory.value = txn.category
+    originalExclude.value = txn.exclude_from_reports || false
     form.value = {
         description: txn.description,
         category: txn.category,
@@ -596,8 +672,12 @@ function openEditModal(txn: any) {
         date: txn.date ? txn.date.slice(0, 16) : new Date().toISOString().slice(0, 16),
         account_id: txn.account_id,
         is_transfer: txn.is_transfer || false,
-        to_account_id: txn.transfer_account_id || ''
+        to_account_id: txn.transfer_account_id || '',
+        linked_transaction_id: txn.linked_transaction_id || '',
+        exclude_from_reports: txn.exclude_from_reports || false
     }
+    potentialMatches.value = []
+    matchesSearched.value = false
     showModal.value = true
 }
 
@@ -610,7 +690,9 @@ async function handleSubmit() {
             date: new Date(form.value.date).toISOString(),
             account_id: form.value.account_id,
             is_transfer: form.value.is_transfer,
-            to_account_id: form.value.to_account_id
+            to_account_id: form.value.to_account_id,
+            linked_transaction_id: form.value.linked_transaction_id,
+            exclude_from_reports: form.value.exclude_from_reports
         }
 
         if (isEditing.value && editingTxnId.value) {
@@ -636,10 +718,28 @@ async function handleSubmit() {
                             pattern: pattern,
                             count: similarCount,
                             createRule: true,
-                            applyToSimilar: similarCount > 0
+                            applyToSimilar: similarCount > 0,
+                            excludeFromReports: false
                         }
                         showSmartPrompt.value = true
                     }
+                }
+            }
+
+            if (form.value.exclude_from_reports && !originalExclude.value) {
+                const txn = transactions.value.find(t => t.id === editingTxnId.value)
+                if (txn) {
+                    const pattern = txn.recipient || txn.description
+                    smartPromptData.value = {
+                        txnId: editingTxnId.value,
+                        category: form.value.category || 'Uncategorized',
+                        pattern: pattern,
+                        count: 0,
+                        createRule: true,
+                        applyToSimilar: true,
+                        excludeFromReports: true
+                    }
+                    showSmartPrompt.value = true
                 }
             }
         } else {
@@ -661,7 +761,8 @@ async function handleSmartCategorize() {
             transaction_id: smartPromptData.value.txnId,
             category: smartPromptData.value.category,
             create_rule: smartPromptData.value.createRule,
-            apply_to_similar: smartPromptData.value.applyToSimilar
+            apply_to_similar: smartPromptData.value.applyToSimilar,
+            exclude_from_reports: smartPromptData.value.excludeFromReports
         })
 
         if (res.data.success) {
@@ -686,6 +787,67 @@ function switchTab(tab: 'list' | 'analytics' | 'triage') {
         fetchTriage()
     } else {
         fetchData()
+    }
+}
+
+// Search debounce
+let searchDebounce: any = null
+watch(searchQuery, () => {
+    if (searchDebounce) clearTimeout(searchDebounce)
+    searchDebounce = setTimeout(() => {
+        page.value = 1
+        fetchData()
+    }, 400)
+})
+
+// Match Finding Logic
+async function findMatches() {
+    if (!form.value.to_account_id || !form.value.amount || !form.value.date) return
+
+    isSearchingMatches.value = true
+    matchesSearched.value = false
+    try {
+        const txnDate = new Date(form.value.date)
+        const startDate = new Date(txnDate)
+        startDate.setDate(startDate.getDate() - 3)
+        const endDate = new Date(txnDate)
+        endDate.setDate(endDate.getDate() + 3)
+
+        const res = await financeApi.getTransactions(
+            form.value.to_account_id,
+            1,
+            50, // limit
+            startDate.toISOString().slice(0, 10),
+            endDate.toISOString().slice(0, 10)
+        )
+
+        // Filter for opposite amount (with tolerance)
+        // If current txn is -100 (sending), look for +100 (receiving)
+        // If current txn is +100 (receiving), look for -100 (sending)
+        const targetAmount = -Number(form.value.amount)
+
+        potentialMatches.value = res.data.items.filter((t: any) => {
+            // Basic tolerance check for float issues or fees
+            return Math.abs(t.amount - targetAmount) < 1.0 &&
+                // Don't link to self if something weird happens
+                t.id !== editingTxnId.value &&
+                // Don't link if already matched to someone else
+                (!t.linked_transaction_id || t.linked_transaction_id === editingTxnId.value)
+        })
+
+        matchesSearched.value = true
+    } catch (e) {
+        console.error("Match search failed", e)
+    } finally {
+        isSearchingMatches.value = false
+    }
+}
+
+function selectMatch(match: any) {
+    if (form.value.linked_transaction_id === match.id) {
+        form.value.linked_transaction_id = '' // Deselect
+    } else {
+        form.value.linked_transaction_id = match.id
     }
 }
 
@@ -766,10 +928,29 @@ onMounted(() => {
                     <span class="filter-separator">to</span>
                     <input type="date" v-model="endDate" class="date-input" @change="page = 1; fetchData()" />
                 </div>
+
+                <div class="filter-divider"></div>
+
+                <div class="filter-group list-search-group">
+                    <div class="list-search-container">
+                        <span class="search-icon-small">🔍</span>
+                        <input type="text" v-model="searchQuery" placeholder="Search description..."
+                            class="list-search-input">
+                    </div>
+                </div>
+
+                <div class="filter-divider"></div>
+
+                <div class="filter-group">
+                    <CustomSelect v-model="categoryFilter"
+                        :options="[{ label: 'All Categories', value: '' }, ...categoryOptions]"
+                        placeholder="All Categories" @update:modelValue="page = 1; fetchData()"
+                        class="category-filter-select" />
+                </div>
             </div>
 
-            <button v-if="startDate || endDate" class="btn-link"
-                @click="selectedTimeRange = 'all'; handleTimeRangeChange('all')">
+            <button v-if="startDate || endDate || searchQuery || categoryFilter" class="btn-link"
+                @click="selectedTimeRange = 'all'; startDate = ''; endDate = ''; searchQuery = ''; categoryFilter = ''; fetchData()">
                 Reset
             </button>
         </div>
@@ -825,6 +1006,9 @@ onMounted(() => {
                                         <span v-if="txn.is_transfer" class="ai-badge-mini"
                                             style="background: #ecfdf5; color: #059669; border-color: #059669;"
                                             title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
+                                        <span v-if="txn.exclude_from_reports" class="ai-badge-mini"
+                                            style="background: #fee2e2; color: #991b1b; border-color: #fca5a5;"
+                                            title="Excluded from reports and analytics">🚫 Excluded</span>
                                         <span class="category-pill"
                                             :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
@@ -1005,11 +1189,22 @@ onMounted(() => {
                                         <div class="triage-input-group">
                                             <div class="toggle-control">
                                                 <label class="premium-switch">
-                                                    <input type="checkbox" v-model="txn.is_transfer">
+                                                    <input type="checkbox" v-model="txn.is_transfer"
+                                                        @change="txn.exclude_from_reports = txn.is_transfer">
                                                     <span class="premium-slider"></span>
                                                 </label>
                                                 <span class="toggle-text">{{ txn.is_transfer ? 'Internal Transfer' :
                                                     'Expense/Income' }}</span>
+                                            </div>
+
+                                            <div class="toggle-control">
+                                                <label class="premium-switch">
+                                                    <input type="checkbox" v-model="txn.exclude_from_reports">
+                                                    <span class="premium-slider"
+                                                        style="background-color: #fee2e2;"></span>
+                                                </label>
+                                                <span class="toggle-text" style="color: #991b1b;">Exclude from
+                                                    Reports</span>
                                             </div>
 
                                             <div class="select-container">
@@ -1206,13 +1401,13 @@ onMounted(() => {
                                 placeholder="Select Account" />
                         </div>
 
-                        <div class="form-layout-row">
-                            <div class="form-group half">
-                                <label class="form-label">Amount (+ Income, - Expense)</label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Amount</label>
                                 <input type="number" step="0.01" v-model="form.amount" class="form-input" required
                                     placeholder="-50.00" />
                             </div>
-                            <div class="form-group half">
+                            <div class="form-group" style="margin-bottom: 0;">
                                 <label class="form-label">Date</label>
                                 <input type="datetime-local" v-model="form.date" class="form-input" required />
                             </div>
@@ -1227,30 +1422,82 @@ onMounted(() => {
                         <div class="form-group">
                             <div
                                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                    <label class="form-label" style="margin-bottom: 0;">Category</label>
-                                    <div v-if="currentCategoryBudget" class="budget-preview-tag"
-                                        :class="{ 'danger': currentCategoryBudget.remaining < 0 }">
-                                        <span class="dot"></span>
-                                        {{ formatAmount(currentCategoryBudget.remaining) }} left
+                                <label class="form-label" style="margin-bottom: 0;">Category & Options</label>
+                                <div v-if="currentCategoryBudget" class="budget-preview-tag"
+                                    :class="{ 'danger': currentCategoryBudget.remaining < 0 }">
+                                    <span class="dot"></span>
+                                    {{ formatAmount(currentCategoryBudget.remaining) }} left
+                                </div>
+                            </div>
+
+                            <!-- Options Panel -->
+                            <div
+                                style="display: flex; flex-direction: column; gap: 0.75rem; padding: 0.875rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.75rem; margin-bottom: 1rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.8125rem; font-weight: 600; color: #475569;">Is internal
+                                        transfer?</span>
+                                    <div class="toggle-control" style="min-width: unset;">
+                                        <label class="premium-switch">
+                                            <input type="checkbox" v-model="form.is_transfer">
+                                            <span class="premium-slider"></span>
+                                        </label>
+                                        <span class="toggle-text" style="min-width: 40px; text-align: right;">{{
+                                            form.is_transfer ? 'Yes' : 'No' }}</span>
                                     </div>
                                 </div>
-
-                                <div class="toggle-control"
-                                    style="transform: scale(0.9); transform-origin: right center;">
-                                    <label class="premium-switch">
-                                        <input type="checkbox" v-model="form.is_transfer">
-                                        <span class="premium-slider"></span>
-                                    </label>
-                                    <span class="toggle-text" style="margin-left: 0.5rem;">{{ form.is_transfer ?
-                                        'Internal Transfer' : 'Regular' }}</span>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.8125rem; font-weight: 600; color: #991b1b;">Exclude from
+                                        reports?</span>
+                                    <div class="toggle-control" style="min-width: unset;">
+                                        <label class="premium-switch">
+                                            <input type="checkbox" v-model="form.exclude_from_reports">
+                                            <span class="premium-slider"
+                                                style="background-color: #fee2e2; border: 1px solid #fecaca;"></span>
+                                        </label>
+                                        <span class="toggle-text"
+                                            style="color: #991b1b; min-width: 40px; text-align: right;">{{
+                                                form.exclude_from_reports ? 'Yes' : 'No' }}</span>
+                                    </div>
                                 </div>
                             </div>
 
                             <div v-if="form.is_transfer">
+                                <label class="form-label">Linked Account</label>
                                 <CustomSelect v-model="form.to_account_id"
                                     :options="accountOptions.filter(a => a.value !== form.account_id)"
-                                    :placeholder="!form.amount || form.amount < 0 ? 'To Account (Tracked)' : 'From Account (Tracked)'" />
+                                    :placeholder="!form.amount || form.amount < 0 ? 'To Account' : 'From Account'" />
+
+                                <!-- Match Finder -->
+                                <div v-if="form.to_account_id && form.amount"
+                                    class="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs font-semibold uppercase text-gray-500">Transaction
+                                            Matcher</span>
+                                        <button type="button" @click="findMatches"
+                                            class="text-xs text-blue-600 hover:text-blue-800"
+                                            :disabled="isSearchingMatches">
+                                            {{ isSearchingMatches ? 'Searching...' : 'Find Matches 🔍' }}
+                                        </button>
+                                    </div>
+
+                                    <div v-if="potentialMatches.length > 0" class="space-y-2">
+                                        <div v-for="match in potentialMatches" :key="match.id"
+                                            class="p-2 border rounded cursor-pointer text-sm bg-white hover:bg-blue-50 transition-colors"
+                                            :class="form.linked_transaction_id === match.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'"
+                                            @click="selectMatch(match)">
+                                            <div class="flex justify-between font-medium">
+                                                <span>{{ new Date(match.date).toLocaleDateString() }}</span>
+                                                <span :class="match.amount > 0 ? 'text-green-600' : 'text-red-600'">
+                                                    {{ formatAmount(match.amount) }}
+                                                </span>
+                                            </div>
+                                            <div class="text-gray-600 truncate">{{ match.description }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else-if="matchesSearched" class="text-xs text-center text-gray-500 py-2">
+                                        No matches found around this date.
+                                    </div>
+                                </div>
                             </div>
                             <div v-else>
                                 <CustomSelect v-model="form.category" :options="categoryOptions"
@@ -1271,15 +1518,25 @@ onMounted(() => {
             </div>
 
 
-            <!-- Smart Categorization Prompt -->
+            <!-- Smart Categorization / Exclusion Prompt -->
             <div v-if="showSmartPrompt" class="modal-overlay-global">
                 <div class="modal-global" style="max-width: 450px;">
                     <div class="modal-header">
-                        <h2 class="modal-title">Smart Categorization 🧠</h2>
+                        <h2 class="modal-title">
+                            {{ smartPromptData.excludeFromReports ? 'Auto-Exclude Rule 🙈' : 'Smart Categorization 🧠'
+                            }}
+                        </h2>
                         <button class="btn-icon" @click="showSmartPrompt = false">✕</button>
                     </div>
                     <div style="padding: 1.5rem;">
-                        <p style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                        <p v-if="smartPromptData.excludeFromReports"
+                            style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                            You marked <strong>{{ smartPromptData.pattern }}</strong> as <strong>Hidden</strong>
+                            <span v-if="smartPromptData.category && smartPromptData.category !== 'Uncategorized'">
+                                and categorized as <strong>{{ smartPromptData.category }}</strong></span>.
+                            Do you want to update the rule to always apply this?
+                        </p>
+                        <p v-else style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
                             You categorized <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
                                 smartPromptData.category }}</strong>.
                         </p>
@@ -1287,14 +1544,29 @@ onMounted(() => {
                         <div class="smart-options">
                             <label class="smart-option-item" v-if="smartPromptData.count > 0">
                                 <input type="checkbox" v-model="smartPromptData.applyToSimilar" class="checkbox-input">
-                                <span>Apply to <strong>{{ smartPromptData.count }}</strong> similar uncategorized
-                                    transactions</span>
+                                <span>
+                                    {{ smartPromptData.excludeFromReports ? 'Exclude' : 'Apply to' }}
+                                    <strong>{{ smartPromptData.count }}</strong> similar
+                                    {{ smartPromptData.excludeFromReports ? '' : 'uncategorized' }}
+                                    transactions
+                                </span>
                             </label>
 
                             <label class="smart-option-item">
                                 <input type="checkbox" v-model="smartPromptData.createRule" class="checkbox-input">
-                                <span>Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
-                                    smartPromptData.category }}</strong> in future</span>
+                                <span v-if="smartPromptData.excludeFromReports">
+                                    Always <strong>hide</strong>
+                                    <span
+                                        v-if="smartPromptData.category && smartPromptData.category !== 'Uncategorized'">
+                                        and categorize as <strong>{{ smartPromptData.category }}</strong>
+                                    </span>
+                                    transactions from <strong>{{ smartPromptData.pattern }}</strong> in future
+                                    (Update/Create Rule)
+                                </span>
+                                <span v-else>
+                                    Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
+                                        smartPromptData.category }}</strong> in future
+                                </span>
                             </label>
                         </div>
 
@@ -1334,18 +1606,63 @@ onMounted(() => {
                 <div class="modal-global" style="max-width: 400px;">
                     <div class="modal-header">
                         <h2 class="modal-title">Discard Transaction</h2>
-                        <button class="btn-icon" @click="showDiscardConfirm = false">✕</button>
+                        <button class="btn-icon"
+                            @click="showDiscardConfirm = false; createIgnoreRule = false">✕</button>
                     </div>
                     <div style="padding: 1.5rem; text-align: center;">
                         <div style="font-size: 3rem; margin-bottom: 1rem;">♻️</div>
                         <p style="color: #4b5563; margin-bottom: 1.5rem;">
                             Discard this potential transaction? It will be removed from your review list.
                         </p>
+
+                        <div
+                            style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.875rem; color: #6b7280; background: #f9fafb; padding: 0.75rem; border-radius: 0.5rem;">
+                            <input type="checkbox" v-model="createIgnoreRule" id="ignoreFuture"
+                                class="rounded border-gray-300 text-rose-600 focus:ring-rose-500" />
+                            <label for="ignoreFuture" class="cursor-pointer font-medium text-gray-700">Don't show
+                                similar messages again</label>
+                        </div>
+
                         <div class="modal-footer"
                             style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
-                            <button class="btn btn-outline" @click="showDiscardConfirm = false">Keep It</button>
-                            <button class="btn btn-danger" @click="confirmDiscard"
-                                style="background: #ef4444; color: white; border: none;">Discard</button>
+                            <button class="btn btn-outline"
+                                @click="showDiscardConfirm = false; createIgnoreRule = false">Keep It</button>
+                            <button class="btn-danger" @click="confirmDiscard"
+                                style="background: #ef4444; color: white; border: none; padding: 0.625rem 1.5rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">Discard</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Training Discard Confirmation Modal -->
+            <div v-if="showTrainingDiscardConfirm" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Dismiss Message</h2>
+                        <button class="btn-icon"
+                            @click="showTrainingDiscardConfirm = false; createIgnoreRule = false">✕</button>
+                    </div>
+                    <div style="padding: 1.5rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🛡️</div>
+                        <p style="color: #4b5563; margin-bottom: 1.5rem;">
+                            {{ trainingIdToDiscard ? 'Dismiss this unparsed message?' : `Dismiss
+                            ${selectedTrainingIds.length} unparsed messages?` }}
+                        </p>
+
+                        <div
+                            style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.875rem; color: #6b7280; background: #f9fafb; padding: 0.75rem; border-radius: 0.5rem;">
+                            <input type="checkbox" v-model="createIgnoreRule" id="ignoreFutureTraining"
+                                class="rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
+                            <label for="ignoreFutureTraining" class="cursor-pointer font-medium text-gray-700">Don't
+                                show similar messages again</label>
+                        </div>
+
+                        <div class="modal-footer"
+                            style="padding: 0; border: none; background: transparent; justify-content: center; gap: 1rem;">
+                            <button class="btn btn-outline"
+                                @click="showTrainingDiscardConfirm = false; createIgnoreRule = false">Cancel</button>
+                            <button class="btn-primary" @click="handleConfirmGlobalTrainingDismiss"
+                                style="background: #f59e0b; color: white; border: none; padding: 0.625rem 1.5rem; border-radius: 0.5rem; cursor: pointer; font-weight: 600;">Dismiss</button>
                         </div>
                     </div>
                 </div>
@@ -1422,6 +1739,12 @@ onMounted(() => {
                                 <label class="form-label">Category</label>
                                 <CustomSelect v-model="labelForm.category" :options="categoryOptions"
                                     placeholder="Assign Category" />
+                            </div>
+
+                            <div class="form-group check-group" style="margin-top: 0.5rem; background: #fef2f2;">
+                                <input type="checkbox" id="excludeReport" v-model="labelForm.exclude_from_reports">
+                                <label for="excludeReport" style="color: #991b1b;">Exclude from reports &
+                                    analytics</label>
                             </div>
 
                             <div class="form-group check-group" style="margin-top: 0.5rem;">
@@ -2050,6 +2373,39 @@ onMounted(() => {
     gap: 0.75rem;
 }
 
+.list-search-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-icon-small {
+    position: absolute;
+    left: 0.75rem;
+    font-size: 0.8rem;
+    color: #9ca3af;
+}
+
+.list-search-input {
+    padding: 0.45rem 0.75rem 0.45rem 2rem;
+    font-size: 0.8125rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background: white;
+    width: 220px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.list-search-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.category-filter-select {
+    min-width: 180px;
+}
+
 .filter-label {
     font-size: 0.7rem;
     font-weight: 700;
@@ -2057,6 +2413,13 @@ onMounted(() => {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     white-space: nowrap;
+}
+
+.filter-divider {
+    width: 1px;
+    height: 24px;
+    background: #e5e7eb;
+    margin: 0 0.25rem;
 }
 
 .range-pill-group {

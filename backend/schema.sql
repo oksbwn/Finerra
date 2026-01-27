@@ -67,12 +67,14 @@ CREATE TABLE transactions (
 	category VARCHAR, 
 	tags VARCHAR, 
 	external_id VARCHAR, 
+	content_hash VARCHAR,
 	is_transfer BOOLEAN DEFAULT FALSE NOT NULL,
 	linked_transaction_id VARCHAR,
 	source VARCHAR NOT NULL DEFAULT 'MANUAL',
 	latitude DECIMAL(10, 8),
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -87,6 +89,7 @@ CREATE TABLE category_rules (
 	priority NUMERIC(5, 0) DEFAULT 0, 
 	is_transfer BOOLEAN DEFAULT FALSE NOT NULL,
 	to_account_id VARCHAR,
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -115,6 +118,7 @@ CREATE TABLE recurring_transactions (
 	start_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
 	next_run_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
 	is_active BOOLEAN DEFAULT TRUE NOT NULL, 
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	last_run_date TIMESTAMP WITHOUT TIME ZONE, 
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
@@ -225,6 +229,7 @@ CREATE TABLE pending_transactions (
 	category VARCHAR, 
 	source VARCHAR NOT NULL, 
 	raw_message VARCHAR, 
+	content_hash VARCHAR,
 	external_id VARCHAR, 
 	is_transfer BOOLEAN DEFAULT FALSE NOT NULL,
 	to_account_id VARCHAR,
@@ -233,6 +238,7 @@ CREATE TABLE pending_transactions (
 	latitude DECIMAL(10, 8),
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
+	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
@@ -243,6 +249,7 @@ CREATE TABLE unparsed_messages (
 	tenant_id VARCHAR NOT NULL, 
 	source VARCHAR NOT NULL, 
 	raw_content VARCHAR NOT NULL, 
+	content_hash VARCHAR,
 	subject VARCHAR, 
 	sender VARCHAR, 
 	created_at TIMESTAMP WITHOUT TIME ZONE, 
@@ -336,3 +343,14 @@ CREATE TABLE ingestion_events (
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 CREATE INDEX ix_ingestion_events_tenant_device ON ingestion_events (tenant_id, device_id);
+
+CREATE TABLE ignored_patterns (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	pattern VARCHAR NOT NULL, 
+	source VARCHAR, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+CREATE INDEX ix_ignored_patterns_tenant ON ignored_patterns (tenant_id);

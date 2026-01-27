@@ -10,7 +10,7 @@ class AccountBase(BaseModel):
     type: AccountType
     currency: str = "INR"
     account_mask: Optional[str] = None
-    balance: Optional[Decimal] = 0.0
+    balance: Optional[Decimal] = Decimal('0.0')
     credit_limit: Optional[Decimal] = None
     billing_day: Optional[int] = None
     due_day: Optional[int] = None
@@ -37,8 +37,7 @@ class AccountUpdate(BaseModel):
     import_config: Optional[str] = None
     tenant_id: Optional[Union[UUID, str]] = None
 
-from typing import Optional, List, Union
-# ...
+
 class AccountRead(AccountBase):
     id: Union[UUID, str]
     tenant_id: Union[UUID, str]
@@ -61,6 +60,7 @@ class TransactionBase(BaseModel):
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
     location_name: Optional[str] = None
+    exclude_from_reports: bool = False
 
 class TransactionCreate(TransactionBase):
     account_id: UUID
@@ -68,6 +68,7 @@ class TransactionCreate(TransactionBase):
     source: Optional[str] = "MANUAL"
     is_transfer: bool = False
     to_account_id: Optional[str] = None
+    content_hash: Optional[str] = None
 
 class TransactionUpdate(BaseModel):
     description: Optional[str] = None
@@ -77,6 +78,8 @@ class TransactionUpdate(BaseModel):
     amount: Optional[Decimal] = None
     is_transfer: Optional[bool] = None
     to_account_id: Optional[str] = None
+    linked_transaction_id: Optional[str] = None
+    exclude_from_reports: Optional[bool] = None
 
 class Transaction(TransactionBase):
     id: UUID
@@ -95,7 +98,9 @@ class TransactionRead(TransactionBase):
     type: Optional[str] = "DEBIT"
     source: Optional[str] = "MANUAL"
     external_id: Optional[str] = None
+    content_hash: Optional[str] = None
     transfer_account_id: Optional[UUID] = None
+    exclude_from_reports: bool = False
 
     class Config:
         from_attributes = True
@@ -117,6 +122,7 @@ class CategoryRuleBase(BaseModel):
     priority: int = 0
     is_transfer: bool = False
     to_account_id: Optional[str] = None
+    exclude_from_reports: bool = False
 
 class CategoryRuleCreate(CategoryRuleBase):
     pass
@@ -126,6 +132,9 @@ class CategoryRuleUpdate(BaseModel):
     category: Optional[str] = None
     keywords: Optional[List[str]] = None
     priority: Optional[int] = None
+    is_transfer: Optional[bool] = None
+    to_account_id: Optional[str] = None
+    exclude_from_reports: Optional[bool] = None
 
 class CategoryRuleRead(CategoryRuleBase):
     id: UUID
@@ -190,11 +199,31 @@ class BudgetProgress(BudgetRead):
     remaining: Decimal
     percentage: float
 
+class CategoryBudgetProgress(BaseModel):
+    id: Optional[Union[UUID, str]] = None # Backward compatibility
+    budget_id: Optional[Union[UUID, str]] = None
+    tenant_id: Optional[Union[UUID, str]] = None
+    category: str
+    amount_limit: Optional[Decimal] = None
+    spent: Decimal
+    income: Decimal = Decimal('0.0')
+    remaining: Optional[Decimal] = None
+    percentage: Optional[float] = None
+    period: str = "MONTHLY"
+    updated_at: Optional[datetime] = None
+    total_excluded: Optional[Decimal] = Decimal('0.0')
+    excluded: Optional[Decimal] = Decimal('0.0')
+    excluded_income: Optional[Decimal] = Decimal('0.0')
+    type: str = "expense"
+    icon: Optional[str] = "🏷️"
+    color: Optional[str] = "#3B82F6"
+
 class SmartCategorizeRequest(BaseModel):
     transaction_id: str
     category: str
     create_rule: bool = False
     apply_to_similar: bool = False
+    exclude_from_reports: bool = False
 
 class Frequency(str): 
     # Helper for frontend types, though we validated via Enum in models
@@ -212,6 +241,7 @@ class RecurringTransactionBase(BaseModel):
     start_date: datetime
     next_run_date: datetime
     is_active: bool = True
+    exclude_from_reports: bool = False
 
 class RecurringTransactionCreate(RecurringTransactionBase):
     pass
@@ -225,6 +255,7 @@ class RecurringTransactionUpdate(BaseModel):
     start_date: Optional[datetime] = None
     next_run_date: Optional[datetime] = None
     is_active: Optional[bool] = None
+    exclude_from_reports: Optional[bool] = None
 
 class RecurringTransactionRead(RecurringTransactionBase):
     id: UUID
