@@ -1,0 +1,238 @@
+from backend.app.modules.auth.security import get_password_hash
+from backend.app.core.database import SessionLocal
+from backend.app.modules.auth.models import User, Tenant, UserRole
+from backend.app.modules.finance.models import (
+    Account, AccountType, Transaction, TransactionType, Category, 
+    Loan, LoanType, MutualFundsMeta, MutualFundHolding, MutualFundOrder
+)
+from datetime import datetime, timedelta
+import random
+import uuid
+
+def seed_data():
+    db = SessionLocal()
+    try:
+        demo_email = "demo@demo.com"
+        user = db.query(User).filter(User.email == demo_email).first()
+        
+        if not user:
+            print(f"Creating demo user: {demo_email}")
+            
+            # 1. Create Tenant
+            tenant = Tenant(name="Demo Family")
+            db.add(tenant)
+            db.commit()
+            db.refresh(tenant)
+            
+            # 2. Create User
+            user = User(
+                email=demo_email,
+                password_hash=get_password_hash("demo123"),
+                full_name="Demo User",
+                tenant_id=tenant.id,
+                role=UserRole.OWNER
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        else:
+            print("Demo user already exists.")
+            tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+
+        tenant_id = tenant.id
+        user_id = user.id
+
+        # 3. Create Accounts
+        accounts = db.query(Account).filter(Account.owner_id == user_id).all()
+        if not accounts:
+            print("Seeding accounts...")
+            
+            # Bank
+            acc_bank = Account(id=str(uuid.uuid4()), tenant_id=tenant_id, owner_id=user_id, name="HDFC Salary", type=AccountType.BANK, balance=50000)
+            # Credit Card
+            acc_cc = Account(id=str(uuid.uuid4()), tenant_id=tenant_id, owner_id=user_id, name="Amazon Pay ICICI", type=AccountType.CREDIT_CARD, credit_limit=200000, balance=15000) # 15k used
+            # Wallet
+            acc_wallet = Account(id=str(uuid.uuid4()), tenant_id=tenant_id, owner_id=user_id, name="Cash & Wallet", type=AccountType.WALLET, balance=2500)
+            # Loan Account
+            acc_loan = Account(id=str(uuid.uuid4()), tenant_id=tenant_id, owner_id=user_id, name="Home Loan", type=AccountType.LOAN, balance=0)
+            
+            db.add_all([acc_bank, acc_cc, acc_wallet, acc_loan])
+            db.commit()
+            
+            accounts_dict = {
+                "BANK": acc_bank,
+                "CREDIT_CARD": acc_cc,
+                "WALLET": acc_wallet,
+                "LOAN": acc_loan
+            }
+        else:
+            accounts_dict = {
+                "BANK": next((a for a in accounts if a.type == AccountType.BANK), None),
+                "CREDIT_CARD": next((a for a in accounts if a.type == AccountType.CREDIT_CARD), None),
+                "WALLET": next((a for a in accounts if a.type == AccountType.WALLET), None),
+                "LOAN": next((a for a in accounts if a.type == AccountType.LOAN), None),
+            }
+
+        # 4. Loan Details
+        if accounts_dict["LOAN"]:
+            existing_loan = db.query(Loan).filter(Loan.account_id == accounts_dict["LOAN"].id).first()
+            if not existing_loan:
+                print("Seeding Home Loan...")
+                loan = Loan(
+                    tenant_id=tenant_id,
+                    account_id=accounts_dict["LOAN"].id,
+                    principal_amount=5000000,
+                    interest_rate=8.5,
+                    start_date=datetime.now() - timedelta(days=365*2), # 2 years ago
+                    tenure_months=240, # 20 years
+                    emi_amount=43391,
+                    emi_date=5,
+                    bank_account_id=accounts_dict["BANK"].id,
+                    loan_type=LoanType.HOME_LOAN
+                )
+                db.add(loan)
+                db.commit()
+
+        # 5. Mutual Funds
+        mf_scheme = "123456"
+        existing_meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == mf_scheme).first()
+        if not existing_meta:
+            print("Seeding Mutual Funds...")
+            meta = MutualFundsMeta(
+                scheme_code=mf_scheme,
+                scheme_name="Nifty 50 Index Fund",
+                fund_house="HDFC Mutual Fund",
+                category="Equity"
+            )
+            db.add(meta)
+            db.commit() # Commit Meta first
+            
+            # Holding
+            holding = MutualFundHolding(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                scheme_code=mf_scheme,
+                units=100.50,
+                average_price=150.00,
+                current_value=18000.00,
+                last_nav=179.10
+            )
+            db.add(holding)
+            db.commit() # Commit Holding
+            
+            # Order History (SIP)
+            for i in range(6):
+                order_date = datetime.now() - timedelta(days=30*i)
+                order = MutualFundOrder(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    holding_id=holding.id,
+                    scheme_code=mf_scheme,
+                    type="BUY",
+                    amount=5000,
+                    units=33.33,
+                    nav=150.0,
+                    order_date=order_date,
+                    status="COMPLETED"
+                )
+                db.add(order)
+            db.commit()
+
+        # 6. Categories
+        categories = db.query(Category).filter(Category.tenant_id == tenant_id).all()
+        if not categories:
+            print("Seeding categories...")
+            cat_map = {}
+            for name in ["Food", "Transport", "Shopping", "Salary", "Investments", "Transfers"]:
+                ctype = "income" if name == "Salary" else "expense"
+                # Check Category model fields carefully: tenant_id, name, type.
+                cat = Category(tenant_id=tenant_id, name=name, type=ctype)
+                db.add(cat)
+                cat_map[name] = cat
+            db.commit()
+            categories = db.query(Category).filter(Category.tenant_id == tenant_id).all()
+        
+        def get_cat_id(name):
+            for c in categories:
+                if c.name == name: return c.id
+            return categories[0].id
+
+        # 7. Transactions (Regular & Linked)
+        # Check if transactions exist for any of the user's accounts
+        acc_ids = [a.id for a in accounts_dict.values() if a]
+        if db.query(Transaction).filter(Transaction.account_id.in_(acc_ids)).count() == 0:
+            print("Seeding transactions...")
+            
+            # A. Linked Transfer (Credit Card Bill Payment)
+            t1_id = str(uuid.uuid4())
+            t2_id = str(uuid.uuid4())
+            transfer_cat_id = get_cat_id("Transfers")
+            
+            # Debit from Bank
+            txn1 = Transaction(
+                id=t1_id,
+                tenant_id=tenant_id,
+                account_id=accounts_dict["BANK"].id,
+                type=TransactionType.DEBIT,
+                amount=15000,
+                date=datetime.now() - timedelta(days=2),
+                description="Credit Card Bill Payment",
+                category=transfer_cat_id,
+                is_transfer=True,
+                linked_transaction_id=t2_id
+            )
+            
+            # Credit to CC
+            txn2 = Transaction(
+                id=t2_id,
+                tenant_id=tenant_id,
+                account_id=accounts_dict["CREDIT_CARD"].id,
+                type=TransactionType.CREDIT,
+                amount=15000,
+                date=datetime.now() - timedelta(days=2),
+                description="Bill Payment Received",
+                category=transfer_cat_id,
+                is_transfer=True,
+                linked_transaction_id=t1_id
+            )
+            
+            db.add(txn1)
+            db.add(txn2)
+            
+            # B. Salary
+            db.add(Transaction(
+                tenant_id=tenant_id, 
+                account_id=accounts_dict["BANK"].id,
+                type=TransactionType.CREDIT,
+                amount=85000,
+                date=datetime.now().replace(day=1), # 1st of month
+                description="Salary",
+                category=get_cat_id("Salary")
+            ))
+            
+            # C. Random Spend
+            shopping_cat_id = get_cat_id("Shopping")
+            for i in range(15):
+                db.add(Transaction(
+                    tenant_id=tenant_id,
+                    account_id=accounts_dict["CREDIT_CARD"].id,
+                    type=TransactionType.DEBIT,
+                    amount=random.randint(100, 2000),
+                    date=datetime.now() - timedelta(days=random.randint(1, 20)),
+                    description=f"Purchase at Shop {i}",
+                    category=shopping_cat_id
+                ))
+
+            db.commit()
+            print("Seeding complete!")
+
+    except Exception as e:
+        print(f"Error seeding data: {e}")
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+    finally:
+        db.close()
+
+if __name__ == "__main__":
+    seed_data()

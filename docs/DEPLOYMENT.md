@@ -129,13 +129,13 @@ docker-compose logs -f
 
 ## 🌐 Live Demo
 
-**Demo Instance:** [https://demo.wealthfam.app](https://demo.wealthfam.app)
+**Demo Instance:** [https://wealthfam.onrender.com](https://wealthfam.onrender.com)
 
 **Test Credentials:**
-- Username: `demo@wealthfam.app`
+- Username: `demo@demo.com`
 - Password: `demo123`
 
-> ⚠️ **Note:** Demo data resets every 24 hours. Don't use for production data.
+> ⚠️ **Note:** Runs on Render Free Tier. May maintain cold start delay (~50s). Data is ephemeral.
 
 ---
 

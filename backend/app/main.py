@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import text
 import asyncio
+import os
 
 from backend.app.core.config import settings
 from backend.app.core.exceptions import http_exception_handler, generic_exception_handler
@@ -63,6 +64,14 @@ def create_application() -> FastAPI:
     async def startup_event():
         # Start Scheduler (Handles both recurring checks and email auto-sync)
         start_scheduler()
+        
+        # Seed Demo Data (Only if DEMO_MODE is true)
+        if str(os.getenv("DEMO_MODE", "false")).lower() == "true":
+            try:
+                from backend.app.core.seeder import seed_data
+                seed_data()
+            except Exception as e:
+                print(f"Startup seeding failed: {e}")
 
     @application.on_event("shutdown")
     async def stop_scheduler_event():

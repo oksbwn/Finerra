@@ -83,9 +83,11 @@ Deploy WealthFam to your preferred cloud platform with just one click:
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/oksbwn/wealthfam)
 
 ### 🌐 Live Demo
-Try WealthFam without installing: **[https://demo.wealthfam.app](https://demo.wealthfam.app)**
+Try WealthFam without installing: **[https://wealthfam.onrender.com](https://wealthfam.onrender.com)**
 
-*Demo credentials: `demo@wealthfam.app` / `demo123`*
+*Demo credentials: `demo@demo.com` / `demo123`* (or register your own!)
+
+> ⚠️ **Note**: This runs on a free instance. It may spin down after inactivity (takes ~50s to wake up). Data resets frequently.
 
 > 📖 **Deployment**: See [`/deployment`](deployment/README.md) for all configuration files and platform-specific guides
 > 

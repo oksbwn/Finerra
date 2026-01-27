@@ -9,4 +9,6 @@ services:
         value: duckdb:///family_finance_v3.duckdb
       - key: VITE_APP_BUILD
         value: render-free
+      - key: DEMO_MODE
+        value: true
 
