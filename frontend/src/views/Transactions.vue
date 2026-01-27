@@ -715,8 +715,7 @@ async function handleSubmit() {
                 }
             }
 
-            // --- Auto-Exclusion Rule Prompt ---
-            if (form.value.exclude_from_reports && !originalExclude.value && !form.value.is_transfer) {
+            if (form.value.exclude_from_reports && !originalExclude.value) {
                 const txn = transactions.value.find(t => t.id === editingTxnId.value)
                 if (txn) {
                     const pattern = txn.recipient || txn.description
@@ -808,7 +807,7 @@ onMounted(() => {
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
-                            }}</span>
+                        }}</span>
                     </button>
                 </div>
                 <span class="transaction-count">{{ total }} records</span>
@@ -951,7 +950,7 @@ onMounted(() => {
                                         <span class="category-pill"
                                             :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                             <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                                }}</span>
+                                            }}</span>
                                             {{ getCategoryDisplay(txn.category).text }}
                                         </span>
                                         <span class="ref-id-pill" v-if="txn.is_transfer">
@@ -1245,7 +1244,7 @@ onMounted(() => {
                                         <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
                                             class="mr-2" />
                                         <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
-                                        }}</span>
+                                            }}</span>
                                         <span class="ai-badge-mini"
                                             style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
                                             Training</span>
@@ -1438,7 +1437,10 @@ onMounted(() => {
                     <div style="padding: 1.5rem;">
                         <p v-if="smartPromptData.excludeFromReports"
                             style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
-                            You marked <strong>{{ smartPromptData.pattern }}</strong> as <strong>Hidden</strong>.
+                            You marked <strong>{{ smartPromptData.pattern }}</strong> as <strong>Hidden</strong>
+                            <span v-if="smartPromptData.category && smartPromptData.category !== 'Uncategorized'">
+                                and categorized as <strong>{{ smartPromptData.category }}</strong></span>.
+                            Do you want to update the rule to always apply this?
                         </p>
                         <p v-else style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
                             You categorized <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{
@@ -1459,8 +1461,13 @@ onMounted(() => {
                             <label class="smart-option-item">
                                 <input type="checkbox" v-model="smartPromptData.createRule" class="checkbox-input">
                                 <span v-if="smartPromptData.excludeFromReports">
-                                    Always <strong>hide</strong> transactions from <strong>{{ smartPromptData.pattern
-                                        }}</strong> in future
+                                    Always <strong>hide</strong>
+                                    <span
+                                        v-if="smartPromptData.category && smartPromptData.category !== 'Uncategorized'">
+                                        and categorize as <strong>{{ smartPromptData.category }}</strong>
+                                    </span>
+                                    transactions from <strong>{{ smartPromptData.pattern }}</strong> in future
+                                    (Update/Create Rule)
                                 </span>
                                 <span v-else>
                                     Always categorize <strong>{{ smartPromptData.pattern }}</strong> as <strong>{{

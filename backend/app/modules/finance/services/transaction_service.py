@@ -450,6 +450,12 @@ class TransactionService:
                 )
                 db.add(new_rule)
                 rule_created = True
+            else:
+                # Update existing rule to reflect new decision
+                existing_rule.category = category
+                existing_rule.exclude_from_reports = exclude_from_reports
+                db.add(existing_rule)
+                rule_created = True
 
         if apply_to_similar:
             query = db.query(models.Transaction).filter(
