@@ -11,7 +11,7 @@ Our deployment infrastructure supports multiple platforms with automated CI/CD, 
 ## ☁️ One-Click Deployment
 
 ### Koyeb
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/oksbwn/wealthfam&branch=main&name=wealthfam)
 
 **Features:**
 - Free tier available
@@ -46,7 +46,7 @@ Our deployment infrastructure supports multiple platforms with automated CI/CD, 
 ---
 
 ### Render
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/your-username/wealthfam)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/oksbwn/wealthfam)
 
 **Features:**
 - Free tier for web services
@@ -73,7 +73,7 @@ curl -L https://fly.io/install.sh | sh
 flyctl auth login
 
 # Clone and deploy
-git clone https://github.com/your-username/wealthfam.git
+git clone https://github.com/oksbwn/wealthfam.git
 cd wealthfam
 flyctl launch
 
@@ -224,7 +224,7 @@ After deploying, configure the mobile app to connect to your instance:
 ## 📚 Additional Resources
 
 - [Main README](../README.md) - Full documentation
-- [GitHub Issues](https://github.com/your-username/wealthfam/issues) - Report bugs
+- [GitHub Issues](https://github.com/oksbwn/wealthfam/issues) - Report bugs
 - [Contributing Guide](../CONTRIBUTING.md) - Help improve WealthFam
 
 ---
@@ -233,7 +233,7 @@ After deploying, configure the mobile app to connect to your instance:
 
 - 📧 Email: support@wealthfam.app
 - 💬 Discord: [Join our community](https://discord.gg/wealthfam)
-- 🐛 Issues: [GitHub Issues](https://github.com/your-username/wealthfam/issues)
+- 🐛 Issues: [GitHub Issues](https://github.com/oksbwn/wealthfam/issues)
 
 ---
 

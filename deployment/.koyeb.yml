@@ -5,7 +5,7 @@
 services:
   - name: wealthfam
     git:
-      repository: github.com/your-username/wealthfam
+      repository: github.com/oksbwn/wealthfam
       branch: main
     docker:
       dockerfile: Dockerfile

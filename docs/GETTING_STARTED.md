@@ -21,7 +21,7 @@ Welcome! This guide will help you deploy WealthFam in under 5 minutes.
 
 **Steps**:
 1. Click one of these buttons:
-   - [![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+   - [![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/oksbwn/wealthfam&branch=main&name=wealthfam)
    - [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/wealthfam)
 
 2. Sign in with GitHub
@@ -55,7 +55,7 @@ docker run -d \
 Or use Docker Compose:
 ```bash
 # 1. Create docker-compose.yml
-curl -o docker-compose.yml https://raw.githubusercontent.com/your-username/wealthfam/main/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/oksbwn/wealthfam/main/docker-compose.yml
 
 # 2. Start
 docker-compose up -d
@@ -72,7 +72,7 @@ docker-compose up -d
 **Steps**:
 ```bash
 # Download and run setup script
-curl -fsSL https://raw.githubusercontent.com/your-username/wealthfam/main/setup_demo.sh | bash
+curl -fsSL https://raw.githubusercontent.com/oksbwn/wealthfam/main/setup_demo.sh | bash
 
 # Access at http://localhost:8080
 ```
@@ -201,7 +201,7 @@ Try WealthFam without deploying:
 ## 💬 Get Help
 
 - 📖 Documentation: See all guides in `/docs`
-- 🐛 Issues: [GitHub Issues](https://github.com/your-username/wealthfam/issues)
+- 🐛 Issues: [GitHub Issues](https://github.com/oksbwn/wealthfam/issues)
 - 💬 Community: [Discord](https://discord.gg/wealthfam)
 - 📧 Email: support@wealthfam.app
 

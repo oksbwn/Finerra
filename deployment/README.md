@@ -34,7 +34,7 @@ See `/docs` folder for comprehensive deployment guides:
 Choose your preferred platform and click to deploy:
 
 #### Koyeb (Free Tier Available)
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/oksbwn/wealthfam&branch=main&name=wealthfam)
 
 **Features**: Free tier, global edge network, automatic SSL
 
@@ -270,7 +270,7 @@ ls -la data/
 ### Getting Help
 
 - 📖 **Documentation**: `/docs/DEPLOYMENT.md`
-- 🐛 **Issues**: [GitHub Issues](https://github.com/your-username/wealthfam/issues)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/oksbwn/wealthfam/issues)
 - 💬 **Community**: [Discord](https://discord.gg/wealthfam)
 
 ---

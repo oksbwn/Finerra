@@ -173,7 +173,7 @@ Use this checklist to ensure a smooth deployment of your WealthFam instance.
 
 ### Getting Help
 - [ ] Check [Deployment Guide](DEPLOYMENT.md)
-- [ ] Search [GitHub Issues](https://github.com/your-username/wealthfam/issues)
+- [ ] Search [GitHub Issues](https://github.com/oksbwn/wealthfam/issues)
 - [ ] Ask on [Discord](https://discord.gg/wealthfam)
 - [ ] Email: support@wealthfam.app
 

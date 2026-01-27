@@ -107,6 +107,6 @@ echo "  Remove demo:      cd $DEMO_DIR && docker-compose down -v && cd .. && rm 
 echo ""
 echo -e "${BLUE}📱 Mobile App:${NC}"
 echo "  Download the Android APK from:"
-echo "  https://github.com/your-username/wealthfam/releases/latest"
+echo "  https://github.com/oksbwn/wealthfam/releases/latest"
 echo ""
 echo -e "${GREEN}Happy financing! 💰${NC}"

@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [![Download Mobile APK](https://img.shields.io/badge/Download-Mobile%20APK-success?logo=android&logoColor=white)](mobile_app/build/app/outputs/flutter-apk/app-release.apk)
-[![Deploy to Koyeb](https://img.shields.io/badge/Deploy-Koyeb-121212?logo=koyeb)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+[![Deploy to Koyeb](https://img.shields.io/badge/Deploy-Koyeb-121212?logo=koyeb)](https://app.koyeb.com/deploy?type=git&repository=github.com/oksbwn/wealthfam&branch=main&name=wealthfam)
 [![Deploy to Railway](https://img.shields.io/badge/Deploy-Railway-0B0D0E?logo=railway)](https://railway.app/template/wealthfam)
 
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
@@ -78,9 +78,9 @@ WealthFam provides a holistic view of your financial health. From daily expense 
 
 Deploy WealthFam to your preferred cloud platform with just one click:
 
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/oksbwn/wealthfam&branch=main&name=wealthfam)
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/wealthfam)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/your-username/wealthfam)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/oksbwn/wealthfam)
 
 ### 🌐 Live Demo
 Try WealthFam without installing: **[https://demo.wealthfam.app](https://demo.wealthfam.app)**

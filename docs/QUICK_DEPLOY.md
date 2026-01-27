@@ -5,9 +5,9 @@ Quick commands and URLs for deploying WealthFam.
 ## One-Click Deployments
 
 ```
-Koyeb:   https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam
+Koyeb:   https://app.koyeb.com/deploy?type=git&repository=github.com/oksbwn/wealthfam&branch=main&name=wealthfam
 Railway: https://railway.app/template/wealthfam  
-Render:  https://render.com/deploy?repo=https://github.com/your-username/wealthfam
+Render:  https://render.com/deploy?repo=https://github.com/oksbwn/wealthfam
 ```
 
 ## CLI Deployments
@@ -31,7 +31,7 @@ docker pull wglabz/wealthfam:latest
 docker run -d -p 80:80 -v $(pwd)/data:/data wglabz/wealthfam:latest
 
 # Or with compose
-curl -o docker-compose.yml https://raw.githubusercontent.com/your-username/wealthfam/main/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/oksbwn/wealthfam/main/docker-compose.yml
 docker-compose up -d
 ```
 
@@ -85,7 +85,7 @@ SECRET_KEY=$(openssl rand -hex 32)
 
 ```bash
 # Run setup script
-curl -fsSL https://raw.githubusercontent.com/your-username/wealthfam/main/setup_demo.sh | bash
+curl -fsSL https://raw.githubusercontent.com/oksbwn/wealthfam/main/setup_demo.sh | bash
 
 # Or manually
 bash setup_demo.sh

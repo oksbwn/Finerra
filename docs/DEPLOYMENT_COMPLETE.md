@@ -141,7 +141,7 @@ Add to README:
 ## 🔑 Required Actions Before Production
 
 ### 1. Update Repository URLs
-Replace `your-username/wealthfam` in these files:
+Replace `oksbwn/wealthfam` in these files:
 - `README.md` (all deploy buttons)
 - `docs/DEPLOYMENT.md`
 - `docs/GETTING_STARTED.md`
@@ -250,7 +250,7 @@ All guides in `/docs`:
    - Complete documentation for demo deployment
 
 2. **✅ One-Button Deployment for Koyeb**:
-   - [![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/your-username/wealthfam&branch=main&name=wealthfam)
+   - [![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=github.com/oksbwn/wealthfam&branch=main&name=wealthfam)
    - Badge in README
    - Full configuration in `koyeb.json`
    - Automated deployment via GitHub Actions
