@@ -10,5 +10,5 @@ services:
       - key: VITE_APP_BUILD
         value: render-free
       - key: DEMO_MODE
-        value: true
+        value: "true"
 
