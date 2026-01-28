@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 from decimal import Decimal
 import os
-from backend.app.modules.ingestion.parsers.recipient_parser import RecipientParser
+from parser.parsers.utils.recipient_parser import RecipientParser
 
 class UniversalParser:
     @staticmethod
@@ -81,7 +81,7 @@ class UniversalParser:
             raise ValueError(f"Analysis failed: {str(e)}")
 
     @staticmethod
-    def parse(file_content: bytes, filename: str, mapping: Dict[str, str], header_row_index: int = 0) -> List[dict]:
+    def parse(file_content: bytes, filename: str, mapping: Dict[str, str], header_row_index: int = 0, password: Optional[str] = None) -> List[dict]:
         """
         Parse CSV/Excel content using pandas.
         """

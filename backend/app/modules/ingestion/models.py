@@ -71,6 +71,7 @@ class MobileDevice(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True) # Optional link to specific user
+
     device_name = Column(String, nullable=False)
     device_id = Column(String, nullable=False, unique=True)
     fcm_token = Column(String, nullable=True)

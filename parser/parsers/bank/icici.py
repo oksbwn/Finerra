@@ -2,8 +2,8 @@ import re
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
-from backend.app.modules.ingestion.base import BaseSmsParser, BaseEmailParser, ParsedTransaction
-from backend.app.modules.ingestion.parsers.recipient_parser import RecipientParser
+from parser.parsers.base_compat import BaseSmsParser, BaseEmailParser, ParsedTransaction
+from parser.parsers.utils.recipient_parser import RecipientParser
 
 class IciciSmsParser(BaseSmsParser):
     """

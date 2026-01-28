@@ -55,6 +55,7 @@ def run_auto_migrations(engine: Engine):
             );
             """))
             
+            safe_add_column("mobile_devices", "user_id", "VARCHAR")
             safe_add_column("mobile_devices", "is_enabled", "BOOLEAN DEFAULT TRUE")
             safe_add_column("mobile_devices", "is_ignored", "BOOLEAN DEFAULT FALSE")
             
