@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     
     # Database
     # Default to data folder in root
-    PARSER_DATABASE_URL: str = "duckdb:///data/ingestion_engine_parser.duckdb"
+    PARSER_DATABASE_URL: str = "duckdb:///../data/ingestion_engine_parser.duckdb"
 
     @property
     def DATABASE_URL(self):
