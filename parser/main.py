@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from parser.db.database import init_db
 # from parser.core.scheduler import start_cleanup_job
-from parser.api import routes
+from parser.api import ingestion, config, analytics, system
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,23 +24,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Financial Parser Microservice",
-    version="1.0.0",
+    description="A robust microservice for parsing financial transactions from SMS, Email, and Files.",
+    version="1.1.0",
     lifespan=lifespan
 )
 
-app.include_router(routes.router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "parser-engine"}
+# Categorized Routers
+app.include_router(system.router)
+app.include_router(ingestion.router)
+app.include_router(config.router)
+app.include_router(analytics.router)
 
 if __name__ == "__main__":
     uvicorn.run("parser.main:app", host="0.0.0.0", port=8001, reload=True)
