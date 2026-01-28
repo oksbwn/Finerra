@@ -128,28 +128,28 @@ def ingest_sms(
 
     parser_response = ExternalParserService.parse_sms(payload.sender, payload.message)
     
-    if not parser_response or parser_response.get("status") != "processed":
-        # Promotion to UnparsedMessage for interactive training
-        IngestionService.capture_unparsed(
-            db, 
-            str(current_user.tenant_id), 
-            "SMS", 
-            payload.message, 
-            sender=payload.sender
-        )
+    # Accept "processed", "success", and "duplicate_submission"
+    status = parser_response.get("status") if parser_response else "offline"
+    
+    if not parser_response or status not in ["processed", "success", "duplicate_submission"]:
+        # Capture as unparsed for training
+        IngestionService.capture_unparsed(db, str(current_user.tenant_id), "SMS", payload.message, sender=payload.sender)
+        
         IngestionService.log_event(
-            db, 
-            str(current_user.tenant_id), 
-            "sms_ingestion", 
-            "warning", 
-            "External parser failed or message captured for learning.", 
-            data={"sender": payload.sender, "message": payload.message, "parser_status": parser_response.get("status") if parser_response else "offline"},
+            db, str(current_user.tenant_id), "sms_ingestion", "warning",
+            f"External parser skipped/failed with status: {status}",
+            data={
+                "sender": payload.sender, 
+                "message": payload.message, 
+                "parser_status": status,
+                "parser_logs": parser_response.get("logs") if parser_response else []
+            },
             device_id=payload.device_id
         )
-        return {
-            "status": "unparsed",
-            "message": "SMS message captured for learning/training."
-        }
+        return {"status": "unparsed", "message": f"Message not identified as transaction (Status: {status})"}
+
+    if status == "duplicate_submission":
+        return {"status": "skipped", "message": "Duplicate submission detected by parser service."}
 
     # 3. Process Multiple Results (if any)
     results = []
@@ -158,12 +158,22 @@ def ingest_sms(
         t = item.get("transaction")
         if not t: continue
         
+        # Robust Date Parsing
+        txn_date = t.get("date")
+        if isinstance(txn_date, str):
+            try:
+                txn_date = datetime.fromisoformat(txn_date.replace("Z", "+00:00"))
+            except:
+                txn_date = datetime.utcnow()
+        else:
+            txn_date = datetime.utcnow()
+
         # Map to ParsedTransaction
         parsed = ParsedTransaction(
             amount=t.get("amount"),
-            date=datetime.fromisoformat(t.get("date").replace("Z", "+00:00")),
+            date=txn_date,
             description=t.get("description") or t.get("raw_message") or payload.message,
-            type=t.get("type"),
+            type=t.get("type", "DEBIT").upper(),
             account_mask=t.get("account", {}).get("mask"),
             recipient=t.get("recipient") or t.get("merchant", {}).get("cleaned"),
             category=t.get("category"),
@@ -172,7 +182,7 @@ def ingest_sms(
             credit_limit=t.get("credit_limit"),
             raw_message=t.get("raw_message") or payload.message,
             source="SMS",
-            is_ai_parsed=item.get("metadata", {}).get("parser_used") == "AI"
+            is_ai_parsed=str(item.get("metadata", {}).get("parser_used", "")).upper() == "AI"
         )
         
         extra_data = {
@@ -190,7 +200,7 @@ def ingest_sms(
         "sms_ingestion", 
         "success", 
         f"Processed SMS from {payload.sender} via External Parser", 
-        data={"sender": payload.sender, "results_count": len(results)},
+        data={"sender": payload.sender, "results_count": len(results), "details": results},
         device_id=payload.device_id
     )
     
@@ -214,27 +224,41 @@ def ingest_email(
 
     parser_response = ExternalParserService.parse_email(payload.subject, payload.body, payload.sender or "Manual Input")
     
-    if not parser_response or parser_response.get("status") != "processed":
+    status = parser_response.get("status") if parser_response else "offline"
+    
+    if not parser_response or status not in ["processed", "success", "duplicate_submission"]:
         IngestionService.log_event(
-            db, 
-            str(current_user.tenant_id), 
-            "email_ingestion", 
-            "error", 
-            "External parser failed for Email content", 
-            data={"subject": payload.subject, "parser_status": parser_response.get("status") if parser_response else "offline"}
+            db, str(current_user.tenant_id), "email_ingestion", "error",
+            f"External parser skipped/failed with status: {status}",
+            data={"subject": payload.subject, "parser_status": status}
         )
-        raise HTTPException(status_code=422, detail="External parser failed for Email content")
+        raise HTTPException(status_code=422, detail=f"External parser failed for Email content (Status: {status})")
+
+    if status == "duplicate_submission":
+        return {"status": "skipped", "message": "Duplicate submission detected by parser service."}
         
+    # 3. Process Multiple Results
     results = []
     for item in parser_response.get("results", []):
         t = item.get("transaction")
         if not t: continue
         
+        # Robust Date Parsing
+        txn_date = t.get("date")
+        if isinstance(txn_date, str):
+            try:
+                txn_date = datetime.fromisoformat(txn_date.replace("Z", "+00:00"))
+            except:
+                txn_date = datetime.utcnow()
+        else:
+            txn_date = datetime.utcnow()
+
+        # Map to ParsedTransaction
         parsed = ParsedTransaction(
             amount=t.get("amount"),
-            date=datetime.fromisoformat(t.get("date").replace("Z", "+00:00")),
+            date=txn_date,
             description=t.get("description") or payload.subject,
-            type=t.get("type"),
+            type=t.get("type", "DEBIT").upper(),
             account_mask=t.get("account", {}).get("mask"),
             recipient=t.get("recipient") or t.get("merchant", {}).get("cleaned"),
             category=t.get("category"),
@@ -243,7 +267,7 @@ def ingest_email(
             credit_limit=t.get("credit_limit"),
             raw_message=t.get("raw_message") or payload.body,
             source="EMAIL",
-            is_ai_parsed=item.get("metadata", {}).get("parser_used") == "AI"
+            is_ai_parsed=str(item.get("metadata", {}).get("parser_used", "")).upper() == "AI"
         )
         
         proc_result = IngestionService.process_transaction(db, str(current_user.tenant_id), parsed)
