@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 from decimal import Decimal
 import os
-from parser.parsers.recipient_parser import RecipientParser
+from parser.parsers.utils.recipient_parser import RecipientParser
 
 class UniversalParser:
     @staticmethod

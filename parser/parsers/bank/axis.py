@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime
 from decimal import Decimal
 from parser.parsers.base_compat import BaseSmsParser, BaseEmailParser, ParsedTransaction
-from parser.parsers.recipient_parser import RecipientParser
+from parser.parsers.utils.recipient_parser import RecipientParser
 
 class AxisSmsParser(BaseSmsParser):
     """
