@@ -29,6 +29,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # TODO: Restrict in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Categorized Routers
 app.include_router(system.router)
 app.include_router(ingestion.router)
