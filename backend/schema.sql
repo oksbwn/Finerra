@@ -1,10 +1,11 @@
--- Auto-generated schema from SQLAlchemy models
+-- Auto-generated schema from Backend SQLAlchemy models
 -- Dialect: DuckDB (compatible with PostgreSQL syntax mostly)
 
+-- 1. Tenants & Users
 CREATE TABLE tenants (
 	id VARCHAR NOT NULL, 
 	name VARCHAR NOT NULL, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id)
 );
 
@@ -22,7 +23,9 @@ CREATE TABLE users (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+CREATE INDEX ix_user_tenant ON users (tenant_id);
 
+-- 2. Finance Core
 CREATE TABLE accounts (
 	id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 
@@ -37,11 +40,12 @@ CREATE TABLE accounts (
 	due_day NUMERIC(2, 0),
 	is_verified BOOLEAN DEFAULT TRUE NOT NULL,
 	import_config VARCHAR,
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
 	FOREIGN KEY(owner_id) REFERENCES users (id)
 );
+CREATE INDEX ix_accounts_tenant_owner ON accounts (tenant_id, owner_id);
 
 CREATE TABLE categories (
 	id VARCHAR NOT NULL, 
@@ -50,10 +54,30 @@ CREATE TABLE categories (
 	icon VARCHAR, 
 	color VARCHAR DEFAULT '#3B82F6',
 	type VARCHAR DEFAULT 'expense',
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+
+CREATE TABLE loans (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	account_id VARCHAR NOT NULL, 
+	principal_amount NUMERIC(15, 2) NOT NULL, 
+	interest_rate NUMERIC(5, 2) NOT NULL, 
+	start_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	tenure_months NUMERIC(5, 0) NOT NULL, 
+	emi_amount NUMERIC(15, 2) NOT NULL, 
+	emi_date NUMERIC(2, 0) NOT NULL, 
+	loan_type VARCHAR DEFAULT 'OTHER' NOT NULL,
+	bank_account_id VARCHAR, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
+	FOREIGN KEY(account_id) REFERENCES accounts (id),
+	UNIQUE(account_id)
+);
+CREATE INDEX ix_loans_tenant ON loans (tenant_id);
 
 CREATE TABLE transactions (
 	id VARCHAR NOT NULL, 
@@ -77,12 +101,15 @@ CREATE TABLE transactions (
 	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	is_emi BOOLEAN DEFAULT FALSE NOT NULL,
 	loan_id VARCHAR,
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id),
 	FOREIGN KEY(loan_id) REFERENCES loans (id)
 );
+CREATE INDEX ix_transactions_query ON transactions (tenant_id, account_id, date);
+CREATE INDEX ix_transactions_category ON transactions (tenant_id, category);
 
+-- 3. Ingestion & Automation (Rules, Budgets, Recurring)
 CREATE TABLE category_rules (
 	id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 
@@ -93,7 +120,7 @@ CREATE TABLE category_rules (
 	is_transfer BOOLEAN DEFAULT FALSE NOT NULL,
 	to_account_id VARCHAR,
 	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
@@ -104,10 +131,11 @@ CREATE TABLE budgets (
 	category VARCHAR NOT NULL, 
 	amount_limit NUMERIC(15, 2) NOT NULL, 
 	period VARCHAR DEFAULT 'MONTHLY', 
-	updated_at TIMESTAMP WITHOUT TIME ZONE, 
+	updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+CREATE INDEX ix_budgets_lookup ON budgets (tenant_id, category);
 
 CREATE TABLE recurring_transactions (
 	id VARCHAR NOT NULL, 
@@ -123,11 +151,13 @@ CREATE TABLE recurring_transactions (
 	is_active BOOLEAN DEFAULT TRUE NOT NULL, 
 	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	last_run_date TIMESTAMP WITHOUT TIME ZONE, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+CREATE INDEX ix_recurring_lookup ON recurring_transactions (tenant_id, account_id, next_run_date);
 
+-- 4. Mutual Funds
 CREATE TABLE mutual_funds_meta (
 	scheme_code VARCHAR NOT NULL, 
 	scheme_name VARCHAR NOT NULL, 
@@ -155,6 +185,7 @@ CREATE TABLE mutual_fund_holdings (
 	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code),
 	FOREIGN KEY(user_id) REFERENCES users (id)
 );
+CREATE INDEX ix_mf_holdings_lookup ON mutual_fund_holdings (tenant_id, scheme_code);
 
 CREATE TABLE mutual_fund_orders (
 	id VARCHAR NOT NULL, 
@@ -171,12 +202,14 @@ CREATE TABLE mutual_fund_orders (
 	external_id VARCHAR, 
 	import_source VARCHAR DEFAULT 'MANUAL', 
 	user_id VARCHAR,
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
 	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code),
 	FOREIGN KEY(user_id) REFERENCES users (id)
 );
+CREATE INDEX ix_mf_orders_lookup ON mutual_fund_orders (tenant_id, scheme_code, order_date);
+CREATE INDEX ix_mf_orders_folio ON mutual_fund_orders (folio_number);
 
 CREATE TABLE portfolio_timeline_cache (
 	id VARCHAR NOT NULL, 
@@ -185,12 +218,13 @@ CREATE TABLE portfolio_timeline_cache (
 	portfolio_hash VARCHAR NOT NULL, 
 	portfolio_value NUMERIC(15, 2) NOT NULL, 
 	invested_value NUMERIC(15, 2) NOT NULL, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 CREATE INDEX ix_timeline_cache_lookup ON portfolio_timeline_cache (tenant_id, portfolio_hash, snapshot_date);
 
+-- 5. Email & Ingestion Configuration
 CREATE TABLE email_configurations (
 	id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 
@@ -206,6 +240,7 @@ CREATE TABLE email_configurations (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+CREATE INDEX ix_email_configs_tenant ON email_configurations (tenant_id);
 
 CREATE TABLE email_sync_logs (
 	id VARCHAR NOT NULL, 
@@ -220,6 +255,7 @@ CREATE TABLE email_sync_logs (
 	FOREIGN KEY(config_id) REFERENCES email_configurations (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+CREATE INDEX ix_email_logs_lookup ON email_sync_logs (tenant_id, config_id);
 
 CREATE TABLE pending_transactions (
 	id VARCHAR NOT NULL, 
@@ -242,10 +278,11 @@ CREATE TABLE pending_transactions (
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
 	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
+CREATE INDEX ix_pending_txns_lookup ON pending_transactions (tenant_id, account_id);
 
 CREATE TABLE unparsed_messages (
 	id VARCHAR NOT NULL, 
@@ -255,7 +292,7 @@ CREATE TABLE unparsed_messages (
 	content_hash VARCHAR,
 	subject VARCHAR, 
 	sender VARCHAR, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
@@ -268,11 +305,12 @@ CREATE TABLE parsing_patterns (
 	mapping_config VARCHAR NOT NULL, 
 	is_active BOOLEAN DEFAULT TRUE, 
 	description VARCHAR, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 
+-- 6. AI & Mobile
 CREATE TABLE ai_configurations (
 	id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 
@@ -281,8 +319,8 @@ CREATE TABLE ai_configurations (
 	api_key VARCHAR, 
 	is_enabled BOOLEAN DEFAULT TRUE, 
 	prompts_json VARCHAR, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
-	updated_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
@@ -294,25 +332,11 @@ CREATE TABLE ai_call_cache (
 	provider VARCHAR NOT NULL, 
 	model_name VARCHAR NOT NULL, 
 	response_json VARCHAR NOT NULL, 
-	created_at TIMESTAMP WITHOUT TIME ZONE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 CREATE INDEX ix_ai_call_cache_content_hash ON ai_call_cache (content_hash);
-
--- Additional Performance Indexes
-CREATE INDEX ix_accounts_tenant_owner ON accounts (tenant_id, owner_id);
-CREATE INDEX ix_transactions_query ON transactions (tenant_id, account_id, date);
-CREATE INDEX ix_transactions_category ON transactions (tenant_id, category);
-CREATE INDEX ix_budgets_lookup ON budgets (tenant_id, category);
-CREATE INDEX ix_recurring_lookup ON recurring_transactions (tenant_id, account_id, next_run_date);
-CREATE INDEX ix_mf_holdings_lookup ON mutual_fund_holdings (tenant_id, scheme_code);
-CREATE INDEX ix_mf_orders_lookup ON mutual_fund_orders (tenant_id, scheme_code, order_date);
-CREATE INDEX ix_mf_orders_folio ON mutual_fund_orders (folio_number);
-CREATE INDEX ix_email_configs_tenant ON email_configurations (tenant_id);
-CREATE INDEX ix_email_logs_lookup ON email_sync_logs (tenant_id, config_id);
-CREATE INDEX ix_pending_txns_lookup ON pending_transactions (tenant_id, account_id);
-CREATE INDEX ix_user_tenant ON users (tenant_id);
 
 CREATE TABLE mobile_devices (
 	id VARCHAR NOT NULL, 
@@ -357,23 +381,3 @@ CREATE TABLE ignored_patterns (
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
 );
 CREATE INDEX ix_ignored_patterns_tenant ON ignored_patterns (tenant_id);
-CREATE TABLE loans (
-	id VARCHAR NOT NULL, 
-	tenant_id VARCHAR NOT NULL, 
-	account_id VARCHAR NOT NULL, 
-	principal_amount NUMERIC(15, 2) NOT NULL, 
-	interest_rate NUMERIC(5, 2) NOT NULL, 
-	start_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
-	tenure_months NUMERIC(5, 0) NOT NULL, 
-	emi_amount NUMERIC(15, 2) NOT NULL, 
-	emi_date NUMERIC(2, 0) NOT NULL, 
-	bank_account_id VARCHAR, 
-	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
-	PRIMARY KEY (id), 
-	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
-	FOREIGN KEY(account_id) REFERENCES accounts (id),
-	UNIQUE(account_id)
-);
-CREATE INDEX ix_loans_tenant ON loans (tenant_id);
-;
-ALTER TABLE loans ADD COLUMN loan_type VARCHAR DEFAULT 'OTHER' NOT NULL;
