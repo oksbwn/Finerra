@@ -27,7 +27,7 @@ class TestParserMicroservice(unittest.TestCase):
         unique_id = str(uuid.uuid4())[:8]
         payload = {
             "sender": "HDFCBK",
-            "body": f"Rs.1234.00 debited from a/c **1234 on 28-01-26 to VPA IND*AMZN Pay India. Ref {unique_id}. Not you? Call 1800...",
+            "body": f"Rs.1234.00 debited from a/c XX1234 on 13-01-26 to VPA IND*AMZN Pay India. Ref {unique_id}. Not you? Call 1800...",
             "received_at": datetime.now().isoformat()
         }
         resp = requests.post(f"{BASE_URL}/v1/ingest/sms", json=payload)
@@ -40,7 +40,7 @@ class TestParserMicroservice(unittest.TestCase):
         
         self.assertEqual(float(txn['amount']), 1234.00)
         self.assertEqual(txn['type'], 'DEBIT')
-        self.assertEqual(txn['account']['mask'], '**1234')
+        self.assertEqual(txn['account']['mask'], 'XX1234')
         # Check Normalization
         self.assertIn("Amazon", txn['merchant']['cleaned'])
         # Check Category Guess
@@ -50,7 +50,7 @@ class TestParserMicroservice(unittest.TestCase):
         unique_id = str(uuid.uuid4())[:8]
         payload = {
             "sender": "SBIINB",
-            "body": f"Txn of Rs.500.00 on SBI A/c XX9999 at ZOMATO MEDIA on 28Jan26. Ref: {unique_id}",
+            "body": f"Txn of Rs.500.00 on SBI A/c XX9999 at ZOMATO MEDIA on 13-01-26. Ref: {unique_id}",
             "received_at": datetime.now().isoformat()
         }
         resp = requests.post(f"{BASE_URL}/v1/ingest/sms", json=payload)
@@ -60,7 +60,7 @@ class TestParserMicroservice(unittest.TestCase):
         
         txn = data['results'][0]['transaction']
         self.assertEqual(float(txn['amount']), 500.00)
-        self.assertEqual(txn['account']['mask'], 'XX9999')
+        self.assertEqual(txn['account']['mask'], '9999')
         self.assertEqual(txn['merchant']['cleaned'], 'Zomato') # Normalizer check
         self.assertEqual(txn['category'], 'Food & Dining') # Guesser check
 

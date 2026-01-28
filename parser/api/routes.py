@@ -6,15 +6,27 @@ from pydantic import BaseModel
 from parser.db.database import get_db
 from parser.core.pipeline import IngestionPipeline
 from parser.schemas.transaction import IngestionResult, ParsedItem, TransactionMeta
-from parser.parsers.bank.hdfc import HdfcSmsParser
-from parser.parsers.bank.icici import IciciSmsParser
-from parser.parsers.bank.sbi import SbiSmsParser
+from parser.parsers.bank.hdfc import HdfcSmsParser, HdfcEmailParser
+from parser.parsers.bank.icici import IciciSmsParser, IciciEmailParser
+from parser.parsers.bank.sbi import SbiSmsParser, SbiEmailParser
+from parser.parsers.bank.axis import AxisSmsParser
+from parser.parsers.bank.kotak import KotakSmsParser
+from parser.parsers.bank.generic import GenericSmsParser
 from parser.parsers.registry import ParserRegistry
 
-# Register Parsers (Should be done on startup, but here is fine for now)
+# Register SMS Parsers
 ParserRegistry.register_sms(HdfcSmsParser())
 ParserRegistry.register_sms(IciciSmsParser())
 ParserRegistry.register_sms(SbiSmsParser())
+ParserRegistry.register_sms(AxisSmsParser())
+ParserRegistry.register_sms(KotakSmsParser())
+ParserRegistry.register_sms(GenericSmsParser())
+
+# Register Email Parsers
+ParserRegistry.register_email(HdfcEmailParser())
+ParserRegistry.register_email(IciciEmailParser())
+ParserRegistry.register_email(SbiEmailParser())
+
 
 router = APIRouter()
 
@@ -92,9 +104,8 @@ def ingest_email(
     db: Session = Depends(get_db)
 ):
     pipeline = IngestionPipeline(db)
-    # Combine subject and body for classification/parsing context
-    full_content = f"{payload.subject}\n{payload.body_text}"
-    result = pipeline.run(full_content, "EMAIL", payload.sender)
+    # Pass both subject and body for better parsing context in original parsers
+    result = pipeline.run(payload.body_text, "EMAIL", sender=payload.sender, subject=payload.subject)
     return result
 
 @router.post("/v1/config/mapping")
@@ -200,12 +211,14 @@ async def ingest_file(
             return IngestionResult(status="failed", results=[], logs=[str(e)])
 
     try:
-        txns = UniversalParser.parse(content, filename, mapping, header_idx, password=password)
+        raw_txns = UniversalParser.parse(content, filename, mapping, header_idx, password=password)
         
-        # Convert to ParsedItems
+        # Convert to schema via Pipeline helper
+        pipeline = IngestionPipeline(db)
         results = []
-        for t in txns:
-            # We map UniversalParser.Transaction (same schema) to ParsedItem
+        for t_dict in raw_txns:
+            # UniversalParser.parse returns dicts, map them to Transaction schema
+            t = pipeline._convert_to_schema_txn(t_dict)
             results.append(ParsedItem(
                 status="extracted",
                 transaction=t,

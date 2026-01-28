@@ -27,8 +27,10 @@ class Transaction(BaseModel):
     description: Optional[str] = None
     ref_id: Optional[str] = None
     balance: Optional[Decimal] = None
+    credit_limit: Optional[Decimal] = None
     category: Optional[str] = None
     raw_message: Optional[str] = None
+    recipient: Optional[str] = None
     
 class TransactionMeta(BaseModel):
     confidence: float

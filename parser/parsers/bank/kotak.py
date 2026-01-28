@@ -5,33 +5,45 @@ from decimal import Decimal
 from parser.parsers.base_compat import BaseSmsParser, BaseEmailParser, ParsedTransaction
 from parser.parsers.recipient_parser import RecipientParser
 
-class SbiSmsParser(BaseSmsParser):
+class KotakSmsParser(BaseSmsParser):
     """
-    Parser for SBI Bank SMS Alerts.
+    Parser for Kotak Bank SMS Alerts.
     """
-    # Example: "Txn of Rs.100.00 on SBI A/c XX1234 at MERCHANT on 13Jan26. Ref: 123"
-    # Example: "Dear Customer, INR 500.00 debited from A/c XX123 on 13-01-26. Ref No: 123"
-    TXN_PATTERN = re.compile(
-        r"(?i)(?:Txn\s*of|INR|Rs\.?)\s*([\d,]+\.?\d*)\s*(?:on|debited\s*from)\s*.*?A/c\s*(?:.*?|x*|X*)(\d+)\s*at\s*(.*?)\s*on\s*(\d{2}[A-Z]{3,}\d{2,4}|\d{2}-\d{2}-\d{2,4})(?:.*?[Rr]ef[:\.\s-]+(\w+))?",
+    # Example: "Rs. 100.00 debited from A/c XX1234 on 13-01-26 to VPA MERCHANT. Ref: 123"
+    DEBIT_PATTERN = re.compile(
+        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*debited\s*from\s*A/c\s*(?:.*?|x*|X*)(\d+)\s*on\s*(\d{2}-\d{2}-\d{2,4})\s*to\s*(.*?)(?:\.\s*Ref[:\.\s-]+(\w+))?",
+        re.IGNORECASE
+    )
+    
+    # Example: "Spent Rs. 100.00 on Kotak Card XX1234 at MERCHANT on 13-01-26. Ref: 123"
+    SPENT_PATTERN = re.compile(
+        r"(?i)Spent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*Kotak\s*.*?(?:Card|A/c)\s*([xX]*\d+)\s*at\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?[Rr]ef[:\.\s-]+(\w+))?",
         re.IGNORECASE
     )
 
     def can_handle(self, sender: str, message: str) -> bool:
-        return "sbi" in sender.lower() or "sbi" in message.lower()
+        return "kotak" in sender.lower() or "kotak" in message.lower()
 
     def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
-        match = self.TXN_PATTERN.search(clean_content)
+        # 1. Try Debit
+        match = self.DEBIT_PATTERN.search(clean_content)
         if match:
-            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, match.group(5), "SMS", date_hint)
+            ref = match.group(5).strip() if match.group(5) else None
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(4), match.group(2), match.group(3), "DEBIT", content, ref, "SMS", date_hint)
+
+        # 2. Try Spent
+        match = self.SPENT_PATTERN.search(clean_content)
+        if match:
+            ref = match.group(5).strip() if match.group(5) else None
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, ref, "SMS", date_hint)
 
         return None
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, source, date_hint=None):
         try:
-            # Handle formats like 13Jan26 or 13-01-26
-            formats = ["%d%b%y", "%d%b%Y", "%d-%m-%y", "%d-%m-%Y"]
+            formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
             txn_date = None
             for fmt in formats:
                 try:
@@ -46,7 +58,7 @@ class SbiSmsParser(BaseSmsParser):
         return ParsedTransaction(
             amount=amount,
             date=txn_date,
-            description=f"SBI: {clean_recipient or recipient}",
+            description=f"Kotak: {clean_recipient or recipient}",
             type=type_str,
             account_mask=account_mask,
             recipient=clean_recipient,
@@ -55,24 +67,24 @@ class SbiSmsParser(BaseSmsParser):
             source=source
         )
 
-class SbiEmailParser(BaseEmailParser):
+class KotakEmailParser(BaseEmailParser):
     """
-    Parser for SBI Bank Email Alerts.
+    Parser for Kotak Bank Email Alerts.
     """
     REF_PATTERN = re.compile(r"(?i)(?:Ref|UTR|TXN#|Ref No)[:\.\s-]+(\w{3,})")
 
     def can_handle(self, subject: str, body: str) -> bool:
         combined = (subject + " " + body).lower()
-        return "sbi" in combined and any(k in combined for k in ["transaction", "spent", "debited", "alert", "upi"])
+        return "kotak" in combined and any(k in combined for k in ["transaction", "spent", "debited", "alert", "upi"])
 
     def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
         clean_content = " ".join(content.split())
         
-        if "sbi" in clean_content.lower():
+        if "kotak" in clean_content.lower():
             amt_match = re.search(r"(?i)(?:INR|Rs\.?)\s*([\d\.]+(?:,\d{3})*)", clean_content)
             if amt_match:
                 amt_str = amt_match.group(1).replace(",", "")
-                date_match = re.search(r"(\d{2}[A-Za-z]{3}\d{2,4}|\d{2}-\d{2}-\d{2,4})", clean_content)
+                date_match = re.search(r"(\d{2}-\d{2}-\d{2,4})", clean_content)
                 if date_match:
                     merchant_match = re.search(r"(?i)(?:at|to|towards|for|on)\s+([A-Z0-9\s*]{3,30}?)(?:\s+on|\s+at|\.|\s+from|\s+using)", clean_content)
                     merchant = merchant_match.group(1).strip() if merchant_match else "Unknown Merchant"
@@ -88,7 +100,7 @@ class SbiEmailParser(BaseEmailParser):
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
-            formats = ["%d%b%y", "%d%b%Y", "%d-%m-%y", "%d-%m-%Y"]
+            formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
             txn_date = None
             for fmt in formats:
                 try:
@@ -103,7 +115,7 @@ class SbiEmailParser(BaseEmailParser):
         return ParsedTransaction(
             amount=amount,
             date=txn_date,
-            description=f"SBI: {clean_recipient or recipient}",
+            description=f"Kotak: {clean_recipient or recipient}",
             type=type_str,
             account_mask=account_mask,
             recipient=clean_recipient,

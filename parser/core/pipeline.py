@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Any
 from parser.schemas.transaction import IngestionResult, ParsedItem, Transaction
 from parser.core.classifier import FinancialClassifier
 from parser.parsers.registry import ParserRegistry
@@ -7,13 +7,51 @@ from parser.db.models import RequestLog
 import hashlib
 import json
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 class IngestionPipeline:
 
     def __init__(self, db: Session):
         self.db = db
 
-    def run(self, content: str, source: str, sender: Optional[str] = None) -> IngestionResult:
+    def _convert_to_schema_txn(self, pt: Any) -> Transaction:
+        """Helper to convert backend-style ParsedTransaction or dict to microservice Transaction"""
+        from parser.schemas.transaction import Transaction, AccountInfo, MerchantInfo, TransactionType
+        
+        # If it's already a Transaction object (from AI or Pattern parser)
+        if isinstance(pt, Transaction):
+            return pt
+            
+        # If it's a dict (from UniversalParser)
+        if isinstance(pt, dict):
+            return Transaction(
+                amount=Decimal(str(pt.get("amount", 0))),
+                type=TransactionType.DEBIT if pt.get("type") == "DEBIT" else TransactionType.CREDIT,
+                date=datetime.fromisoformat(pt["date"]) if isinstance(pt["date"], str) else pt["date"],
+                account=AccountInfo(mask=pt.get("account_mask") or pt.get("external_id")),
+                merchant=MerchantInfo(raw=pt.get("description"), cleaned=pt.get("recipient") or pt.get("description")),
+                description=pt.get("description"),
+                ref_id=pt.get("external_id") or pt.get("ref_id"),
+                balance=Decimal(str(pt["balance"])) if pt.get("balance") else None,
+                category=pt.get("category"),
+                raw_message=pt.get("original_row", {}).get("description", "Imported")
+            )
+            
+        # If it's a backend ParsedTransaction
+        return Transaction(
+            amount=pt.amount,
+            type=TransactionType.DEBIT if pt.type == "DEBIT" else TransactionType.CREDIT,
+            date=pt.date,
+            account=AccountInfo(mask=pt.account_mask),
+            merchant=MerchantInfo(raw=pt.recipient or pt.description, cleaned=pt.recipient or pt.description),
+            description=pt.description,
+            ref_id=pt.ref_id,
+            balance=pt.balance,
+            category=pt.category,
+            raw_message=pt.raw_message
+        )
+
+    def run(self, content: str, source: str, sender: Optional[str] = None, subject: Optional[str] = None) -> IngestionResult:
         # 1. Idempotency Check
         input_hash = hashlib.sha256(f"{source}:{content}".encode()).hexdigest()
         
@@ -28,7 +66,7 @@ class IngestionPipeline:
             return IngestionResult(status="duplicate_submission", results=[], logs=["Duplicate submission detected"])
 
         # Create Log Entry
-        log = RequestLog(input_hash=input_hash, source=source, input_payload={"content": content, "sender": sender}, status="processing")
+        log = RequestLog(input_hash=input_hash, source=source, input_payload={"content": content, "sender": sender, "subject": subject}, status="processing")
         self.db.add(log)
         self.db.commit()
 
@@ -46,14 +84,25 @@ class IngestionPipeline:
         # A. Static Parsers
         parsers = ParserRegistry.get_sms_parsers() if source == "SMS" else ParserRegistry.get_email_parsers()
         for p in parsers:
-            if p.can_handle(content, sender):
+            can_handle = False
+            try:
+                if source == "SMS":
+                    can_handle = p.can_handle(sender or "", content)
+                else:
+                    can_handle = p.can_handle(subject or "", content)
+            except Exception as e:
+                logs.append(f"can_handle failed for {type(p).__name__}: {str(e)}")
+                
+            if can_handle:
                 try:
-                    parsed_txn = p.parse(content)
-                    if parsed_txn:
-                        logs.append(f"Successfully parsed by {p.name}")
+                    pt = p.parse(content)
+                    if pt:
+                        parsed_txn = self._convert_to_schema_txn(pt)
+                        parser_name = getattr(p, 'name', type(p).__name__)
+                        logs.append(f"Successfully parsed by {parser_name}")
                         break
                 except Exception as e:
-                    logs.append(f"Parser {p.name} failed: {str(e)}")
+                    logs.append(f"Parser {type(p).__name__} failed: {str(e)}")
 
         # B. User Patterns
         if not parsed_txn:
@@ -61,7 +110,9 @@ class IngestionPipeline:
                  from parser.parsers.patterns.regex_engine import PatternParser
                  # Load rules for this source
                  p_parser = PatternParser(self.db, source)
-                 parsed_txn = p_parser.parse(content)
+                 pt = p_parser.parse(content)
+                 if pt:
+                     parsed_txn = self._convert_to_schema_txn(pt)
              except Exception as e:
                  logs.append(f"Pattern Parser failed: {str(e)}")
                  
@@ -73,8 +124,9 @@ class IngestionPipeline:
              try:
                  from parser.parsers.ai.gemini_parser import GeminiParser
                  ai_parser = GeminiParser(self.db)
-                 parsed_txn = ai_parser.parse(content, source)
-                 if parsed_txn:
+                 pt = ai_parser.parse(content, source)
+                 if pt:
+                     parsed_txn = self._convert_to_schema_txn(pt)
                      logs.append("Extracted via AI")
              except Exception as e:
                  logs.append(f"AI Parser failed: {str(e)}")
@@ -108,8 +160,8 @@ class IngestionPipeline:
              item = ParsedItem(
                 status="extracted",
                 transaction=parsed_txn,
-                metadata={"confidence": 0.5 if "Pattern" in (logs[-1] if logs else "") else 1.0, 
-                          "parser_used": "Static/Pattern", 
+                metadata={"confidence": 0.5 if any("Pattern" in l for l in logs) else 1.0, 
+                          "parser_used": "Static/Pattern/AI", 
                           "source_original": source}
             )
             
