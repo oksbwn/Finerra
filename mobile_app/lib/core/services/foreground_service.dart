@@ -2,78 +2,18 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:mobile_app/core/services/foreground_task_handler.dart';
 
-@pragma('vm:entry-point')
-void startCallback() {
-  FlutterForegroundTask.setTaskHandler(SyncTaskHandler());
-}
-
-class SyncTaskHandler extends TaskHandler {
-  int _eventCount = 0;
-
-  @override
-  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    debugPrint("ForegroundTask: onStart called at $timestamp");
-    // Return immediately - do NOT await anything here
-  }
-
-  @override
-  void onRepeatEvent(DateTime timestamp) {
-    debugPrint("ForegroundTask: onRepeatEvent #$_eventCount at $timestamp");
-    _eventCount++;
-    
-    // Fire and forget - don't await
-    _updateNotificationAsync();
-  }
-
-  @override
-  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
-    debugPrint("ForegroundTask: onDestroy at $timestamp");
-  }
-  
-  void _updateNotificationAsync() {
-    // Run in the background without blocking
-    () async {
-      try {
-        final url = await FlutterForegroundTask.getData<String>(key: 'backend_url');
-        final token = await FlutterForegroundTask.getData<String>(key: 'access_token');
-        
-        if (url == null || token == null) {
-          debugPrint("ForegroundTask: Missing credentials");
-          return;
-        }
-
-        final response = await http.get(
-          Uri.parse('$url/api/v1/finance/metrics'),
-          headers: {'Authorization': 'Bearer $token'},
-        ).timeout(const Duration(seconds: 10));
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final today = (data['today_total'] ?? 0.0).toStringAsFixed(0);
-          final month = (data['monthly_total'] ?? 0.0).toStringAsFixed(0);
-
-          await FlutterForegroundTask.updateService(
-            notificationTitle: 'WealthFam: Active',
-            notificationText: 'Today: ₹$today | Month: ₹$month',
-          );
-          debugPrint("ForegroundTask: Updated notification");
-        }
-      } catch (e) {
-        debugPrint("ForegroundTask: Update failed: $e");
-      }
-    }();
-  }
-}
+// TaskHandler and startCallback moved to foreground_task_handler.dart
 
 class ForegroundServiceWrapper {
   static Future<void> init() async {
     debugPrint("ForegroundService: Initializing...");
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'wealthfam_sync_service_v2',
-        channelName: 'WealthFam Sync',
-        channelDescription: 'Maintains background connection for transaction sync.',
+        channelId: 'wealthfam_fg_sync',
+        channelName: 'WealthFam Guard',
+        channelDescription: 'Live spending tracker and SMS sync',
         channelImportance: NotificationChannelImportance.HIGH,
         priority: NotificationPriority.HIGH,
       ),
@@ -82,69 +22,65 @@ class ForegroundServiceWrapper {
         playSound: false,
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.repeat(600000), // 10 minutes
+        eventAction: ForegroundTaskEventAction.repeat(600000), // 10 minutes 
         autoRunOnBoot: true,
+        autoRunOnMyPackageReplaced: true,
         allowWakeLock: true,
         allowWifiLock: false,
       ),
     );
+    debugPrint("ForegroundService: Init complete");
   }
 
   static Future<bool> start({required String url, required String token}) async {
-    debugPrint("ForegroundService: Start requested");
+    debugPrint("ForegroundService: Start Requested");
     
     try {
-      // Save credentials first
       await FlutterForegroundTask.saveData(key: 'backend_url', value: url);
       await FlutterForegroundTask.saveData(key: 'access_token', value: token);
 
-      // Check and request permissions
       final NotificationPermission permission = await FlutterForegroundTask.checkNotificationPermission();
-      if (permission != NotificationPermission.granted) {
-        final NotificationPermission result = await FlutterForegroundTask.requestNotificationPermission();
+      if(permission != NotificationPermission.granted) {
+        final result = await FlutterForegroundTask.requestNotificationPermission();
         if (result != NotificationPermission.granted) {
           debugPrint("ForegroundService: Notification permission denied");
           return false;
         }
       }
 
-      if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+      final bool batteryOptimized = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+      if (!batteryOptimized) {
         await FlutterForegroundTask.requestIgnoreBatteryOptimization();
       }
 
-      // If already running, just restart
-      if (await FlutterForegroundTask.isRunningService) {
-        debugPrint("ForegroundService: Service already running, restarting");
+      final isRunning = await FlutterForegroundTask.isRunningService;
+      if (isRunning) {
+        debugPrint("ForegroundService: Restarting existing service");
         await FlutterForegroundTask.restartService();
         return true;
       }
 
-      // Start the service
-      debugPrint("ForegroundService: Starting new service");
-      final ServiceRequestResult result = await FlutterForegroundTask.startService(
+      debugPrint("ForegroundService: Starting new service [dataSync]");
+      final result = await FlutterForegroundTask.startService(
         serviceId: 256,
-        notificationTitle: 'WealthFam Monitoring',
-        notificationText: 'Starting background sync...',
+        serviceTypes: [ForegroundServiceTypes.dataSync],
+        notificationTitle: 'WealthFam Guard',
+        notificationText: 'Initializing tracker...',
+        notificationIcon: const NotificationIcon(
+          metaDataName: 'com.wealthfam.notification_icon',
+        ),
         callback: startCallback,
       );
-
-      if (result is ServiceRequestSuccess) {
-        debugPrint("ForegroundService: Service started successfully");
-        // Trigger initial update after a moment
-        Future.delayed(const Duration(seconds: 3), () {
-          _triggerManualUpdate();
-        });
-        return true;
+      
+      if (result is ServiceRequestFailure) {
+        debugPrint("ForegroundService: Start failed: ${result.error}");
       } else {
-        debugPrint("ForegroundService: Failed to start: $result");
-        if (result is ServiceRequestFailure) {
-          debugPrint("ForegroundService: Error: ${result.error}");
-        }
-        return false;
+        debugPrint("ForegroundService: Start success");
       }
-    } catch (e, stack) {
-      debugPrint("ForegroundService: Exception during start: $e");
-      debugPrint("Stack: $stack");
+      
+      return true;
+    } catch (e) {
+      debugPrint("ForegroundService: Exception: $e");
       return false;
     }
   }
@@ -167,7 +103,7 @@ class ForegroundServiceWrapper {
         if (url == null || token == null) return;
 
         final response = await http.get(
-          Uri.parse('$url/api/v1/finance/metrics'),
+          Uri.parse('$url/api/v1/finance/mobile-summary'),
           headers: {'Authorization': 'Bearer $token'},
         ).timeout(const Duration(seconds: 10));
 
@@ -176,9 +112,12 @@ class ForegroundServiceWrapper {
           final today = (data['today_total'] ?? 0.0).toStringAsFixed(0);
           final month = (data['monthly_total'] ?? 0.0).toStringAsFixed(0);
 
+          final time = DateTime.now();
+          final timeStr = "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
+
           await FlutterForegroundTask.updateService(
-            notificationTitle: 'WealthFam: Active',
-            notificationText: 'Today: ₹$today | Month: ₹$month',
+            notificationTitle: 'WealthFam Guard',
+            notificationText: 'Spending: ₹$today (Today) • ₹$month (Month)\nLast Updated: $timeStr',
           );
           debugPrint("ForegroundService: Initial update complete");
         }

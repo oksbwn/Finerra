@@ -12,13 +12,12 @@ import 'package:mobile_app/core/services/notification_service.dart';
 import 'package:mobile_app/modules/home/services/dashboard_service.dart';
 import 'package:mobile_app/modules/home/services/funds_service.dart';
 import 'package:mobile_app/modules/home/services/categories_service.dart';
+import 'package:mobile_app/core/services/foreground_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  final notificationService = NotificationService();
-  await notificationService.init();
-  
+  // 1. Critical Services (Blocking)
   final config = AppConfig();
   await config.init();
   
@@ -28,8 +27,11 @@ void main() async {
   final security = SecurityService();
   await security.init();
 
-  final sms = SmsService(config, auth, notificationService);
+  final sms = SmsService(config, auth);
   await sms.init(); 
+
+  // 2. Secondary Services (Non-blocking)
+  _initSecondaryServices();
 
   final dashboard = DashboardService(config, auth);
   final funds = FundsService(config, auth);
@@ -44,6 +46,17 @@ void main() async {
     funds: funds,
     categories: categories,
   ));
+}
+
+/// Start background services without blocking main app startup
+Future<void> _initSecondaryServices() async {
+  try {
+    await NotificationService().init().timeout(const Duration(seconds: 5));
+    await ForegroundServiceWrapper.init().timeout(const Duration(seconds: 5));
+    debugPrint("Secondary services (Notifications, Foreground) initialized.");
+  } catch (e) {
+    debugPrint("Background Service Init Error: $e");
+  }
 }
 
 class MyApp extends StatelessWidget {

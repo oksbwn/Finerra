@@ -27,9 +27,37 @@ class AppConfig extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setBackendUrl(String value) async {
+    // Strip trailing slash
+    if (value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    _backendUrl = value;
+    await _prefs.setString(keyBackendUrl, value);
+    notifyListeners();
+  }
+
+  Future<void> setWebUiUrl(String value) async {
+    if (value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    _webUiUrl = value;
+    await _prefs.setString(keyWebUiUrl, value);
+    notifyListeners();
+  }
+
   Future<void> setUrls({required String backend, required String webUi}) async {
+    // Strip trailing slashes
+    if (backend.endsWith('/')) {
+      backend = backend.substring(0, backend.length - 1);
+    }
+    if (webUi.endsWith('/')) {
+      webUi = webUi.substring(0, webUi.length - 1);
+    }
+    
     _backendUrl = backend;
     _webUiUrl = webUi;
+    
     await _prefs.setString(keyBackendUrl, backend);
     await _prefs.setString(keyWebUiUrl, webUi);
     notifyListeners();

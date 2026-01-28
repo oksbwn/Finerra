@@ -44,10 +44,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <service android:name="com.pravera.flutter_foreground_task.service.ForegroundTaskService" 
+        <service android:name="com.pravera.flutter_foreground_task.service.ForegroundService" 
                  android:foregroundServiceType="dataSync" 
                  android:stopWithTask="false"
                  android:exported="false" />
+        <meta-data
+            android:name="com.wealthfam.notification_icon"
+            android:resource="@drawable/ic_notification" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

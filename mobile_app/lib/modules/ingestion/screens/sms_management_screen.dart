@@ -88,6 +88,70 @@ class _SmsManagementScreenState extends State<SmsManagementScreen> {
     }
   }
 
+  Future<void> _pickAndSyncDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().subtract(const Duration(days: 1)),
+      firstDate: DateTime(2023),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Theme.of(context).primaryColor,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null && mounted) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Confirm Sync'),
+          content: Text('Scan and sync all SMS from ${DateFormat('dd MMM yyyy').format(picked)}? This might take a moment.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Start Sync')),
+          ],
+        ),
+      );
+
+      if (confirm == true && mounted) {
+        setState(() => _isProcessing = true);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Starting Sync...')));
+        
+        try {
+          final count = await context.read<SmsService>().syncFromDate(picked);
+          if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               SnackBar(
+                 content: Text('Sync Complete. Pushed $count new messages.'),
+                 backgroundColor: AppTheme.success,
+               )
+             );
+          }
+        } catch (e) {
+          if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               SnackBar(
+                 content: Text('Sync Error: $e'),
+                 backgroundColor: AppTheme.danger,
+               )
+             );
+          }
+        } finally {
+          if (mounted) {
+            setState(() => _isProcessing = false);
+            _loadMessages(); // Refresh list to show status changes
+          }
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final smsService = context.watch<SmsService>();
@@ -98,6 +162,11 @@ class _SmsManagementScreenState extends State<SmsManagementScreen> {
       appBar: AppBar(
         title: const Text('SMS Management'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            tooltip: 'Sync from Date',
+            onPressed: _isProcessing ? null : _pickAndSyncDate,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isLoading ? null : _loadMessages,
