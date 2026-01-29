@@ -22,6 +22,26 @@ class TransactionService:
             if existing:
                 return existing
 
+        # If no external_id, check for content hash duplicate
+        # Generate hash if not present
+        import hashlib
+        txn_hash = getattr(transaction, 'content_hash', None)
+        if not txn_hash:
+            # Hash: tenant_id + account_id + date + amount + description (or recipient)
+            # Use strict canonical format
+            hash_payload = f"{tenant_id}:{transaction.account_id}:{transaction.date.isoformat()}:{transaction.amount}:{transaction.description or ''}"
+            txn_hash = hashlib.md5(hash_payload.encode()).hexdigest()
+
+        # Check existing by hash
+        existing_hash = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.account_id == str(transaction.account_id),
+            models.Transaction.content_hash == txn_hash
+        ).first()
+
+        if existing_hash:
+             return existing_hash
+
         # Serialize tags if present
         tags_str = json.dumps(transaction.tags) if transaction.tags else None
         
@@ -63,7 +83,7 @@ class TransactionService:
             is_transfer=transaction.is_transfer,
             linked_transaction_id=getattr(transaction, 'linked_transaction_id', None),
             source=transaction.source if hasattr(transaction, 'source') else "MANUAL",
-            content_hash=getattr(transaction, 'content_hash', None),
+            content_hash=txn_hash,
             exclude_from_reports=final_exclude,
             is_emi=getattr(transaction, 'is_emi', False),
             loan_id=getattr(transaction, 'loan_id', None)
