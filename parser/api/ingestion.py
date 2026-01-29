@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 import json
+import hashlib
 
 from parser.db.database import get_db
 from parser.core.pipeline import IngestionPipeline
@@ -76,7 +77,9 @@ async def ingest_file(
     
     
     content = await file.read()
+    file_hash = hashlib.sha256(content).hexdigest()
     filename = file.filename
+    from parser.db.models import RequestLog
     
     mapping = {}
     header_idx = header_row_index or 0
@@ -96,41 +99,129 @@ async def ingest_file(
     if not mapping:
         try:
             analysis = UniversalParser.analyze(content, filename)
+            db.add(RequestLog(
+                input_hash=file_hash, 
+                source="FILE", 
+                input_payload={"filename": filename, "op": "analyze"},
+                status="success",
+                output_payload={"status": "analysis_required", "analysis": analysis}
+            ))
+            db.commit()
             return IngestionResult(status="analysis_required", results=[], logs=["No mapping found. Analysis: " + json.dumps(analysis, default=str)])
         except Exception as e:
+            db.add(RequestLog(
+                input_hash=file_hash, 
+                source="FILE", 
+                status="failed",
+                input_payload={"filename": filename, "op": "analyze"},
+                output_payload={"error": str(e)}
+            ))
+            db.commit()
             return IngestionResult(status="failed", results=[], logs=[str(e)])
 
     try:
         raw_txns, skipped_logs = UniversalParser.parse(content, filename, mapping, header_idx, password=password)
         pipeline = IngestionPipeline(db)
         results = []
+        
         for t_dict in raw_txns:
             t = pipeline._convert_to_schema_txn(t_dict)
-            results.append(ParsedItem(
+            item = ParsedItem(
                 status="extracted",
                 transaction=t,
-                metadata=TransactionMeta(confidence=1.0, parser_used="UniversalParser", source_original="FILE")
-            ))
+                metadata=TransactionMeta(
+                    confidence=1.0, 
+                    parser_used="UniversalParser", 
+                    source_original="FILE",
+                    units=t_dict.get("units"),
+                    nav=t_dict.get("nav")
+                )
+            )
+            results.append(item)
+
+        # Log once for the entire file
+        output = IngestionResult(
+            status="success" if results else "failed", 
+            results=results, 
+            logs=skipped_logs
+        )
         
-        status = "success" if results else "failed"
-        if not results and skipped_logs:
-             # If no results but we have skipped logs, return them
-             return IngestionResult(status="failed", results=[], logs=skipped_logs)
-             
-        return IngestionResult(status=status, results=results, logs=skipped_logs)
+        db.add(RequestLog(
+            input_hash=file_hash,
+            source="FILE",
+            status=output.status,
+            input_payload={"filename": filename, "op": "parse"},
+            output_payload=output.model_dump(mode='json')
+        ))
+        
+        db.commit()
+        return output
     except Exception as e:
+        db.add(RequestLog(
+            input_hash=file_hash,
+            source="FILE",
+            status="failed",
+            input_payload={"filename": filename, "op": "parse"},
+            output_payload={"error": str(e)}
+        ))
+        db.commit()
         return IngestionResult(status="failed", results=[], logs=[str(e)])
 
-@router.post("/cas")
+@router.post("/cas", response_model=IngestionResult)
 async def ingest_cas(
     file: UploadFile = File(...),
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    
     content = await file.read()
+    file_hash = hashlib.sha256(content).hexdigest()
+    from parser.db.models import RequestLog
+    
     try:
         data = CasParser.parse(content, password)
-        return {"status": "success", "count": len(data), "transactions": data}
+        pipeline = IngestionPipeline(db)
+        results = []
+        
+        for t_dict in data:
+            t = pipeline._convert_to_schema_txn(t_dict)
+            item = ParsedItem(
+                status="extracted",
+                transaction=t,
+                metadata=TransactionMeta(
+                    confidence=1.0, 
+                    parser_used="CasParser", 
+                    source_original="CAS",
+                    units=t_dict.get("units"),
+                    nav=t_dict.get("nav"),
+                    amfi=t_dict.get("amfi"),
+                    isin=t_dict.get("isin")
+                )
+            )
+            results.append(item)
+            
+        output = IngestionResult(
+            status="success" if results else "failed",
+            results=results,
+            logs=[]
+        )
+        
+        db.add(RequestLog(
+            input_hash=file_hash,
+            source="CAS",
+            status=output.status,
+            input_payload={"filename": file.filename},
+            output_payload=output.model_dump(mode='json')
+        ))
+        
+        db.commit()
+        return output
     except Exception as e:
+        db.add(RequestLog(
+            input_hash=file_hash,
+            source="CAS",
+            status="failed",
+            output_payload={"error": str(e)}
+        ))
+        db.commit()
+        # Still return 400 for errors like wrong password in CAS
         raise HTTPException(status_code=400, detail=f"CAS Parse Failed: {str(e)}")

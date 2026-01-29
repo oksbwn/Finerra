@@ -543,6 +543,7 @@ class ImportItem(BaseModel):
     amount: float
     type: str # DEBIT/CREDIT
     external_id: Optional[str] = None
+    ref_id: Optional[str] = None # Parser returns ref_id
     balance: Optional[float] = None
     credit_limit: Optional[float] = None
     is_transfer: bool = False
@@ -580,13 +581,22 @@ def import_csv(
                  category="Uncategorized",
                  tags=[],
                  source=payload.source,
-                 external_id=txn.external_id
+                 external_id=txn.external_id or txn.ref_id
              )
              TransactionService.create_transaction(db, txn_create, str(current_user.tenant_id))
              success_count += 1
         except Exception as e:
             errors.append(f"Row {idx+1}: {str(e)}")
             
+    IngestionService.log_event(
+        db, 
+        str(current_user.tenant_id), 
+        "bulk_import", 
+        "success" if success_count > 0 else "failed",
+        f"Imported {success_count} transactions from {payload.source}",
+        data={"source": payload.source, "success_count": success_count, "error_count": len(errors), "total": len(payload.transactions)}
+    )
+
     return {
         "status": "completed",
         "imported": success_count,

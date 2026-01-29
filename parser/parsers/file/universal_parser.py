@@ -180,7 +180,7 @@ class UniversalParser:
                         continue
                     
                     #  4. Extract Recipient from description
-                    recipient = RecipientParser.extract(desc)
+                    recipient = RecipientParser.extract(desc, source_type="FILE")
                     
                     # 5. Reference (External ID)
                     external_id = None
@@ -189,6 +189,9 @@ class UniversalParser:
                         raw_ref = get_val(row, ref_col)
                         if raw_ref and str(raw_ref).strip():
                              external_id = str(raw_ref).strip()
+                             # Normalize: remove leading zeros if numeric
+                             if external_id.isdigit():
+                                 external_id = external_id.lstrip('0')
                     
                     # 6. Balance & Credit Limit
                     balance_val = None
@@ -208,7 +211,7 @@ class UniversalParser:
                         "recipient": recipient,
                         "amount": amount,
                         "type": txn_type,
-                        "external_id": external_id,
+                        "ref_id": external_id, # Return as ref_id to match Parser contract
                         "balance": balance_val,
                         "credit_limit": limit_val,
                         "original_row": {str(k): str(v) for k, v in row.to_dict().items()} # Serialize
