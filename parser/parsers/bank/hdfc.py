@@ -137,8 +137,9 @@ class HdfcEmailParser(BaseEmailParser):
     )
 
     # Example: "Rs.40000.00 has been debited from account 5244 to VPA groww.iccl1.brk@validhdfc MUTUAL FUNDS ICCL on 13-01-26. Ref: 116929657356"
+    # Example 2: "Dear Customer, Rs.35.00 has been debited from account 5244 to VPA ... on 28-01-26. Your UPI transaction reference number is 1178..."
     UPI_DEBIT_PATTERN = re.compile(
-        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*has\s*been\s*debited\s*from\s*account\s*(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?Ref[:\.\s]+(\w+))?",
+        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*has\s*been\s*debited\s*from\s*account\s*(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?\b(?:Ref|Reference)\s*(?:No|ID|Number)?[\s:\.-]+([a-zA-Z0-9]+))?",
         re.IGNORECASE
     )
 
