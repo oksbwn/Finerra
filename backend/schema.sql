@@ -206,6 +206,23 @@ CREATE TABLE investment_goals (
 );
 CREATE INDEX ix_investment_goals_tenant ON investment_goals (tenant_id);
 
+CREATE TABLE goal_assets (
+    id VARCHAR NOT NULL,
+    tenant_id VARCHAR NOT NULL,
+    goal_id VARCHAR NOT NULL,
+    type VARCHAR NOT NULL,
+    name VARCHAR,
+    manual_amount NUMERIC(15, 2),
+    interest_rate NUMERIC(5, 2),
+    linked_account_id VARCHAR,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+    FOREIGN KEY(goal_id) REFERENCES investment_goals (id),
+    FOREIGN KEY(linked_account_id) REFERENCES accounts (id)
+);
+CREATE INDEX ix_goal_assets_lookup ON goal_assets (tenant_id, goal_id);
+
 CREATE TABLE mutual_fund_holdings (
 	id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 

@@ -42,6 +42,7 @@ class AccountRead(AccountBase):
     id: Union[UUID, str]
     tenant_id: Union[UUID, str]
     owner_id: Optional[Union[UUID, str]] = None
+    linked_goals: List[str] = []
 
     created_at: datetime
 
@@ -382,15 +383,47 @@ class InvestmentGoalUpdate(BaseModel):
     color: Optional[str] = None
     is_completed: Optional[bool] = None
 
+class GoalAssetBase(BaseModel):
+    type: str  # MUTUAL_FUND, BANK_ACCOUNT, MANUAL
+    name: Optional[str] = None
+    manual_amount: Optional[Decimal] = None
+    interest_rate: Optional[Decimal] = None
+    linked_account_id: Optional[str] = None
+
+class GoalAssetCreate(GoalAssetBase):
+    pass
+
+class GoalAssetRead(GoalAssetBase):
+    id: str
+    goal_id: str
+    display_name: str = ""
+    current_value: Decimal = Decimal('0.0')
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class GoalHoldingRead(BaseModel):
+    id: str
+    scheme_name: str
+    folio_number: Optional[str] = None
+    current_value: Decimal = Decimal('0.0')
+
+    class Config:
+        from_attributes = True
+
 class InvestmentGoalRead(InvestmentGoalBase):
     id: str
     tenant_id: str
     created_at: datetime
+    assets: List[GoalAssetRead] = []
 
     class Config:
         from_attributes = True
 
 class InvestmentGoalProgress(InvestmentGoalRead):
+    holdings: List[GoalHoldingRead] = []
     current_amount: Decimal = Decimal('0.0')
+    remaining_amount: Decimal = Decimal('0.0')
     progress_percentage: float = 0.0
     holdings_count: int = 0

@@ -250,6 +250,51 @@ class InvestmentGoal(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     holdings = relationship("MutualFundHolding", back_populates="goal")
+    assets = relationship("GoalAsset", back_populates="goal", cascade="all, delete-orphan")
+
+class GoalAssetType(str, enum.Enum):
+    MUTUAL_FUND = "MUTUAL_FUND"
+    BANK_ACCOUNT = "BANK_ACCOUNT" 
+    MANUAL = "MANUAL"
+
+class GoalAsset(Base):
+    __tablename__ = "goal_assets"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    goal_id = Column(String, ForeignKey("investment_goals.id"), nullable=False, index=True)
+    type = Column(SqlEnum(GoalAssetType), nullable=False)
+    
+    # Manual Entry Fields
+    name = Column(String, nullable=True) # e.g. "EPF" or "My Savings"
+    manual_amount = Column(Numeric(15, 2), nullable=True)
+    interest_rate = Column(Numeric(5, 2), nullable=True) # %
+    
+    # Linked Entity Fields
+    linked_account_id = Column(String, ForeignKey("accounts.id"), nullable=True)
+    # For mutual funds, we might still use the separate holding relationship or link here. 
+    # To keep it simple, we can migrate MF linking here eventually, but for now allow both or use this for "Portfolio" link.
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    goal = relationship("InvestmentGoal", back_populates="assets")
+    linked_account = relationship("Account")
+
+    @property
+    def current_value(self):
+        if self.type == GoalAssetType.BANK_ACCOUNT and self.linked_account:
+            return self.linked_account.balance
+        return self.manual_amount or 0
+
+    @property
+    def display_name(self):
+        # Convert type to string for safe comparison
+        type_str = str(self.type.value if hasattr(self.type, 'value') else self.type).upper()
+        if type_str == "BANK_ACCOUNT":
+            if self.linked_account:
+                return self.linked_account.name
+            return self.name or "Linked Bank Account"
+        return self.name or "Unnamed Asset"
 
 class MutualFundHolding(Base):
     __tablename__ = "mutual_fund_holdings"
@@ -267,6 +312,15 @@ class MutualFundHolding(Base):
     last_updated_at = Column(DateTime, default=datetime.utcnow)
 
     goal = relationship("InvestmentGoal", back_populates="holdings")
+    meta = relationship("MutualFundsMeta", foreign_keys=[scheme_code], primaryjoin="MutualFundHolding.scheme_code == MutualFundsMeta.scheme_code")
+
+    @property
+    def scheme_name(self):
+        if self.meta and self.meta.scheme_name:
+            return self.meta.scheme_name
+        if self.folio_number:
+            return f"Fund (Folio: {self.folio_number})"
+        return f"Fund ({self.scheme_code})"
 
 class MutualFundOrder(Base):
     __tablename__ = "mutual_fund_orders"

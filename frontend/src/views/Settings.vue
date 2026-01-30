@@ -228,6 +228,21 @@
                                 <div class="acc-meta">
                                     <span class="acc-type">{{ getAccountTypeLabel(acc.type) }}</span>
                                     <span v-if="acc.account_mask" class="acc-mask">••{{ acc.account_mask }}</span>
+
+                                    <!-- Goal Linked Badge -->
+                                    <!-- Goal Linked Badge -->
+                                    <span v-if="acc.linked_goals && acc.linked_goals.length > 0"
+                                        class="goal-linked-badge" :title="'Linked to: ' + acc.linked_goals.join(', ')">
+                                        🎯 {{ acc.linked_goals[0] }}
+                                        <span v-if="acc.linked_goals.length > 1">+{{ acc.linked_goals.length - 1
+                                            }}</span>
+                                    </span>
+                                    <span v-else-if="accountGoalMap[acc.id]" class="goal-linked-badge"
+                                        :title="'Linked to: ' + accountGoalMap[acc.id].join(', ')">
+                                        🎯 {{ accountGoalMap[acc.id][0] }}
+                                        <span v-if="accountGoalMap[acc.id].length > 1">+{{ accountGoalMap[acc.id].length
+                                            - 1 }}</span>
+                                    </span>
                                 </div>
                                 <div class="acc-owner-row mt-3">
                                     <div class="owner-pill">
@@ -562,6 +577,100 @@
                     </div>
                 </div>
 
+                <!-- CATEGORIES TAB -->
+                <div v-if="activeTab === 'categories'" class="tab-content animate-in">
+                    <!-- Invisible file input for import -->
+                    <input type="file" ref="fileInput" accept=".json" style="display: none"
+                        @change="handleImportCategories" />
+
+                    <!-- Header / Controls -->
+                    <div class="account-control-bar mb-6">
+                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" class="search-icon">
+                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <input type="text" v-model="searchQuery" placeholder="Search categories..."
+                                class="search-input">
+                        </div>
+
+                        <div class="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
+                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'all' }"
+                                @click="activeCategoryFilter = 'all'">
+                                All
+                            </button>
+                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'expense' }"
+                                @click="activeCategoryFilter = 'expense'">
+                                🔴 Expense
+                            </button>
+                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'income' }"
+                                @click="activeCategoryFilter = 'income'">
+                                🟢 Income
+                            </button>
+                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'transfer' }"
+                                @click="activeCategoryFilter = 'transfer'">
+                                🔄 Transfer
+                            </button>
+                        </div>
+
+                        <div class="header-actions ml-auto flex items-center gap-2">
+                            <button class="btn-secondary-premium btn-sm flex items-center gap-1"
+                                @click="handleExportCategories" title="Export to JSON">
+                                📤 <span class="hidden sm:inline">Export</span>
+                            </button>
+                            <button class="btn-secondary-premium btn-sm flex items-center gap-1" @click="triggerImport"
+                                title="Import from JSON">
+                                📥 <span class="hidden sm:inline">Import</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Categories Grid (Tree View) -->
+                    <div class="settings-grid">
+                        <!-- Add New Card -->
+                        <div class="glass-card add-account-card"
+                            @click="() => { isEditingCategory = false; editingCategoryId = null; showCategoryModal = true; }">
+                            <div class="add-icon-circle">+</div>
+                            <span>New Category</span>
+                        </div>
+
+                        <!-- Render Root Categories -->
+                        <div v-for="cat in rootCategories" :key="cat.id" class="category-tree-card glass-card">
+                            <div class="cat-card-main"
+                                @click="isEditingCategory = true; editingCategoryId = cat.id; categoryForm = { ...cat }; showCategoryModal = true;">
+                                <div class="cat-icon-wrapper"
+                                    :style="{ backgroundColor: cat.color + '20', color: cat.color }">
+                                    {{ cat.icon || '🏷️' }}
+                                </div>
+                                <div class="cat-info">
+                                    <div class="cat-name">{{ cat.name }}</div>
+                                    <div class="cat-meta">{{ (cat.type || 'expense').toUpperCase() }}</div>
+                                </div>
+                                <div class="cat-actions">
+                                    <button class="btn-icon-subtle"
+                                        @click.stop="isEditingCategory = true; editingCategoryId = cat.id; categoryForm = { ...cat }; showCategoryModal = true;">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Subcategories -->
+                            <div v-if="getChildren(cat.id).length > 0" class="sub-cats-list">
+                                <div v-for="child in getChildren(cat.id)" :key="child.id" class="sub-cat-item"
+                                    @click.stop="isEditingCategory = true; editingCategoryId = child.id; categoryForm = { ...child }; showCategoryModal = true;">
+                                    <div class="sub-cat-line"></div>
+                                    <span class="sub-cat-icon">{{ child.icon || '🏷️' }}</span>
+                                    <span class="sub-cat-name">{{ child.name }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- RULES TAB -->
                 <div v-if="activeTab === 'rules'" class="tab-content animate-in">
                     <!-- Search Bar -->
@@ -788,6 +897,7 @@
                         </div>
                     </div>
                 </div>
+
                 <!-- AI INTEGRATION TAB (RE-DESIGNED) -->
                 <div v-if="activeTab === 'ai'" class="tab-content animate-in">
                     <div class="ai-layout max-w-7xl mx-auto">
@@ -1850,42 +1960,49 @@
 
                     <form @submit.prevent="saveCategory" class="form-compact">
                         <!-- Preview Section -->
-                        <div class="category-preview-banner mb-6" :style="{ background: `${newCategory.color}10` }">
+                        <div class="category-preview-banner mb-6" :style="{ background: `${categoryForm.color}10` }">
                             <div class="preview-icon"
-                                :style="{ background: `${newCategory.color}20`, color: newCategory.color }">
-                                {{ newCategory.icon || '🏷️' }}
+                                :style="{ background: `${categoryForm.color}20`, color: categoryForm.color }">
+                                {{ categoryForm.icon || '🏷️' }}
                             </div>
-                            <div class="preview-text">
-                                <div class="preview-name">{{ newCategory.name || 'Category Name' }}</div>
-                                <div class="preview-type">{{ (newCategory.type || 'expense').toUpperCase() }}</div>
+                            <div class="section-text">
+                                <div class="preview-name">{{ categoryForm.name || 'Category Name' }}</div>
+                                <div class="preview-type">{{ (categoryForm.type || 'expense').toUpperCase() }}</div>
                             </div>
                         </div>
 
                         <div class="form-group mb-6">
                             <label class="form-label">Icon (Emoji)</label>
                             <div class="emoji-picker-container">
-                                <input v-model="newCategory.icon" class="form-input emoji-input-large" required
+                                <input v-model="categoryForm.icon" class="form-input emoji-input-large" required
                                     maxlength="2" />
                                 <div class="emoji-grid-subtle">
                                     <span
                                         v-for="e in ['💰', '🛒', '🚗', '🏠', '🍔', '🎮', '🏥', '✈️', '🎓', '👔', '🛒', '🛍️', '🍿', '🍕']"
-                                        :key="e" @click="newCategory.icon = e" class="emoji-opt">
+                                        :key="e" @click="categoryForm.icon = e" class="emoji-opt">
                                         {{ e }}
                                     </span>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="form-group mb-6">
+                        <div class="form-group mb-4">
                             <label class="form-label">Category Name</label>
-                            <input v-model="newCategory.name" class="form-input" required
+                            <input v-model="categoryForm.name" class="form-input" required
                                 placeholder="e.g. Subscriptions" />
+                        </div>
+
+                        <div class="form-group mb-4">
+                            <label class="form-label">Parent Category (Optional)</label>
+                            <CustomSelect v-model="categoryForm.parent_id"
+                                :options="[{ label: 'None (Root)', value: null }, ...categories.filter(c => c.id !== editingCategoryId).map(c => ({ label: `${c.icon} ${c.name}`, value: c.id }))]"
+                                placeholder="Select Parent" />
                         </div>
 
                         <div class="form-row mb-6">
                             <div class="form-group half">
                                 <label class="form-label">Type</label>
-                                <CustomSelect v-model="newCategory.type" :options="[
+                                <CustomSelect v-model="categoryForm.type" :options="[
                                     { label: '🔴 Expense', value: 'expense' },
                                     { label: '🟢 Income', value: 'income' },
                                     { label: '🔄 Transfer', value: 'transfer' }
@@ -1894,11 +2011,11 @@
                             <div class="form-group half">
                                 <label class="form-label">Theme Color</label>
                                 <div class="color-selection-wrapper">
-                                    <input type="color" v-model="newCategory.color" class="color-input-bubble" />
+                                    <input type="color" v-model="categoryForm.color" class="color-input-bubble" />
                                     <div class="color-preset-grid">
-                                        <div v-for="c in colorPresets" :key="c" @click="newCategory.color = c"
+                                        <div v-for="c in colorPresets" :key="c" @click="categoryForm.color = c"
                                             class="color-dot" :style="{ background: c }"
-                                            :class="{ active: newCategory.color === c }">
+                                            :class="{ active: categoryForm.color === c }">
                                         </div>
                                     </div>
                                 </div>
@@ -2034,7 +2151,7 @@
 
                         <div class="form-group">
                             <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                                }}</label>
+                            }}</label>
                             <input v-model="memberForm.password" class="form-input" type="password"
                                 :required="!isEditingMember" />
                         </div>
@@ -2175,6 +2292,9 @@ const currentUser = ref<any>(null)
 const loading = ref(true)
 const isSyncing = ref(false)
 const syncStatus = ref<any>(null)
+const goals = ref<any[]>([])
+
+// Ingestion Events State
 const ingestionEvents = ref<any[]>([])
 const eventPagination = ref({ total: 0, limit: 10, skip: 0 })
 const selectedEvents = ref<string[]>([])
@@ -2304,6 +2424,14 @@ const categoryStats = computed(() => {
         transfer: categories.value.filter(c => c.type === 'transfer').length,
     }
 })
+
+const rootCategories = computed(() => {
+    return filteredCategoriesForTab.value.filter(c => !c.parent_id)
+})
+
+function getChildren(parentId: string) {
+    return filteredCategoriesForTab.value.filter(c => c.parent_id === parentId)
+}
 const emptyRulesMsg = computed(() => searchQuery.value ? 'No rules match your search.' : 'No rules found. Define rules to automate categorization.')
 const consumedLimitMsg = computed(() => newAccount.value.type === 'CREDIT_CARD' ? 'Consumed Limit' : 'Current Balance')
 const emailModalTitle = computed(() => editingEmailConfig.value ? 'Edit Email Configuration' : 'Connect Email Account')
@@ -2363,6 +2491,13 @@ const showDeleteCategoryConfirm = ref(false)
 const categoryToDelete = ref<string | null>(null)
 const isEditingCategory = ref(false)
 const editingCategoryId = ref<string | null>(null)
+const categoryForm = ref({
+    name: '',
+    icon: '🏷️',
+    color: '#3B82F6',
+    type: 'expense',
+    parent_id: null as string | null
+})
 
 // AI Integration State
 const aiForm = ref({
@@ -2531,7 +2666,53 @@ async function testAi() {
         aiTesting.value = false
     }
 }
-const newCategory = ref({ name: '', icon: '🏷️', color: '#3B82F6', type: 'expense' })
+
+// --- Category Import/Export ---
+const fileInput = ref<HTMLInputElement | null>(null)
+
+async function handleExportCategories() {
+    try {
+        const res = await financeApi.exportCategories()
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(res.data, null, 2))
+        const downloadAnchorNode = document.createElement('a')
+        downloadAnchorNode.setAttribute("href", dataStr)
+        downloadAnchorNode.setAttribute("download", "categories_export.json")
+        document.body.appendChild(downloadAnchorNode) // required for firefox
+        downloadAnchorNode.click()
+        downloadAnchorNode.remove()
+        notify.success("Categories exported successfully")
+    } catch (e) {
+        notify.error("Failed to export categories")
+    }
+}
+
+function triggerImport() {
+    fileInput.value?.click()
+}
+
+async function handleImportCategories(event: Event) {
+    const target = event.target as HTMLInputElement
+    if (!target.files || target.files.length === 0) return
+
+    const file = target.files[0]
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+        try {
+            const json = JSON.parse(e.target?.result as string)
+            if (!Array.isArray(json)) throw new Error("Invalid format: Expected array")
+
+            await financeApi.importCategories(json)
+            notify.success(`Successfully imported ${json.length} categories`)
+            fetchData() // Refresh
+        } catch (err) {
+            console.error(err)
+            notify.error("Failed to import categories. Invalid file format.")
+        } finally {
+            if (fileInput.value) fileInput.value.value = '' // Reset
+        }
+    }
+    reader.readAsText(file)
+}
 
 const categoryOptions = computed(() => {
     return categories.value.map(c => ({
@@ -2540,19 +2721,36 @@ const categoryOptions = computed(() => {
     }))
 })
 
+const accountGoalMap = computed(() => {
+    const map: Record<string, string[]> = {}
+    if (!goals.value) return map
+
+    goals.value.forEach(goal => {
+        if (goal.assets) {
+            goal.assets.forEach((asset: any) => {
+                if (asset.linked_account_id) {
+                    if (!map[asset.linked_account_id]) map[asset.linked_account_id] = []
+                    map[asset.linked_account_id].push(goal.name)
+                }
+            })
+        }
+    })
+    return map
+})
+
 async function fetchData() {
     loading.value = true
     try {
         const [accRes, rulesRes, catRes, sugRes, emailRes, tenantRes, usersRes, meRes, devicesRes] = await Promise.all([
             financeApi.getAccounts(),
             financeApi.getRules(),
-            financeApi.getCategories(),
+            financeApi.getCategories(), // We might want tree here, but list is better for Settings
             financeApi.getRuleSuggestions(),
             financeApi.getEmailConfigs(),
             financeApi.getTenants(),
             financeApi.getUsers(),
             financeApi.getMe(),
-            mobileApi.getDevices()
+            mobileApi.getDevices(),
         ])
         accounts.value = accRes.data
         rules.value = rulesRes.data
@@ -2563,6 +2761,8 @@ async function fetchData() {
         familyMembers.value = usersRes.data
         currentUser.value = meRes.data
         devices.value = devicesRes.data
+        const goalsRes = await financeApi.getInvestmentGoals()
+        goals.value = goalsRes.data
         fetchAiSettings()
         fetchParserData()
         fetchIngestionEvents()
@@ -3109,30 +3309,31 @@ async function confirmSaveRule() {
 function openAddCategoryModal() {
     isEditingCategory.value = false
     editingCategoryId.value = null
-    newCategory.value = { name: '', icon: '🏷️', color: '#3B82F6', type: 'expense' }
+    categoryForm.value = { name: '', icon: '🏷️', color: '#3B82F6', type: 'expense', parent_id: null }
     showCategoryModal.value = true
 }
 
 function openEditCategoryModal(cat: any) {
     isEditingCategory.value = true
     editingCategoryId.value = cat.id
-    newCategory.value = {
+    categoryForm.value = {
         name: cat.name,
         icon: cat.icon,
         color: cat.color || '#3B82F6',
-        type: cat.type || 'expense'
+        type: cat.type || 'expense',
+        parent_id: cat.parent_id || null
     }
     showCategoryModal.value = true
 }
 
 async function saveCategory() {
-    if (!newCategory.value.name) return
+    if (!categoryForm.value.name) return
     try {
         if (isEditingCategory.value && editingCategoryId.value) {
-            await financeApi.updateCategory(editingCategoryId.value, newCategory.value)
+            await financeApi.updateCategory(editingCategoryId.value, categoryForm.value)
             notify.success("Category updated")
         } else {
-            await financeApi.createCategory(newCategory.value)
+            await financeApi.createCategory(categoryForm.value)
             notify.success("Category created")
         }
         showCategoryModal.value = false

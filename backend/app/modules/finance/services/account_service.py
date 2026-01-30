@@ -28,7 +28,38 @@ class AccountService:
         if user_role == "CHILD":
             query = query.filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
             
-        return query.all()
+        # Role-based restriction: Kids can't see Investments or Credit Cards
+        if user_role == "CHILD":
+            query = query.filter(models.Account.type.notin_(["INVESTMENT", "CREDIT"]))
+            
+        accounts = query.all()
+        
+        # Populate linked goals
+        try:
+            # Query for (account_id, goal_name) pairs
+            links = db.query(models.GoalAsset.linked_account_id, models.InvestmentGoal.name)\
+                .join(models.InvestmentGoal, models.GoalAsset.goal_id == models.InvestmentGoal.id)\
+                .filter(models.GoalAsset.linked_account_id.in_([str(a.id) for a in accounts]))\
+                .all()
+                
+            links_map = {}
+            for acc_id, goal_name in links:
+                if acc_id not in links_map:
+                    links_map[acc_id] = []
+                links_map[acc_id].append(goal_name)
+                
+            # Convert to dict and add linked_goals
+            account_dicts = []
+            for acc in accounts:
+                acc_dict = schemas.AccountRead.model_validate(acc).model_dump()
+                acc_dict['linked_goals'] = links_map.get(str(acc.id), [])
+                account_dicts.append(acc_dict)
+                
+            return account_dicts
+            
+        except Exception as e:
+            print(f"Error fetching linked goals: {e}")
+            return accounts
 
     @staticmethod
     def update_account(db: Session, account_id: str, account_update: schemas.AccountUpdate, tenant_id: str) -> Optional[models.Account]:
