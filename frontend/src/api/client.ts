@@ -86,6 +86,8 @@ export const financeApi = {
     ignoreSuggestion: (data: { pattern: string }) => apiClient.post('/finance/rules/suggestions/ignore', data),
     updateRule: (id: string, data: any) => apiClient.put(`/finance/rules/${id}`, data),
     deleteRule: (id: string) => apiClient.delete(`/finance/rules/${id}`),
+    applyRuleRetrospectively: (id: string) => apiClient.post(`/finance/transactions/rules/${id}/apply-retrospective`),
+    getMatchCount: (keywords: string[]) => apiClient.post('/finance/transactions/match-count', { keywords }),
 
     getCategories: (tree: boolean = false) => apiClient.get('/finance/categories', { params: { tree } }),
     createCategory: (data: any) => apiClient.post('/finance/categories', data),
@@ -215,7 +217,7 @@ export const financeApi = {
 
 // Parser Microservice API (Port 8001)
 const parserClient = axios.create({
-    baseURL: import.meta.env.VITE_PARSER_API_URL || 'http://localhost:8001/v1',
+    baseURL: import.meta.env.VITE_PARSER_API_URL || '/parser',
     headers: {
         'Content-Type': 'application/json',
     },

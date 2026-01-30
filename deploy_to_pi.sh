@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Configuration
-REMOTE_USER="oksbwn"
-REMOTE_HOST="192.168.0.9"
+REMOTE_USER="root"
+REMOTE_HOST="192.168.0.7"
 REMOTE_DIR="~/wealthfam"
 ARCHIVE_NAME="wealthfam_deploy.tar.gz"
 

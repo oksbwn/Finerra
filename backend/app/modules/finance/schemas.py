@@ -427,3 +427,6 @@ class InvestmentGoalProgress(InvestmentGoalRead):
     remaining_amount: Decimal = Decimal('0.0')
     progress_percentage: float = 0.0
     holdings_count: int = 0
+
+class MatchCountRequest(BaseModel):
+    keywords: List[str]

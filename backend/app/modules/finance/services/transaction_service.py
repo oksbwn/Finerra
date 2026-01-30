@@ -529,16 +529,18 @@ class TransactionService:
                 rule_created = True
 
         if apply_to_similar:
+            from sqlalchemy import or_
             query = db.query(models.Transaction).filter(
                 models.Transaction.tenant_id == tenant_id,
                 models.Transaction.id != txn_id,
                 (models.Transaction.category == "Uncategorized") | (models.Transaction.category == None)
             )
             
-            if db_txn.recipient:
-                query = query.filter(models.Transaction.recipient == db_txn.recipient)
-            else:
-                query = query.filter(models.Transaction.description == db_txn.description)
+            search_pattern = f"%{pattern}%"
+            query = query.filter(or_(
+                models.Transaction.description.ilike(search_pattern),
+                models.Transaction.recipient.ilike(search_pattern)
+            ))
                 
             similar_txns = query.all()
             for st in similar_txns:
@@ -555,3 +557,65 @@ class TransactionService:
             "rule_created": rule_created,
             "pattern": pattern
         }
+
+    @staticmethod
+    def apply_rule_retrospectively(db: Session, rule_id: str, tenant_id: str) -> dict:
+        rule = db.query(models.CategoryRule).filter(
+            models.CategoryRule.id == rule_id,
+            models.CategoryRule.tenant_id == tenant_id
+        ).first()
+        
+        if not rule:
+            return {"success": False, "message": "Rule not found"}
+        
+        keywords = json.loads(rule.keywords)
+        if not keywords:
+            return {"success": True, "affected": 0}
+            
+        # Find transactions that match keywords AND are uncategorized
+        from sqlalchemy import or_
+        query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            (models.Transaction.category == "Uncategorized") | (models.Transaction.category == None)
+        )
+        
+        # Build OR clause for keywords
+        filters = []
+        for k in keywords:
+            pattern = f"%{k}%"
+            filters.append(models.Transaction.description.ilike(pattern))
+            filters.append(models.Transaction.recipient.ilike(pattern))
+            
+        query = query.filter(or_(*filters))
+        
+        target_txns = query.all()
+        affected_count = 0
+        for txn in target_txns:
+            txn.category = rule.category
+            if rule.exclude_from_reports:
+                txn.exclude_from_reports = True
+            if rule.is_transfer and rule.to_account_id:
+                txn.is_transfer = True
+                # Note: We don't auto-create the other leg here to avoid mess, 
+                # but we could if needed. For retrospective, usually just the category/hidden flag is enough.
+            db.add(txn)
+            affected_count += 1
+            
+        db.commit()
+        return {"success": True, "affected": affected_count, "category": rule.category}
+
+    @staticmethod
+    def get_matching_count(db: Session, keywords: List[str], tenant_id: str) -> int:
+        if not keywords: return 0
+        from sqlalchemy import or_
+        query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            (models.Transaction.category == "Uncategorized") | (models.Transaction.category == None)
+        )
+        filters = []
+        for k in keywords:
+            pattern = f"%{k}%"
+            filters.append(models.Transaction.description.ilike(pattern))
+            filters.append(models.Transaction.recipient.ilike(pattern))
+        query = query.filter(or_(*filters))
+        return query.count()

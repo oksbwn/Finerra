@@ -85,3 +85,20 @@ def smart_categorize_transaction(
         apply_to_similar=payload.apply_to_similar,
         exclude_from_reports=payload.exclude_from_reports
     )
+
+@router.post("/transactions/rules/{rule_id}/apply-retrospective")
+def apply_rule_retrospectively(
+    rule_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return TransactionService.apply_rule_retrospectively(db, rule_id, str(current_user.tenant_id))
+
+@router.post("/transactions/match-count")
+def get_match_count(
+    payload: schemas.MatchCountRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    count = TransactionService.get_matching_count(db, payload.keywords, str(current_user.tenant_id))
+    return {"count": count}

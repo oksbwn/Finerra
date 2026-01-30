@@ -667,6 +667,13 @@
                                     </div>
                                 </div>
                                 <div class="rule-actions">
+                                    <button @click="handleApplyRuleRetrospectively(rule.id)"
+                                        class="btn-icon-subtle primary" title="Apply to existing transactions">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </button>
                                     <button @click="openEditModal(rule)" class="btn-icon-subtle" title="Edit Rule">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                                             stroke="currentColor" stroke-width="2">
@@ -2128,6 +2135,21 @@ const newRule = ref({
     keywords: '',
     exclude_from_reports: false
 })
+
+async function handleApplyRuleRetrospectively(ruleId: string) {
+    if (!confirm("Apply this rule to all uncategorized transactions? This cannot be undone.")) return
+
+    try {
+        const res = await financeApi.applyRuleRetrospectively(ruleId)
+        if (res.data.success) {
+            notify.success(`Success! Applied to ${res.data.affected} transactions.`)
+        } else {
+            notify.error(res.data.message || "Failed to apply rule")
+        }
+    } catch (e) {
+        notify.error("Failed to apply rule retrospectively")
+    }
+}
 
 // Account Deletion State
 const showAccountDeleteConfirm = ref(false)
