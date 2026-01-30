@@ -63,6 +63,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/expense-groups',
+      name: 'expense-groups',
+      component: () => import('@/views/ExpenseGroups.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/login',
       name: 'login',
       component: Login,

@@ -1,8 +1,9 @@
 import uuid
+from typing import Optional
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, ForeignKey, Numeric, Boolean
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from backend.app.core.database import Base
 import enum
 
@@ -66,10 +67,13 @@ class Transaction(Base):
     latitude = Column(Numeric(10, 8), nullable=True)
     longitude = Column(Numeric(11, 8), nullable=True)
     location_name = Column(String, nullable=True)
+    expense_group_id = Column(String, ForeignKey("expense_groups.id"), nullable=True)
     exclude_from_reports = Column(Boolean, default=False, nullable=False)
     is_emi = Column(Boolean, default=False, nullable=False)
     loan_id = Column(String, ForeignKey("loans.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    expense_group = relationship("ExpenseGroup", back_populates="transactions")
 
     linked_transaction = relationship("Transaction", 
         remote_side=[id],
@@ -125,7 +129,14 @@ class Category(Base):
     icon = Column(String, nullable=True) # Emoji or icon code
     color = Column(String, default="#3B82F6") # Hex color code
     type = Column(String, default="expense") # expense/income
+    parent_id = Column(String, ForeignKey("categories.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    subcategories = relationship("Category", backref=backref("parent", remote_side=[id]))
+
+    @property
+    def parent_name(self) -> Optional[str]:
+        return self.parent.name if self.parent else None
 
 class Budget(Base):
     __tablename__ = "budgets"
@@ -136,6 +147,22 @@ class Budget(Base):
     amount_limit = Column(Numeric(15, 2), nullable=False) # Monthly Limit
     period = Column(String, default="MONTHLY") # For future extensibility
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ExpenseGroup(Base):
+    __tablename__ = "expense_groups"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    budget = Column(Numeric(15, 2), default=0.0)
+    icon = Column(String, nullable=True)
+
+    transactions = relationship("Transaction", back_populates="expense_group")
 
 
 class Frequency(str, enum.Enum):
@@ -205,6 +232,25 @@ class MutualFundsMeta(Base):
     category = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+class SelectionType(enum.Enum):
+    MANUAL = "MANUAL"
+    AUTO = "AUTO"
+
+class InvestmentGoal(Base):
+    __tablename__ = "investment_goals"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    target_amount = Column(Numeric(15, 2), nullable=False)
+    target_date = Column(DateTime, nullable=True)
+    icon = Column(String, default="🎯")
+    color = Column(String, default="#3b82f6")
+    is_completed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    holdings = relationship("MutualFundHolding", back_populates="goal")
+
 class MutualFundHolding(Base):
     __tablename__ = "mutual_fund_holdings"
 
@@ -217,7 +263,10 @@ class MutualFundHolding(Base):
     current_value = Column(Numeric(15, 2), nullable=True)
     last_nav = Column(Numeric(15, 4), nullable=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    goal_id = Column(String, ForeignKey("investment_goals.id"), nullable=True)
     last_updated_at = Column(DateTime, default=datetime.utcnow)
+
+    goal = relationship("InvestmentGoal", back_populates="holdings")
 
 class MutualFundOrder(Base):
     __tablename__ = "mutual_fund_orders"

@@ -13,7 +13,8 @@ import {
     LogOut,
     ChevronLeft,
     ChevronRight,
-    Landmark
+    Landmark,
+    Layers
 } from 'lucide-vue-next'
 import ToastContainer from '@/components/ToastContainer.vue'
 
@@ -155,6 +156,12 @@ onUnmounted(() => {
                             <TrendingUp :size="20" />
                         </span>
                         <span class="label" v-if="!isSidebarCollapsed">Mutual Funds</span>
+                    </router-link>
+                    <router-link to="/expense-groups" class="nav-item" active-class="active">
+                        <span class="icon">
+                            <Layers :size="20" />
+                        </span>
+                        <span class="label" v-if="!isSidebarCollapsed">Expense Groups</span>
                     </router-link>
                     <router-link to="/loans" class="nav-item" active-class="active">
                         <span class="icon">
