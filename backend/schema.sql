@@ -54,9 +54,11 @@ CREATE TABLE categories (
 	icon VARCHAR, 
 	color VARCHAR DEFAULT '#3B82F6',
 	type VARCHAR DEFAULT 'expense',
+	parent_id VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
-	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+	FOREIGN KEY(parent_id) REFERENCES categories (id)
 );
 
 CREATE TABLE loans (
@@ -98,16 +100,35 @@ CREATE TABLE transactions (
 	latitude DECIMAL(10, 8),
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
+	expense_group_id VARCHAR,
 	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	is_emi BOOLEAN DEFAULT FALSE NOT NULL,
 	loan_id VARCHAR,
 	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id),
-	FOREIGN KEY(loan_id) REFERENCES loans (id)
+	FOREIGN KEY(loan_id) REFERENCES loans (id),
+	FOREIGN KEY(expense_group_id) REFERENCES expense_groups (id)
 );
 CREATE INDEX ix_transactions_query ON transactions (tenant_id, account_id, date);
 CREATE INDEX ix_transactions_category ON transactions (tenant_id, category);
+
+-- Expense Groups
+CREATE TABLE expense_groups (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	name VARCHAR NOT NULL, 
+	description VARCHAR,
+	is_active BOOLEAN DEFAULT TRUE NOT NULL,
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+    start_date TIMESTAMP,
+    end_date TIMESTAMP,
+    budget DECIMAL(15, 2) DEFAULT 0,
+    icon VARCHAR,
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+CREATE INDEX ix_expense_groups_tenant ON expense_groups (tenant_id);
 
 -- 3. Ingestion & Automation (Rules, Budgets, Recurring)
 CREATE TABLE category_rules (
@@ -169,6 +190,39 @@ CREATE TABLE mutual_funds_meta (
 	PRIMARY KEY (scheme_code)
 );
 
+
+CREATE TABLE investment_goals (
+	id VARCHAR NOT NULL, 
+	tenant_id VARCHAR NOT NULL, 
+	name VARCHAR NOT NULL, 
+	target_amount NUMERIC(15, 2) NOT NULL, 
+	target_date TIMESTAMP WITHOUT TIME ZONE, 
+	icon VARCHAR DEFAULT '🎯', 
+	color VARCHAR DEFAULT '#3b82f6', 
+	is_completed BOOLEAN DEFAULT FALSE, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+);
+CREATE INDEX ix_investment_goals_tenant ON investment_goals (tenant_id);
+
+CREATE TABLE goal_assets (
+    id VARCHAR NOT NULL,
+    tenant_id VARCHAR NOT NULL,
+    goal_id VARCHAR NOT NULL,
+    type VARCHAR NOT NULL,
+    name VARCHAR,
+    manual_amount NUMERIC(15, 2),
+    interest_rate NUMERIC(5, 2),
+    linked_account_id VARCHAR,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+    FOREIGN KEY(goal_id) REFERENCES investment_goals (id),
+    FOREIGN KEY(linked_account_id) REFERENCES accounts (id)
+);
+CREATE INDEX ix_goal_assets_lookup ON goal_assets (tenant_id, goal_id);
+
 CREATE TABLE mutual_fund_holdings (
 	id VARCHAR NOT NULL, 
 	tenant_id VARCHAR NOT NULL, 
@@ -179,11 +233,13 @@ CREATE TABLE mutual_fund_holdings (
 	current_value NUMERIC(15, 2), 
 	last_nav NUMERIC(15, 4), 
 	user_id VARCHAR,
+	goal_id VARCHAR,
 	last_updated_at TIMESTAMP WITHOUT TIME ZONE, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(tenant_id) REFERENCES tenants (id), 
 	FOREIGN KEY(scheme_code) REFERENCES mutual_funds_meta (scheme_code),
-	FOREIGN KEY(user_id) REFERENCES users (id)
+	FOREIGN KEY(user_id) REFERENCES users (id),
+	FOREIGN KEY(goal_id) REFERENCES investment_goals (id)
 );
 CREATE INDEX ix_mf_holdings_lookup ON mutual_fund_holdings (tenant_id, scheme_code);
 
@@ -277,10 +333,12 @@ CREATE TABLE pending_transactions (
 	latitude DECIMAL(10, 8),
 	longitude DECIMAL(11, 8),
 	location_name VARCHAR,
+	expense_group_id VARCHAR,
 	exclude_from_reports BOOLEAN DEFAULT FALSE NOT NULL,
 	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id), 
-	FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+	FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+	FOREIGN KEY(expense_group_id) REFERENCES expense_groups (id)
 );
 CREATE INDEX ix_pending_txns_lookup ON pending_transactions (tenant_id, account_id);
 

@@ -7,7 +7,14 @@ from backend.app.modules.finance import models, schemas
 class CategoryService:
     # --- Category Management ---
     @staticmethod
-    def get_categories(db: Session, tenant_id: str) -> List[models.Category]:
+    def get_categories(db: Session, tenant_id: str, tree: bool = False) -> List[models.Category]:
+        if tree:
+            # Return only root categories, subcategories will be loaded via relationship
+            return db.query(models.Category).filter(
+                models.Category.tenant_id == tenant_id,
+                models.Category.parent_id == None
+            ).all()
+            
         cats = db.query(models.Category).filter(models.Category.tenant_id == tenant_id).all()
         if not cats:
             # Seed defaults
@@ -59,6 +66,53 @@ class CategoryService:
         db.delete(db_cat)
         db.commit()
         return True
+
+    @staticmethod
+    def export_categories(db: Session, tenant_id: str) -> List[dict]:
+        cats = db.query(models.Category).filter(models.Category.tenant_id == tenant_id).all()
+        return [
+            {
+                "name": c.name,
+                "icon": c.icon,
+                "color": c.color,
+                "type": c.type,
+                "parent_name": c.parent.name if c.parent else None
+            }
+            for c in cats
+        ]
+
+    @staticmethod
+    def import_categories(db: Session, categories_data: List[dict], tenant_id: str):
+        # First pass: Create all categories
+        name_map = {}
+        for c_data in categories_data:
+            existing = db.query(models.Category).filter(
+                models.Category.tenant_id == tenant_id,
+                models.Category.name == c_data["name"]
+            ).first()
+            
+            if not existing:
+                cat = models.Category(
+                    tenant_id=tenant_id,
+                    name=c_data["name"],
+                    icon=c_data.get("icon", "🏷️"),
+                    color=c_data.get("color", "#3B82F6"),
+                    type=c_data.get("type", "expense")
+                )
+                db.add(cat)
+                db.flush() # Get ID
+                name_map[cat.name] = cat
+            else:
+                name_map[existing.name] = existing
+        
+        # Second pass: Link parents
+        for c_data in categories_data:
+            parent_name = c_data.get("parent_name")
+            if parent_name and parent_name in name_map:
+                cat = name_map[c_data["name"]]
+                cat.parent_id = name_map[parent_name].id
+        
+        db.commit()
 
     # --- Rules ---
     @staticmethod

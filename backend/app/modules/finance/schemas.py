@@ -42,6 +42,7 @@ class AccountRead(AccountBase):
     id: Union[UUID, str]
     tenant_id: Union[UUID, str]
     owner_id: Optional[Union[UUID, str]] = None
+    linked_goals: List[str] = []
 
     created_at: datetime
 
@@ -63,6 +64,7 @@ class TransactionBase(BaseModel):
     exclude_from_reports: bool = False
     is_emi: bool = False
     loan_id: Optional[str] = None
+    expense_group_id: Optional[str] = None
 
 class TransactionCreate(TransactionBase):
     account_id: UUID
@@ -84,6 +86,7 @@ class TransactionUpdate(BaseModel):
     exclude_from_reports: Optional[bool] = None
     is_emi: Optional[bool] = None
     loan_id: Optional[str] = None
+    expense_group_id: Optional[str] = None
 
 class Transaction(TransactionBase):
     id: Union[UUID, str]
@@ -107,6 +110,7 @@ class TransactionRead(TransactionBase):
     exclude_from_reports: bool = False
     is_emi: bool = False
     loan_id: Optional[str] = None
+    expense_group_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -164,6 +168,7 @@ class CategoryBase(BaseModel):
     type: str = "expense"
     icon: Optional[str] = "🏷️"
     color: Optional[str] = "#3B82F6"
+    parent_id: Optional[str] = None
 
 class CategoryCreate(CategoryBase):
     pass
@@ -173,11 +178,45 @@ class CategoryUpdate(BaseModel):
     type: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
+    parent_id: Optional[str] = None
 
 class CategoryRead(CategoryBase):
     id: str
     tenant_id: str
+    parent_name: Optional[str] = None
+    subcategories: List['CategoryRead'] = []
     
+    class Config:
+        from_attributes = True
+
+# Expense Groups
+class ExpenseGroupBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    is_active: bool = True
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    budget: Optional[float] = 0.0
+    icon: Optional[str] = None
+
+class ExpenseGroupCreate(ExpenseGroupBase):
+    pass
+
+class ExpenseGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    budget: Optional[float] = None
+    icon: Optional[str] = None
+
+class ExpenseGroupRead(ExpenseGroupBase):
+    id: str
+    tenant_id: str
+    created_at: datetime
+    total_spend: Optional[float] = 0.0
+
     class Config:
         from_attributes = True
 
@@ -323,3 +362,68 @@ class LoanRepayment(BaseModel):
     date: datetime
     installment_no: Optional[int] = None
     description: Optional[str] = None
+
+# Investment Goals
+class InvestmentGoalBase(BaseModel):
+    name: str
+    target_amount: Decimal
+    target_date: Optional[datetime] = None
+    icon: str = "🎯"
+    color: str = "#3b82f6"
+    is_completed: bool = False
+
+class InvestmentGoalCreate(InvestmentGoalBase):
+    pass
+
+class InvestmentGoalUpdate(BaseModel):
+    name: Optional[str] = None
+    target_amount: Optional[Decimal] = None
+    target_date: Optional[datetime] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    is_completed: Optional[bool] = None
+
+class GoalAssetBase(BaseModel):
+    type: str  # MUTUAL_FUND, BANK_ACCOUNT, MANUAL
+    name: Optional[str] = None
+    manual_amount: Optional[Decimal] = None
+    interest_rate: Optional[Decimal] = None
+    linked_account_id: Optional[str] = None
+
+class GoalAssetCreate(GoalAssetBase):
+    pass
+
+class GoalAssetRead(GoalAssetBase):
+    id: str
+    goal_id: str
+    display_name: str = ""
+    current_value: Decimal = Decimal('0.0')
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class GoalHoldingRead(BaseModel):
+    id: str
+    scheme_name: str
+    folio_number: Optional[str] = None
+    current_value: Decimal = Decimal('0.0')
+
+    class Config:
+        from_attributes = True
+
+class InvestmentGoalRead(InvestmentGoalBase):
+    id: str
+    tenant_id: str
+    created_at: datetime
+    assets: List[GoalAssetRead] = []
+
+    class Config:
+        from_attributes = True
+
+class InvestmentGoalProgress(InvestmentGoalRead):
+    holdings: List[GoalHoldingRead] = []
+    current_amount: Decimal = Decimal('0.0')
+    remaining_amount: Decimal = Decimal('0.0')
+    progress_percentage: float = 0.0
+    holdings_count: int = 0

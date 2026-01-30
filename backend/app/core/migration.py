@@ -176,6 +176,69 @@ def run_auto_migrations(engine: Engine):
             safe_add_column("transactions", "is_emi", "BOOLEAN DEFAULT FALSE")
             safe_add_column("transactions", "loan_id", "VARCHAR")
 
+            # 14. Expense Groups & Subcategories
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS expense_groups (
+                id VARCHAR PRIMARY KEY,
+                tenant_id VARCHAR NOT NULL,
+                name VARCHAR NOT NULL,
+                description VARCHAR,
+                is_active BOOLEAN DEFAULT TRUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+            );
+            """))
+
+            safe_add_column("categories", "parent_id", "VARCHAR")
+            safe_add_column("transactions", "expense_group_id", "VARCHAR")
+            safe_add_column("pending_transactions", "expense_group_id", "VARCHAR")
+
+            # 14b. Add Date Range to Expense Groups
+            safe_add_column("expense_groups", "start_date", "TIMESTAMP")
+            safe_add_column("expense_groups", "end_date", "TIMESTAMP")
+            safe_add_column("expense_groups", "budget", "DECIMAL(15, 2) DEFAULT 0")
+
+            # 15. Investment Goals
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS investment_goals (
+                id VARCHAR PRIMARY KEY,
+                tenant_id VARCHAR NOT NULL,
+                name VARCHAR NOT NULL,
+                target_amount NUMERIC(15, 2) NOT NULL,
+                target_date TIMESTAMP,
+                icon VARCHAR DEFAULT '🎯',
+                color VARCHAR DEFAULT '#3b82f6',
+                is_completed BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+            );
+            """))
+
+            # 16. Link Holdings to Goals
+            safe_add_column("mutual_fund_holdings", "goal_id", "VARCHAR")
+
+            # 17. Expense Group Icons
+            safe_add_column("expense_groups", "icon", "VARCHAR")
+
+            # 18. Goal Assets (Flexible Linking)
+            connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS goal_assets (
+                id VARCHAR PRIMARY KEY,
+                tenant_id VARCHAR NOT NULL,
+                goal_id VARCHAR NOT NULL,
+                type VARCHAR NOT NULL,
+                name VARCHAR,
+                manual_amount NUMERIC(15, 2),
+                interest_rate NUMERIC(5, 2),
+                linked_account_id VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+                FOREIGN KEY(goal_id) REFERENCES investment_goals (id),
+                FOREIGN KEY(linked_account_id) REFERENCES accounts (id)
+            );
+            """))
+
+
             # Explicitly commit the transaction!
             connection.commit()
             print("Auto-migration complete.")

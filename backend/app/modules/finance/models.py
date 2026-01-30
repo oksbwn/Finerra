@@ -1,8 +1,9 @@
 import uuid
+from typing import Optional
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, ForeignKey, Numeric, Boolean
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from backend.app.core.database import Base
 import enum
 
@@ -66,10 +67,13 @@ class Transaction(Base):
     latitude = Column(Numeric(10, 8), nullable=True)
     longitude = Column(Numeric(11, 8), nullable=True)
     location_name = Column(String, nullable=True)
+    expense_group_id = Column(String, ForeignKey("expense_groups.id"), nullable=True)
     exclude_from_reports = Column(Boolean, default=False, nullable=False)
     is_emi = Column(Boolean, default=False, nullable=False)
     loan_id = Column(String, ForeignKey("loans.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    expense_group = relationship("ExpenseGroup", back_populates="transactions")
 
     linked_transaction = relationship("Transaction", 
         remote_side=[id],
@@ -125,7 +129,14 @@ class Category(Base):
     icon = Column(String, nullable=True) # Emoji or icon code
     color = Column(String, default="#3B82F6") # Hex color code
     type = Column(String, default="expense") # expense/income
+    parent_id = Column(String, ForeignKey("categories.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    subcategories = relationship("Category", backref=backref("parent", remote_side=[id]))
+
+    @property
+    def parent_name(self) -> Optional[str]:
+        return self.parent.name if self.parent else None
 
 class Budget(Base):
     __tablename__ = "budgets"
@@ -136,6 +147,22 @@ class Budget(Base):
     amount_limit = Column(Numeric(15, 2), nullable=False) # Monthly Limit
     period = Column(String, default="MONTHLY") # For future extensibility
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ExpenseGroup(Base):
+    __tablename__ = "expense_groups"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    budget = Column(Numeric(15, 2), default=0.0)
+    icon = Column(String, nullable=True)
+
+    transactions = relationship("Transaction", back_populates="expense_group")
 
 
 class Frequency(str, enum.Enum):
@@ -205,6 +232,70 @@ class MutualFundsMeta(Base):
     category = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+class SelectionType(enum.Enum):
+    MANUAL = "MANUAL"
+    AUTO = "AUTO"
+
+class InvestmentGoal(Base):
+    __tablename__ = "investment_goals"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    target_amount = Column(Numeric(15, 2), nullable=False)
+    target_date = Column(DateTime, nullable=True)
+    icon = Column(String, default="🎯")
+    color = Column(String, default="#3b82f6")
+    is_completed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    holdings = relationship("MutualFundHolding", back_populates="goal")
+    assets = relationship("GoalAsset", back_populates="goal", cascade="all, delete-orphan")
+
+class GoalAssetType(str, enum.Enum):
+    MUTUAL_FUND = "MUTUAL_FUND"
+    BANK_ACCOUNT = "BANK_ACCOUNT" 
+    MANUAL = "MANUAL"
+
+class GoalAsset(Base):
+    __tablename__ = "goal_assets"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    goal_id = Column(String, ForeignKey("investment_goals.id"), nullable=False, index=True)
+    type = Column(SqlEnum(GoalAssetType), nullable=False)
+    
+    # Manual Entry Fields
+    name = Column(String, nullable=True) # e.g. "EPF" or "My Savings"
+    manual_amount = Column(Numeric(15, 2), nullable=True)
+    interest_rate = Column(Numeric(5, 2), nullable=True) # %
+    
+    # Linked Entity Fields
+    linked_account_id = Column(String, ForeignKey("accounts.id"), nullable=True)
+    # For mutual funds, we might still use the separate holding relationship or link here. 
+    # To keep it simple, we can migrate MF linking here eventually, but for now allow both or use this for "Portfolio" link.
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    goal = relationship("InvestmentGoal", back_populates="assets")
+    linked_account = relationship("Account")
+
+    @property
+    def current_value(self):
+        if self.type == GoalAssetType.BANK_ACCOUNT and self.linked_account:
+            return self.linked_account.balance
+        return self.manual_amount or 0
+
+    @property
+    def display_name(self):
+        # Convert type to string for safe comparison
+        type_str = str(self.type.value if hasattr(self.type, 'value') else self.type).upper()
+        if type_str == "BANK_ACCOUNT":
+            if self.linked_account:
+                return self.linked_account.name
+            return self.name or "Linked Bank Account"
+        return self.name or "Unnamed Asset"
+
 class MutualFundHolding(Base):
     __tablename__ = "mutual_fund_holdings"
 
@@ -217,7 +308,19 @@ class MutualFundHolding(Base):
     current_value = Column(Numeric(15, 2), nullable=True)
     last_nav = Column(Numeric(15, 4), nullable=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    goal_id = Column(String, ForeignKey("investment_goals.id"), nullable=True)
     last_updated_at = Column(DateTime, default=datetime.utcnow)
+
+    goal = relationship("InvestmentGoal", back_populates="holdings")
+    meta = relationship("MutualFundsMeta", foreign_keys=[scheme_code], primaryjoin="MutualFundHolding.scheme_code == MutualFundsMeta.scheme_code")
+
+    @property
+    def scheme_name(self):
+        if self.meta and self.meta.scheme_name:
+            return self.meta.scheme_name
+        if self.folio_number:
+            return f"Fund (Folio: {self.folio_number})"
+        return f"Fund ({self.scheme_code})"
 
 class MutualFundOrder(Base):
     __tablename__ = "mutual_fund_orders"

@@ -21,10 +21,11 @@ def ignore_suggestion(
 
 @router.get("/categories", response_model=List[schemas.CategoryRead])
 def get_categories(
+    tree: bool = False,
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return CategoryService.get_categories(db, str(current_user.tenant_id))
+    return CategoryService.get_categories(db, str(current_user.tenant_id), tree=tree)
 
 @router.post("/categories", response_model=schemas.CategoryRead)
 def create_category(
@@ -54,6 +55,22 @@ def delete_category(
     success = CategoryService.delete_category(db, category_id, str(current_user.tenant_id))
     if not success: raise HTTPException(status_code=404, detail="Category not found")
     return {"status": "success"}
+
+@router.post("/categories/import")
+def import_categories(
+    categories: List[dict],
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    CategoryService.import_categories(db, categories, str(current_user.tenant_id))
+    return {"status": "success", "count": len(categories)}
+
+@router.get("/categories/export")
+def export_categories(
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return CategoryService.export_categories(db, str(current_user.tenant_id))
 
 # --- Rules ---
 @router.post("/rules", response_model=schemas.CategoryRuleRead)

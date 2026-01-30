@@ -87,10 +87,17 @@ export const financeApi = {
     updateRule: (id: string, data: any) => apiClient.put(`/finance/rules/${id}`, data),
     deleteRule: (id: string) => apiClient.delete(`/finance/rules/${id}`),
 
-    getCategories: () => apiClient.get('/finance/categories'),
+    getCategories: (tree: boolean = false) => apiClient.get('/finance/categories', { params: { tree } }),
     createCategory: (data: any) => apiClient.post('/finance/categories', data),
     updateCategory: (id: string, data: any) => apiClient.put(`/finance/categories/${id}`, data),
     deleteCategory: (id: string) => apiClient.delete(`/finance/categories/${id}`),
+    importCategories: (data: any[]) => apiClient.post('/finance/categories/import', data),
+    exportCategories: () => apiClient.get<any[]>('/finance/categories/export'),
+
+    getExpenseGroups: () => apiClient.get('/finance/expense-groups'),
+    createExpenseGroup: (data: any) => apiClient.post('/finance/expense-groups', data),
+    updateExpenseGroup: (id: string, data: any) => apiClient.put(`/finance/expense-groups/${id}`, data),
+    deleteExpenseGroup: (id: string) => apiClient.delete(`/finance/expense-groups/${id}`),
 
     getBudgets: (year?: number, month?: number) => apiClient.get('/finance/budgets', { params: { year, month } }),
     getBudgetsInsights: (year?: number, month?: number) => apiClient.get('/finance/budgets/insights', { params: { year, month } }),
@@ -111,6 +118,8 @@ export const financeApi = {
         apiClient.get('/finance/spending-trend', { params: { user_id: userId } }),
     getBudgetHistory: (months: number = 6) =>
         apiClient.get('/finance/budget-history', { params: { months } }),
+    getHeatmapData: (startDate?: string, endDate?: string, userId?: string) =>
+        apiClient.get('/finance/heatmap', { params: { start_date: startDate, end_date: endDate, user_id: userId } }),
 
     // Ingestion
     analyzeCsv: (formData: FormData) => apiClient.post('/ingestion/csv/analyze', formData, {
@@ -192,6 +201,16 @@ export const financeApi = {
     getPortfolioInsights: () => apiClient.post('/finance/loans/portfolio/insights', {}),
     createLoan: (data: any) => apiClient.post('/finance/loans', data),
     recordLoanRepayment: (loanId: string, data: any) => apiClient.post(`/finance/loans/${loanId}/repayment`, data),
+
+    // Investment Goals
+    getInvestmentGoals: () => apiClient.get('/finance/investment-goals'),
+    createInvestmentGoal: (data: any) => apiClient.post('/finance/investment-goals', data),
+    updateInvestmentGoal: (id: string, data: any) => apiClient.put(`/finance/investment-goals/${id}`, data),
+    deleteInvestmentGoal: (id: string) => apiClient.delete(`/finance/investment-goals/${id}`),
+    linkHoldingToGoal: (goalId: string, holdingId: string) => apiClient.post(`/finance/investment-goals/${goalId}/holdings/${holdingId}`),
+    unlinkHoldingFromGoal: (goalId: string, holdingId: string) => apiClient.delete(`/finance/investment-goals/${goalId}/holdings/${holdingId}`),
+    addGoalAsset: (goalId: string, data: any) => apiClient.post(`/finance/investment-goals/${goalId}/assets`, data),
+    removeGoalAsset: (assetId: string) => apiClient.delete(`/finance/investment-goals/assets/${assetId}`),
 }
 
 // Parser Microservice API (Port 8001)
