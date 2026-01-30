@@ -92,6 +92,10 @@ app = create_application()
 def root():
     return {"message": "Welcome to WealthFam API"}
 
+@app.get("/ping")
+def ping_test():
+    return {"ping": "pong"}
+
 @app.get("/health")
 def health():
     """Health check endpoint for cloud platforms"""
