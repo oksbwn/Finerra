@@ -7,14 +7,16 @@ import {
     Wallet,
     PieChart,
     Sparkles,
-    TrendingUp,
+    Coins,
     Settings,
     Bell,
     LogOut,
     ChevronLeft,
     ChevronRight,
     Landmark,
-    Layers
+    Layers,
+    Target,
+    Tags
 } from 'lucide-vue-next'
 import ToastContainer from '@/components/ToastContainer.vue'
 
@@ -92,7 +94,7 @@ onUnmounted(() => {
                         <div class="user-info-pill" v-if="auth.user">
                             <span class="user-greeting">Hi,</span>
                             <span class="user-name-text">{{ auth.user.full_name || auth.user.email?.split('@')[0]
-                                }}</span>
+                            }}</span>
                         </div>
                         <div class="user-avatar">
                             {{ AVATARS[selectedAvatar as keyof typeof AVATARS] }}
@@ -145,6 +147,12 @@ onUnmounted(() => {
                         </span>
                         <span class="label" v-if="!isSidebarCollapsed">Budgets</span>
                     </router-link>
+                    <router-link to="/categories" class="nav-item" active-class="active">
+                        <span class="icon">
+                            <Tags :size="20" />
+                        </span>
+                        <span class="label" v-if="!isSidebarCollapsed">Categories</span>
+                    </router-link>
                     <router-link to="/insights" class="nav-item" active-class="active">
                         <span class="icon">
                             <Sparkles :size="20" />
@@ -153,9 +161,15 @@ onUnmounted(() => {
                     </router-link>
                     <router-link to="/mutual-funds" class="nav-item" active-class="active">
                         <span class="icon">
-                            <TrendingUp :size="20" />
+                            <Coins :size="20" />
                         </span>
                         <span class="label" v-if="!isSidebarCollapsed">Mutual Funds</span>
+                    </router-link>
+                    <router-link to="/investment-goals" class="nav-item" active-class="active">
+                        <span class="icon">
+                            <Target :size="20" />
+                        </span>
+                        <span class="label" v-if="!isSidebarCollapsed">Financial Goals</span>
                     </router-link>
                     <router-link to="/expense-groups" class="nav-item" active-class="active">
                         <span class="icon">

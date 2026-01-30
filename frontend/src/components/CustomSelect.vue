@@ -107,7 +107,8 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
     min-height: 2.5rem;
     padding: 0.5rem 0.875rem;
     position: relative;
-    z-index: 1;
+    z-index: 10;
+    /* Lower than dropdown but enough to be interactive */
 }
 
 .truncate {
@@ -141,9 +142,9 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
     background: white;
     border: 1px solid #e5e7eb;
     border-radius: 0.75rem;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-    z-index: 9999;
-    /* Massive z-index to stay above other rows */
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    z-index: 10000;
+    /* Higher than modal */
     overflow: hidden;
     display: flex;
     flex-direction: column;

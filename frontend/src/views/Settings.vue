@@ -19,10 +19,7 @@
                             @click="activeTab = 'tenants'; searchQuery = ''">
                             Family
                         </button>
-                        <button class="tab-btn" :class="{ active: activeTab === 'categories' }"
-                            @click="activeTab = 'categories'; searchQuery = ''">
-                            Categories
-                        </button>
+
                         <button class="tab-btn" :class="{ active: activeTab === 'rules' }"
                             @click="activeTab = 'rules'; searchQuery = ''">
                             Rules
@@ -577,99 +574,7 @@
                     </div>
                 </div>
 
-                <!-- CATEGORIES TAB -->
-                <div v-if="activeTab === 'categories'" class="tab-content animate-in">
-                    <!-- Invisible file input for import -->
-                    <input type="file" ref="fileInput" accept=".json" style="display: none"
-                        @change="handleImportCategories" />
 
-                    <!-- Header / Controls -->
-                    <div class="account-control-bar mb-6">
-                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" class="search-icon">
-                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                            <input type="text" v-model="searchQuery" placeholder="Search categories..."
-                                class="search-input">
-                        </div>
-
-                        <div class="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
-                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'all' }"
-                                @click="activeCategoryFilter = 'all'">
-                                All
-                            </button>
-                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'expense' }"
-                                @click="activeCategoryFilter = 'expense'">
-                                🔴 Expense
-                            </button>
-                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'income' }"
-                                @click="activeCategoryFilter = 'income'">
-                                🟢 Income
-                            </button>
-                            <button class="filter-chip" :class="{ active: activeCategoryFilter === 'transfer' }"
-                                @click="activeCategoryFilter = 'transfer'">
-                                🔄 Transfer
-                            </button>
-                        </div>
-
-                        <div class="header-actions ml-auto flex items-center gap-2">
-                            <button class="btn-secondary-premium btn-sm flex items-center gap-1"
-                                @click="handleExportCategories" title="Export to JSON">
-                                📤 <span class="hidden sm:inline">Export</span>
-                            </button>
-                            <button class="btn-secondary-premium btn-sm flex items-center gap-1" @click="triggerImport"
-                                title="Import from JSON">
-                                📥 <span class="hidden sm:inline">Import</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Categories Grid (Tree View) -->
-                    <div class="settings-grid">
-                        <!-- Add New Card -->
-                        <div class="glass-card add-account-card"
-                            @click="() => { isEditingCategory = false; editingCategoryId = null; showCategoryModal = true; }">
-                            <div class="add-icon-circle">+</div>
-                            <span>New Category</span>
-                        </div>
-
-                        <!-- Render Root Categories -->
-                        <div v-for="cat in rootCategories" :key="cat.id" class="category-tree-card glass-card">
-                            <div class="cat-card-main"
-                                @click="isEditingCategory = true; editingCategoryId = cat.id; categoryForm = { ...cat }; showCategoryModal = true;">
-                                <div class="cat-icon-wrapper"
-                                    :style="{ backgroundColor: cat.color + '20', color: cat.color }">
-                                    {{ cat.icon || '🏷️' }}
-                                </div>
-                                <div class="cat-info">
-                                    <div class="cat-name">{{ cat.name }}</div>
-                                    <div class="cat-meta">{{ (cat.type || 'expense').toUpperCase() }}</div>
-                                </div>
-                                <div class="cat-actions">
-                                    <button class="btn-icon-subtle"
-                                        @click.stop="isEditingCategory = true; editingCategoryId = cat.id; categoryForm = { ...cat }; showCategoryModal = true;">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Subcategories -->
-                            <div v-if="getChildren(cat.id).length > 0" class="sub-cats-list">
-                                <div v-for="child in getChildren(cat.id)" :key="child.id" class="sub-cat-item"
-                                    @click.stop="isEditingCategory = true; editingCategoryId = child.id; categoryForm = { ...child }; showCategoryModal = true;">
-                                    <div class="sub-cat-line"></div>
-                                    <span class="sub-cat-icon">{{ child.icon || '🏷️' }}</span>
-                                    <span class="sub-cat-name">{{ child.name }}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- RULES TAB -->
                 <div v-if="activeTab === 'rules'" class="tab-content animate-in">
@@ -795,106 +700,6 @@
 
                     <div v-if="filteredRules.length === 0" class="empty-placeholder">
                         <p>{{ emptyRulesMsg }}</p>
-                    </div>
-                </div>
-
-                <!-- CATEGORIES TAB - PREMIUM REDESIGN -->
-                <div v-if="activeTab === 'categories'" class="tab-content animate-in">
-                    <!-- Stats Overview -->
-                    <div class="stats-grid mb-8">
-                        <div class="stat-card-premium" @click="activeCategoryFilter = 'all'"
-                            :class="{ active: activeCategoryFilter === 'all' }">
-                            <div class="stat-icon-bg neutral">📊</div>
-                            <div class="stat-details">
-                                <span class="stat-label-xs">Total</span>
-                                <span class="stat-value-sm">{{ categoryStats.total }}</span>
-                            </div>
-                        </div>
-                        <div class="stat-card-premium" @click="activeCategoryFilter = 'expense'"
-                            :class="{ active: activeCategoryFilter === 'expense' }">
-                            <div class="stat-icon-bg danger">💸</div>
-                            <div class="stat-details">
-                                <span class="stat-label-xs">Expenses</span>
-                                <span class="stat-value-sm">{{ categoryStats.expenses }}</span>
-                            </div>
-                        </div>
-                        <div class="stat-card-premium" @click="activeCategoryFilter = 'income'"
-                            :class="{ active: activeCategoryFilter === 'income' }">
-                            <div class="stat-icon-bg success">💰</div>
-                            <div class="stat-details">
-                                <span class="stat-label-xs">Income</span>
-                                <span class="stat-value-sm">{{ categoryStats.income }}</span>
-                            </div>
-                        </div>
-                        <div class="stat-card-premium" @click="activeCategoryFilter = 'transfer'"
-                            :class="{ active: activeCategoryFilter === 'transfer' }">
-                            <div class="stat-icon-bg primary">🔄</div>
-                            <div class="stat-details">
-                                <span class="stat-label-xs">Transfers</span>
-                                <span class="stat-value-sm">{{ categoryStats.transfer }}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Toolbar -->
-                    <div class="account-control-bar mb-6">
-                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" class="search-icon">
-                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                            <input type="text" v-model="searchQuery" placeholder="Search categories..."
-                                class="search-input">
-                        </div>
-
-                        <div class="filter-pills-premium">
-                            <button v-for="f in ['all', 'expense', 'income', 'transfer']" :key="f"
-                                @click="activeCategoryFilter = f"
-                                :class="['filter-pill', { active: activeCategoryFilter === f }]">
-                                {{ f.charAt(0).toUpperCase() + f.slice(1) }}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="settings-grid">
-                        <div v-for="cat in filteredCategoriesForTab" :key="cat.id" class="category-card-premium glass"
-                            :style="{ borderLeft: `4px solid ${cat.color || '#3B82F6'}` }">
-                            <div class="cat-card-body">
-                                <div class="cat-icon-frame" :style="{ background: `${cat.color || '#3B82F6'}15` }">
-                                    <span class="cat-emoji">{{ cat.icon }}</span>
-                                </div>
-                                <div class="cat-main-info">
-                                    <h3 class="cat-name-text">{{ cat.name }}</h3>
-                                    <span class="cat-type-label" :class="cat.type || 'expense'">
-                                        {{ (cat.type || 'expense').toUpperCase() }}
-                                    </span>
-                                </div>
-                                <div class="cat-actions-overlay">
-                                    <button @click="openEditCategoryModal(cat)" class="btn-icon-subtle bg-white"
-                                        title="Edit">
-                                        <Pencil :size="16" />
-                                    </button>
-                                    <button @click="deleteCategory(cat.id)" class="btn-icon-subtle bg-white danger"
-                                        title="Delete">
-                                        <Trash2 :size="16" />
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Add New Category Card -->
-                        <div v-if="!searchQuery" class="glass-card add-category-card-premium"
-                            @click="openAddCategoryModal">
-                            <div class="add-circle">+</div>
-                            <span>New Category</span>
-                        </div>
-                    </div>
-
-                    <div v-if="filteredCategoriesForTab.length === 0" class="empty-placeholder">
-                        <div class="empty-state-content">
-                            <div class="empty-icon-large">🏷️</div>
-                            <p>No categories found matching your criteria.</p>
-                        </div>
                     </div>
                 </div>
 
@@ -1950,86 +1755,7 @@
                 </div>
             </div>
 
-            <!-- Add/Edit Category Modal -->
-            <div v-if="showCategoryModal" class="modal-overlay-global">
-                <div class="modal-global glass premium-modal animate-in">
-                    <div class="modal-header">
-                        <h2 class="modal-title">{{ isEditingCategory ? 'Edit Category' : 'New Category' }}</h2>
-                        <button class="btn-icon-circle" @click="showCategoryModal = false">✕</button>
-                    </div>
 
-                    <form @submit.prevent="saveCategory" class="form-compact">
-                        <!-- Preview Section -->
-                        <div class="category-preview-banner mb-6" :style="{ background: `${categoryForm.color}10` }">
-                            <div class="preview-icon"
-                                :style="{ background: `${categoryForm.color}20`, color: categoryForm.color }">
-                                {{ categoryForm.icon || '🏷️' }}
-                            </div>
-                            <div class="section-text">
-                                <div class="preview-name">{{ categoryForm.name || 'Category Name' }}</div>
-                                <div class="preview-type">{{ (categoryForm.type || 'expense').toUpperCase() }}</div>
-                            </div>
-                        </div>
-
-                        <div class="form-group mb-6">
-                            <label class="form-label">Icon (Emoji)</label>
-                            <div class="emoji-picker-container">
-                                <input v-model="categoryForm.icon" class="form-input emoji-input-large" required
-                                    maxlength="2" />
-                                <div class="emoji-grid-subtle">
-                                    <span
-                                        v-for="e in ['💰', '🛒', '🚗', '🏠', '🍔', '🎮', '🏥', '✈️', '🎓', '👔', '🛒', '🛍️', '🍿', '🍕']"
-                                        :key="e" @click="categoryForm.icon = e" class="emoji-opt">
-                                        {{ e }}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="form-group mb-4">
-                            <label class="form-label">Category Name</label>
-                            <input v-model="categoryForm.name" class="form-input" required
-                                placeholder="e.g. Subscriptions" />
-                        </div>
-
-                        <div class="form-group mb-4">
-                            <label class="form-label">Parent Category (Optional)</label>
-                            <CustomSelect v-model="categoryForm.parent_id"
-                                :options="[{ label: 'None (Root)', value: null }, ...categories.filter(c => c.id !== editingCategoryId).map(c => ({ label: `${c.icon} ${c.name}`, value: c.id }))]"
-                                placeholder="Select Parent" />
-                        </div>
-
-                        <div class="form-row mb-6">
-                            <div class="form-group half">
-                                <label class="form-label">Type</label>
-                                <CustomSelect v-model="categoryForm.type" :options="[
-                                    { label: '🔴 Expense', value: 'expense' },
-                                    { label: '🟢 Income', value: 'income' },
-                                    { label: '🔄 Transfer', value: 'transfer' }
-                                ]" />
-                            </div>
-                            <div class="form-group half">
-                                <label class="form-label">Theme Color</label>
-                                <div class="color-selection-wrapper">
-                                    <input type="color" v-model="categoryForm.color" class="color-input-bubble" />
-                                    <div class="color-preset-grid">
-                                        <div v-for="c in colorPresets" :key="c" @click="categoryForm.color = c"
-                                            class="color-dot" :style="{ background: c }"
-                                            :class="{ active: categoryForm.color === c }">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="modal-footer">
-                            <button type="button" @click="showCategoryModal = false"
-                                class="btn-secondary">Cancel</button>
-                            <button type="submit" class="btn-primary-glow">Save Category</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
 
             <!-- Confirmations -->
             <div v-if="showDeleteConfirm" class="modal-overlay-global">
@@ -2039,17 +1765,6 @@
                     <div class="modal-footer">
                         <button @click="showDeleteConfirm = false" class="btn-secondary">Keep it</button>
                         <button @click="confirmDelete" class="btn-danger">Delete Rule</button>
-                    </div>
-                </div>
-            </div>
-            <!-- Delete Category Confirmation -->
-            <div v-if="showDeleteCategoryConfirm" class="modal-overlay-global">
-                <div class="modal-global glass alert">
-                    <h2 class="modal-title">Delete Category?</h2>
-                    <p>Existing transactions in this category will become uncategorized.</p>
-                    <div class="modal-footer">
-                        <button @click="showDeleteCategoryConfirm = false" class="btn-secondary">Cancel</button>
-                        <button @click="confirmDeleteCategory" class="btn-danger">Delete</button>
                     </div>
                 </div>
             </div>
@@ -2247,7 +1962,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import {
-    Pencil, Trash2, CheckCircle, XCircle, Zap,
+    CheckCircle, XCircle, Zap,
     ShieldCheck, BrainCircuit, Activity
 } from 'lucide-vue-next'
 import MainLayout from '@/layouts/MainLayout.vue'
@@ -2268,20 +1983,9 @@ function saveSettings() {
 
 const activeTab = ref('general')
 const categories = ref<any[]>([])
-const activeCategoryFilter = ref('all')
 
-const colorPresets = [
-    '#3B82F6', // Blue
-    '#10B981', // Emerald
-    '#F59E0B', // Amber
-    '#EF4444', // Red
-    '#8B5CF6', // Violet
-    '#EC4899', // Pink
-    '#06B6D4', // Cyan
-    '#F97316', // Orange
-    '#6366F1', // Indigo
-    '#64748B', // Slate
-]
+
+
 
 // Accounts State
 const accounts = ref<any[]>([])
@@ -2404,34 +2108,7 @@ const filteredRules = computed(() => {
     )
 })
 
-const filteredCategoriesForTab = computed(() => {
-    let result = categories.value
-    if (activeCategoryFilter.value !== 'all') {
-        result = result.filter(c => (c.type || 'expense') === activeCategoryFilter.value)
-    }
-    if (searchQuery.value) {
-        const q = searchQuery.value.toLowerCase()
-        result = result.filter(c => c.name.toLowerCase().includes(q))
-    }
-    return result
-})
 
-const categoryStats = computed(() => {
-    return {
-        total: categories.value.length,
-        expenses: categories.value.filter(c => (c.type || 'expense') === 'expense').length,
-        income: categories.value.filter(c => c.type === 'income').length,
-        transfer: categories.value.filter(c => c.type === 'transfer').length,
-    }
-})
-
-const rootCategories = computed(() => {
-    return filteredCategoriesForTab.value.filter(c => !c.parent_id)
-})
-
-function getChildren(parentId: string) {
-    return filteredCategoriesForTab.value.filter(c => c.parent_id === parentId)
-}
 const emptyRulesMsg = computed(() => searchQuery.value ? 'No rules match your search.' : 'No rules found. Define rules to automate categorization.')
 const consumedLimitMsg = computed(() => newAccount.value.type === 'CREDIT_CARD' ? 'Consumed Limit' : 'Current Balance')
 const emailModalTitle = computed(() => editingEmailConfig.value ? 'Edit Email Configuration' : 'Connect Email Account')
@@ -2486,18 +2163,7 @@ async function confirmAccountDelete() {
     }
 }
 
-const showCategoryModal = ref(false)
-const showDeleteCategoryConfirm = ref(false)
-const categoryToDelete = ref<string | null>(null)
-const isEditingCategory = ref(false)
-const editingCategoryId = ref<string | null>(null)
-const categoryForm = ref({
-    name: '',
-    icon: '🏷️',
-    color: '#3B82F6',
-    type: 'expense',
-    parent_id: null as string | null
-})
+
 
 // AI Integration State
 const aiForm = ref({
@@ -2667,52 +2333,7 @@ async function testAi() {
     }
 }
 
-// --- Category Import/Export ---
-const fileInput = ref<HTMLInputElement | null>(null)
 
-async function handleExportCategories() {
-    try {
-        const res = await financeApi.exportCategories()
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(res.data, null, 2))
-        const downloadAnchorNode = document.createElement('a')
-        downloadAnchorNode.setAttribute("href", dataStr)
-        downloadAnchorNode.setAttribute("download", "categories_export.json")
-        document.body.appendChild(downloadAnchorNode) // required for firefox
-        downloadAnchorNode.click()
-        downloadAnchorNode.remove()
-        notify.success("Categories exported successfully")
-    } catch (e) {
-        notify.error("Failed to export categories")
-    }
-}
-
-function triggerImport() {
-    fileInput.value?.click()
-}
-
-async function handleImportCategories(event: Event) {
-    const target = event.target as HTMLInputElement
-    if (!target.files || target.files.length === 0) return
-
-    const file = target.files[0]
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-        try {
-            const json = JSON.parse(e.target?.result as string)
-            if (!Array.isArray(json)) throw new Error("Invalid format: Expected array")
-
-            await financeApi.importCategories(json)
-            notify.success(`Successfully imported ${json.length} categories`)
-            fetchData() // Refresh
-        } catch (err) {
-            console.error(err)
-            notify.error("Failed to import categories. Invalid file format.")
-        } finally {
-            if (fileInput.value) fileInput.value.value = '' // Reset
-        }
-    }
-    reader.readAsText(file)
-}
 
 const categoryOptions = computed(() => {
     return categories.value.map(c => ({
@@ -3306,42 +2927,7 @@ async function confirmSaveRule() {
 }
 
 
-function openAddCategoryModal() {
-    isEditingCategory.value = false
-    editingCategoryId.value = null
-    categoryForm.value = { name: '', icon: '🏷️', color: '#3B82F6', type: 'expense', parent_id: null }
-    showCategoryModal.value = true
-}
 
-function openEditCategoryModal(cat: any) {
-    isEditingCategory.value = true
-    editingCategoryId.value = cat.id
-    categoryForm.value = {
-        name: cat.name,
-        icon: cat.icon,
-        color: cat.color || '#3B82F6',
-        type: cat.type || 'expense',
-        parent_id: cat.parent_id || null
-    }
-    showCategoryModal.value = true
-}
-
-async function saveCategory() {
-    if (!categoryForm.value.name) return
-    try {
-        if (isEditingCategory.value && editingCategoryId.value) {
-            await financeApi.updateCategory(editingCategoryId.value, categoryForm.value)
-            notify.success("Category updated")
-        } else {
-            await financeApi.createCategory(categoryForm.value)
-            notify.success("Category created")
-        }
-        showCategoryModal.value = false
-        fetchData()
-    } catch (err) {
-        notify.error("Failed to save category")
-    }
-}
 
 
 function getCategoryDisplay(name: string) {
@@ -3350,23 +2936,7 @@ function getCategoryDisplay(name: string) {
     return cat ? `${cat.icon || '🏷️'} ${cat.name}` : `🏷️ ${name}`
 }
 
-async function deleteCategory(id: string) {
-    categoryToDelete.value = id
-    showDeleteCategoryConfirm.value = true
-}
 
-async function confirmDeleteCategory() {
-    if (!categoryToDelete.value) return
-    try {
-        await financeApi.deleteCategory(categoryToDelete.value)
-        notify.success("Category deleted")
-        fetchData()
-    } catch (err) {
-        notify.error("Failed to delete category")
-    } finally {
-        showDeleteCategoryConfirm.value = false
-    }
-}
 
 async function handleSync(configId: string) {
     isSyncing.value = true
