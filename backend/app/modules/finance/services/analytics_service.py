@@ -580,3 +580,42 @@ class AnalyticsService:
             history.append(entry)
             
         return history[::-1] # Chronological order
+    @staticmethod
+    def get_heatmap_data(db: Session, tenant_id: str, start_date: datetime = None, end_date: datetime = None, user_id: str = None):
+        """
+        Get transaction coordinates and weights for heatmap visualization.
+        """
+        query = db.query(
+            models.Transaction.latitude,
+            models.Transaction.longitude,
+            models.Transaction.amount,
+            models.Transaction.category,
+            models.Transaction.description
+        ).filter(
+            models.Transaction.tenant_id == tenant_id,
+            models.Transaction.latitude != None,
+            models.Transaction.longitude != None,
+            models.Transaction.amount < 0, # Usually want to heat up spending
+            models.Transaction.exclude_from_reports == False
+        )
+
+        if start_date:
+            query = query.filter(models.Transaction.date >= start_date)
+        if end_date:
+            query = query.filter(models.Transaction.date <= end_date)
+        if user_id:
+            query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
+                         .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
+
+        results = query.all()
+        
+        return [
+            {
+                "lat": float(row.latitude),
+                "lng": float(row.longitude),
+                "weight": abs(float(row.amount)),
+                "category": row.category,
+                "description": row.description
+            }
+            for row in results
+        ]

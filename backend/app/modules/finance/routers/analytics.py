@@ -88,3 +88,18 @@ def get_mobile_summary(
         str(current_user.tenant_id),
         user_id=user_id
     )
+@router.get("/heatmap")
+def get_heatmap(
+    start_date: datetime = None,
+    end_date: datetime = None,
+    user_id: str = None,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return AnalyticsService.get_heatmap_data(
+        db, 
+        str(current_user.tenant_id),
+        start_date=start_date,
+        end_date=end_date,
+        user_id=user_id
+    )
