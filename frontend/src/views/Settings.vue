@@ -232,7 +232,7 @@
                                         class="goal-linked-badge" :title="'Linked to: ' + acc.linked_goals.join(', ')">
                                         🎯 {{ acc.linked_goals[0] }}
                                         <span v-if="acc.linked_goals.length > 1">+{{ acc.linked_goals.length - 1
-                                        }}</span>
+                                            }}</span>
                                     </span>
                                     <span v-else-if="accountGoalMap[acc.id]" class="goal-linked-badge"
                                         :title="'Linked to: ' + accountGoalMap[acc.id].join(', ')">
@@ -1950,7 +1950,7 @@
                             <div class="form-group">
                                 <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)'
                                     : ''
-                                    }}</label>
+                                }}</label>
                                 <input v-model="memberForm.password" class="form-input" type="password"
                                     :required="!isEditingMember" />
                             </div>
