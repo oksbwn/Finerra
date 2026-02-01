@@ -176,7 +176,7 @@ class IngestionPipeline:
                  # Use the recipient (if extracted) as the seed for normalization/aliasing
                  # Otherwise fallback to raw description
                  name_seed = parsed_txn.recipient or parsed_txn.merchant.raw
-                 parsed_txn.merchant.cleaned = MerchantNormalizer.normalize(name_seed)
+                 parsed_txn.merchant.cleaned = MerchantNormalizer.normalize(name_seed, db=self.db)
                  
                  # Update description if it was raw/missing
                  if not parsed_txn.description or parsed_txn.description == parsed_txn.merchant.raw:

@@ -126,3 +126,45 @@ class ExternalParserService:
             print(f"Error creating pattern in external parser: {e}")
             return False
 
+    @staticmethod
+    def create_alias(pattern: str, alias: str) -> bool:
+        """
+        Push a new merchant alias to the microservice.
+        """
+        try:
+            url = f"{settings.PARSER_SERVICE_URL}/config/aliases"
+            payload = {"pattern": pattern, "alias": alias}
+            response = requests.post(url, json=payload, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            print(f"Error creating alias in external parser: {e}")
+            return False
+
+    @staticmethod
+    def get_aliases() -> List[Dict[str, Any]]:
+        """
+        Get all merchant aliases from the microservice.
+        """
+        try:
+            url = f"{settings.PARSER_SERVICE_URL}/config/aliases"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except Exception as e:
+            print(f"Error fetching aliases: {e}")
+            return []
+
+    @staticmethod
+    def delete_alias(alias_id: str) -> bool:
+        """
+        Delete a merchant alias.
+        """
+        try:
+            url = f"{settings.PARSER_SERVICE_URL}/config/aliases/{alias_id}"
+            response = requests.delete(url, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            print(f"Error deleting alias: {e}")
+            return False
+

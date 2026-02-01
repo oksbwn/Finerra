@@ -826,6 +826,60 @@
                                         v-if="aiTestResult">{{ JSON.stringify(aiTestResult.data || aiTestResult.message, null, 2) }}</pre>
                                 </div>
                             </div>
+
+                            <!-- Merchant Renaming Lookups -->
+                            <div class="ai-card mt-6">
+                                <div class="ai-card-header">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2.5" class="text-emerald-600">
+                                        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                    </svg>
+                                    <h4 class="ai-card-title">Merchant Lookups</h4>
+                                    <span v-if="aliases.length > 0" class="pulse-status-badge ml-auto"
+                                        style="background: #ecfdf5; color: #047857;">{{ aliases.length }} Active</span>
+                                </div>
+                                <div class="ai-card-body">
+                                    <p class="text-[11px] text-muted mb-4 leading-relaxed">
+                                        These rules automatically rename merchants during ingestion. Managed via
+                                        Transaction Edit modal.
+                                    </p>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-xs">
+                                            <thead class="text-gray-500 uppercase font-bold border-b">
+                                                <tr>
+                                                    <th class="py-2 text-left">Pattern</th>
+                                                    <th class="py-2 text-left">Alias</th>
+                                                    <th class="py-2 text-right"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-50">
+                                                <tr v-for="alias in aliases" :key="alias.id" class="group">
+                                                    <td class="py-2 font-mono text-[10px] text-muted">{{ alias.pattern
+                                                    }}</td>
+                                                    <td class="py-2">
+                                                        <span class="font-bold text-gray-800">{{ alias.alias }}</span>
+                                                    </td>
+                                                    <td class="py-2 text-right">
+                                                        <button @click="deleteAlias(alias.id)"
+                                                            class="text-gray-300 hover:text-red-500 transition-colors">
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                                stroke="currentColor" stroke-width="2">
+                                                                <path
+                                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                            </svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="aliases.length === 0">
+                                                    <td colspan="3" class="py-6 text-center text-gray-400 italic">
+                                                        No custom lookups yet.
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2203,6 +2257,27 @@ const aiTesting = ref(false)
 const aiTestResult = ref<any>(null)
 const aiTestMessage = ref("Spent Rs 500.50 at Amazon using card ending in 1234 on 14/01/2026")
 
+const aliases = ref<any[]>([])
+async function fetchAliases() {
+    try {
+        const res = await aiApi.getAliases()
+        aliases.value = res.data || []
+    } catch (e) {
+        console.error("Failed to fetch aliases", e)
+    }
+}
+
+async function deleteAlias(id: string) {
+    if (!confirm("Are you sure you want to remove this merchant lookup?")) return
+    try {
+        await aiApi.deleteAlias(id)
+        notify.success("Lookup removed")
+        fetchAliases()
+    } catch (e) {
+        notify.error("Failed to remove lookup")
+    }
+}
+
 // Parser Engine State
 const parserStatus = ref({ isOnline: false })
 const parserStats = ref<any>(null)
@@ -2243,10 +2318,10 @@ const fetchParserData = async (sourceFilter?: string, refresh: boolean = false) 
             }),
             parserApi.getAiConfig()
         ])
-        parserStatus.value.isOnline = health.data.status === 'ok'
-        parserStats.value = stats.data
-        parserLogs.value = logs.data.logs
-        parserLogPagination.value.total = logs.data.total
+        parserStatus.value.isOnline = health.data?.status === 'ok'
+        parserStats.value = stats.data || null
+        parserLogs.value = logs.data?.logs || []
+        parserLogPagination.value.total = logs.data?.total || 0
 
         parserAiForm.value = {
             is_enabled: config.data.is_enabled || false,
@@ -2410,6 +2485,7 @@ async function fetchData() {
         fetchParserData()
         fetchIngestionEvents()
         fetchEmailLogs()
+        fetchAliases()
     } catch (err) {
         console.error('Failed to fetch settings data', err)
     } finally {

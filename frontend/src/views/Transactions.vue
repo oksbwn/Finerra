@@ -136,6 +136,15 @@ const smartPromptData = ref({
     excludeFromReports: false
 })
 
+const originalDescription = ref('')
+const showRenamePrompt = ref(false)
+const renamePromptData = ref({
+    oldName: '',
+    newName: '',
+    count: 0,
+    syncToParser: true
+})
+
 // Pagination State
 const page = ref(1)
 const pageSize = ref(50)
@@ -738,6 +747,7 @@ function openEditModal(txn: any) {
     isEditing.value = true
     editingTxnId.value = txn.id
     originalCategory.value = txn.category
+    originalDescription.value = txn.description || ''
     originalExclude.value = txn.exclude_from_reports || false
     form.value = {
         description: txn.description,
@@ -827,6 +837,25 @@ async function handleSubmit() {
                     }
                 }
             }
+
+            // --- Rename Detection ---
+            if (form.value.description !== originalDescription.value) {
+                try {
+                    // We use originalDescription to find matches to rename
+                    const res = await financeApi.getMatchCount([originalDescription.value], false)
+                    if (res.data.count > 0) {
+                        renamePromptData.value = {
+                            oldName: originalDescription.value,
+                            newName: form.value.description,
+                            count: res.data.count,
+                            syncToParser: true
+                        }
+                        showRenamePrompt.value = true
+                    }
+                } catch (e) {
+                    console.error("Rename check failed", e)
+                }
+            }
         } else {
             await financeApi.createTransaction(payload)
             notify.success("Transaction added")
@@ -836,6 +865,25 @@ async function handleSubmit() {
     } catch (e) {
         console.error(e)
         notify.error("Failed to save transaction")
+    }
+}
+
+async function handleBulkRename() {
+    try {
+        loading.value = true
+        await financeApi.bulkRename(
+            renamePromptData.value.oldName,
+            renamePromptData.value.newName,
+            renamePromptData.value.syncToParser
+        )
+        notify.success(`Renamed ${renamePromptData.value.count} transactions`)
+        showRenamePrompt.value = false
+        fetchData()
+    } catch (e) {
+        console.error(e)
+        notify.error("Bulk rename failed")
+    } finally {
+        loading.value = false
     }
 }
 
@@ -1727,6 +1775,38 @@ onMounted(() => {
                         <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
                             <button class="btn btn-outline" @click="showSmartPrompt = false">Skip</button>
                             <button class="btn btn-primary" @click="handleSmartCategorize">Confirm</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Smart Rename Modal -->
+            <div v-if="showRenamePrompt" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 450px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Bulk Rename ✏️</h2>
+                        <button class="btn-icon" @click="showRenamePrompt = false">✕</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <p style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                            You renamed <strong>{{ renamePromptData.oldName }}</strong> to <strong>{{
+                                renamePromptData.newName }}</strong>.
+                            Found <strong>{{ renamePromptData.count }}</strong> other transactions with the same name.
+                        </p>
+
+                        <div class="smart-options">
+                            <label class="smart-option-item">
+                                <input type="checkbox" v-model="renamePromptData.syncToParser" class="checkbox-input">
+                                <span>
+                                    <strong>Save as permanent lookup</strong> (Auto-rename this merchant in future)
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
+                            <button class="btn btn-outline" @click="showRenamePrompt = false">Only this one</button>
+                            <button class="btn btn-primary" @click="handleBulkRename">Rename All {{
+                                renamePromptData.count }}</button>
                         </div>
                     </div>
                 </div>

@@ -605,13 +605,15 @@ class TransactionService:
         return {"success": True, "affected": affected_count, "category": rule.category}
 
     @staticmethod
-    def get_matching_count(db: Session, keywords: List[str], tenant_id: str) -> int:
+    def get_matching_count(db: Session, keywords: List[str], tenant_id: str, only_uncategorized: bool = True) -> int:
         if not keywords: return 0
         from sqlalchemy import or_
         query = db.query(models.Transaction).filter(
-            models.Transaction.tenant_id == tenant_id,
-            (models.Transaction.category == "Uncategorized") | (models.Transaction.category == None)
+            models.Transaction.tenant_id == tenant_id
         )
+        if only_uncategorized:
+            query = query.filter((models.Transaction.category == "Uncategorized") | (models.Transaction.category == None))
+            
         filters = []
         for k in keywords:
             pattern = f"%{k}%"
@@ -619,3 +621,34 @@ class TransactionService:
             filters.append(models.Transaction.recipient.ilike(pattern))
         query = query.filter(or_(*filters))
         return query.count()
+
+    @staticmethod
+    def bulk_rename(db: Session, old_name: str, new_name: str, tenant_id: str, sync_to_parser: bool = False) -> int:
+        from sqlalchemy import or_
+        pattern = f"%{old_name}%"
+        query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            or_(
+                models.Transaction.recipient.ilike(pattern),
+                models.Transaction.description.ilike(pattern)
+            )
+        )
+        
+        txns = query.all()
+        for t in txns:
+            if t.recipient == old_name:
+                t.recipient = new_name
+            if t.description == old_name:
+                t.description = new_name
+            db.add(t)
+        
+        db.commit()
+        
+        if sync_to_parser and old_name != new_name:
+             try:
+                 from backend.app.modules.ingestion.parser_service import ExternalParserService
+                 ExternalParserService.create_alias(old_name, new_name)
+             except Exception as e:
+                 print(f"Failed to sync alias to parser: {e}")
+                 
+        return len(txns)

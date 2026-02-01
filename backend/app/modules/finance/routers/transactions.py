@@ -100,5 +100,18 @@ def get_match_count(
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    count = TransactionService.get_matching_count(db, payload.keywords, str(current_user.tenant_id))
+    count = TransactionService.get_matching_count(
+        db, payload.keywords, str(current_user.tenant_id), only_uncategorized=payload.only_uncategorized
+    )
     return {"count": count}
+
+@router.post("/transactions/bulk-rename")
+def bulk_rename_transactions(
+    payload: schemas.BulkRenameRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    count = TransactionService.bulk_rename(
+        db, payload.old_name, payload.new_name, str(current_user.tenant_id), payload.sync_to_parser
+    )
+    return {"message": f"Renamed {count} transactions", "count": count}

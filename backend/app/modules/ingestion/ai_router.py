@@ -138,3 +138,32 @@ def generate_insights(
     
     insights = AIService.generate_summary_insights(db, str(current_user.tenant_id), summary_data)
     return {"insights": insights}
+
+@router.get("/aliases")
+def get_merchant_aliases(
+    current_user: auth_models.User = Depends(get_current_user)
+):
+    from backend.app.modules.ingestion.parser_service import ExternalParserService
+    return ExternalParserService.get_aliases()
+
+@router.post("/aliases")
+def create_merchant_alias(
+    payload: Dict[str, str],
+    current_user: auth_models.User = Depends(get_current_user)
+):
+    from backend.app.modules.ingestion.parser_service import ExternalParserService
+    pattern = payload.get("pattern")
+    alias = payload.get("alias")
+    if not pattern or not alias:
+        raise HTTPException(status_code=400, detail="Pattern and alias are required")
+    success = ExternalParserService.create_alias(pattern, alias)
+    return {"status": "success" if success else "failed"}
+
+@router.delete("/aliases/{alias_id}")
+def delete_merchant_alias(
+    alias_id: str,
+    current_user: auth_models.User = Depends(get_current_user)
+):
+    from backend.app.modules.ingestion.parser_service import ExternalParserService
+    success = ExternalParserService.delete_alias(alias_id)
+    return {"status": "success" if success else "failed"}
