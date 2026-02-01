@@ -30,11 +30,15 @@ def run_auto_migrations(engine: Engine):
             safe_add_column("pending_transactions", "longitude", "DECIMAL(11, 8)")
             safe_add_column("pending_transactions", "location_name", "VARCHAR")
             safe_add_column("pending_transactions", "created_at", "TIMESTAMP")
-            
+            safe_add_column("pending_transactions", "is_transfer", "BOOLEAN DEFAULT FALSE")
+            safe_add_column("pending_transactions", "to_account_id", "VARCHAR")
+
             # 1b. Add columns to CONFIRMED transactions table (for auto-ingest)
             safe_add_column("transactions", "latitude", "DECIMAL(10, 8)")
             safe_add_column("transactions", "longitude", "DECIMAL(11, 8)")
             safe_add_column("transactions", "location_name", "VARCHAR")
+            safe_add_column("transactions", "is_transfer", "BOOLEAN DEFAULT FALSE")
+            safe_add_column("transactions", "linked_transaction_id", "VARCHAR")
 
             # 2. Add mobile_devices table
             connection.execute(text("""
