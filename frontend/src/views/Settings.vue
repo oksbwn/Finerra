@@ -232,7 +232,7 @@
                                         class="goal-linked-badge" :title="'Linked to: ' + acc.linked_goals.join(', ')">
                                         🎯 {{ acc.linked_goals[0] }}
                                         <span v-if="acc.linked_goals.length > 1">+{{ acc.linked_goals.length - 1
-                                            }}</span>
+                                        }}</span>
                                     </span>
                                     <span v-else-if="accountGoalMap[acc.id]" class="goal-linked-badge"
                                         :title="'Linked to: ' + accountGoalMap[acc.id].join(', ')">
@@ -826,44 +826,102 @@
                                         v-if="aiTestResult">{{ JSON.stringify(aiTestResult.data || aiTestResult.message, null, 2) }}</pre>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
 
-                <!-- DEVICES TAB (MOBILE) -->
-                <div v-if="activeTab === 'devices'" class="tab-content animate-in">
-                    <!-- Search Bar -->
-                    <div class="account-control-bar mb-6">
-                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" class="search-icon">
-                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                            <input type="text" v-model="searchQuery" placeholder="Search devices..."
-                                class="search-input">
-                        </div>
-                        <div class="header-with-badge"
-                            style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
-                            <h3
-                                style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
-                                Mobile Devices</h3>
-                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
-                                devices.length }} Total</span>
                         </div>
                     </div>
 
-                    <!-- PENDING DEVICES -->
-                    <div v-if="devices.some(d => !d.is_approved && !d.is_ignored)" class="mb-8">
-                        <div class="device-section-header">
-                            <div class="device-section-title">
-                                <span>🔔 Pending Approval</span>
-                                <span class="badge-count warning">{{devices.filter(d => !d.is_approved &&
-                                    !d.is_ignored).length}}</span>
+                    <!-- DEVICES TAB (MOBILE) -->
+                    <div v-if="activeTab === 'devices'" class="tab-content animate-in">
+                        <!-- Search Bar -->
+                        <div class="account-control-bar mb-6">
+                            <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" class="search-icon">
+                                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <input type="text" v-model="searchQuery" placeholder="Search devices..."
+                                    class="search-input">
+                            </div>
+                            <div class="header-with-badge"
+                                style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                                <h3
+                                    style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
+                                    Mobile Devices</h3>
+                                <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
+                                    devices.length }} Total</span>
                             </div>
                         </div>
-                        <div class="devices-grid-premium">
-                            <div v-for="device in devices.filter(d => !d.is_approved && !d.is_ignored)" :key="device.id"
-                                class="device-card-premium unapproved">
+
+                        <!-- PENDING DEVICES -->
+                        <div v-if="devices.some(d => !d.is_approved && !d.is_ignored)" class="mb-8">
+                            <div class="device-section-header">
+                                <div class="device-section-title">
+                                    <span>🔔 Pending Approval</span>
+                                    <span class="badge-count warning">{{devices.filter(d => !d.is_approved &&
+                                        !d.is_ignored).length}}</span>
+                                </div>
+                            </div>
+                            <div class="devices-grid-premium">
+                                <div v-for="device in devices.filter(d => !d.is_approved && !d.is_ignored)"
+                                    :key="device.id" class="device-card-premium unapproved">
+                                    <div class="dev-header">
+                                        <div class="dev-icon-wrapper"
+                                            :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
+                                            {{ (device.device_name.toLowerCase().includes('iphone') ||
+                                                device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
+                                        </div>
+                                        <div class="dev-info-main">
+                                            <h3 class="dev-name">{{ device.device_name }}</h3>
+                                        </div>
+                                    </div>
+                                    <div class="dev-meta">
+                                        <div class="meta-row">
+                                            <div class="flex items-center gap-1">
+                                                <span class="meta-val text-xs">
+                                                    {{ (getDeviceUser(device.user_id)?.full_name ||
+                                                        getDeviceUser(device.user_id)?.email || 'Unassigned').split('@')[0]
+                                                    }}
+                                                </span>
+                                                <button @click="openAssignModal(device)"
+                                                    class="btn-icon-tiny">✎</button>
+                                            </div>
+                                            <span class="meta-val text-xs text-muted" title="First Seen">
+                                                🕒 {{ formatDate(device.created_at).day }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="dev-id-footer">
+                                        <div class="dev-id-row">
+                                            <span class="dev-id-mono">{{ device.device_id }}</span>
+                                            <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
+                                                title="Copy Full ID">📋</button>
+                                        </div>
+                                    </div>
+                                    <div class="dev-actions">
+                                        <button @click="toggleDeviceApproval(device)"
+                                            class="btn-dev primary">Approve</button>
+                                        <button @click="toggleDeviceIgnored(device, true)"
+                                            class="btn-dev secondary">Ignore</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ACTIVE DEVICES -->
+                        <div class="device-section-header">
+                            <div class="device-section-title">
+                                <span>✅ Active Devices</span>
+                                <span class="badge-count">{{devices.filter(d => d.is_approved).length}}</span>
+                            </div>
+                        </div>
+
+                        <div class="devices-grid-premium mb-12">
+                            <div v-for="device in devices.filter(d => d.is_approved)" :key="device.id"
+                                class="device-card-premium" :class="{
+                                    'ignored': device.is_ignored,
+                                    'online-accent': isOnline(device.last_seen_at),
+                                    'offline-accent': !isOnline(device.last_seen_at)
+                                }">
                                 <div class="dev-header">
                                     <div class="dev-icon-wrapper"
                                         :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
@@ -874,17 +932,21 @@
                                         <h3 class="dev-name">{{ device.device_name }}</h3>
                                     </div>
                                 </div>
+
                                 <div class="dev-meta">
                                     <div class="meta-row">
-                                        <div class="flex items-center gap-1">
-                                            <span class="meta-val text-xs">
-                                                {{ (getDeviceUser(device.user_id)?.full_name ||
-                                                    getDeviceUser(device.user_id)?.email || 'Unassigned').split('@')[0] }}
+                                        <div class="flex items-center gap-2">
+                                            <span class="meta-val p-0 text-xs flex items-center gap-1">
+                                                <img v-if="getDeviceUser(device.user_id)?.avatar?.length > 4"
+                                                    :src="getDeviceUser(device.user_id)?.avatar"
+                                                    class="w-4 h-4 rounded-full" />
+                                                {{ getDeviceUser(device.user_id)?.full_name ||
+                                                    getDeviceUser(device.user_id)?.email || 'Unassigned' }}
                                             </span>
                                             <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
                                         </div>
-                                        <span class="meta-val text-xs text-muted" title="First Seen">
-                                            🕒 {{ formatDate(device.created_at).day }}
+                                        <span class="meta-val text-xs text-muted" title="Last Synchronization">
+                                            Sync: {{ formatDate(device.last_seen_at || device.created_at).meta }}
                                         </span>
                                     </div>
                                 </div>
@@ -895,1075 +957,1094 @@
                                             title="Copy Full ID">📋</button>
                                     </div>
                                 </div>
+
                                 <div class="dev-actions">
-                                    <button @click="toggleDeviceApproval(device)"
-                                        class="btn-dev primary">Approve</button>
-                                    <button @click="toggleDeviceIgnored(device, true)"
-                                        class="btn-dev secondary">Ignore</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- ACTIVE DEVICES -->
-                    <div class="device-section-header">
-                        <div class="device-section-title">
-                            <span>✅ Active Devices</span>
-                            <span class="badge-count">{{devices.filter(d => d.is_approved).length}}</span>
-                        </div>
-                    </div>
-
-                    <div class="devices-grid-premium mb-12">
-                        <div v-for="device in devices.filter(d => d.is_approved)" :key="device.id"
-                            class="device-card-premium" :class="{
-                                'ignored': device.is_ignored,
-                                'online-accent': isOnline(device.last_seen_at),
-                                'offline-accent': !isOnline(device.last_seen_at)
-                            }">
-                            <div class="dev-header">
-                                <div class="dev-icon-wrapper"
-                                    :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
-                                    {{ (device.device_name.toLowerCase().includes('iphone') ||
-                                        device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
-                                </div>
-                                <div class="dev-info-main">
-                                    <h3 class="dev-name">{{ device.device_name }}</h3>
+                                    <button @click="toggleDeviceEnabled(device)" class="btn-dev secondary">
+                                        {{ device.is_enabled ? 'Pause' : 'Resume' }}
+                                    </button>
+                                    <button @click="deleteDeviceRequest(device)" class="btn-dev danger"
+                                        style="flex: 0 0 2.25rem;">🗑️</button>
                                 </div>
                             </div>
 
-                            <div class="dev-meta">
-                                <div class="meta-row">
-                                    <div class="flex items-center gap-2">
-                                        <span class="meta-val p-0 text-xs flex items-center gap-1">
-                                            <img v-if="getDeviceUser(device.user_id)?.avatar?.length > 4"
-                                                :src="getDeviceUser(device.user_id)?.avatar"
-                                                class="w-4 h-4 rounded-full" />
-                                            {{ getDeviceUser(device.user_id)?.full_name ||
-                                                getDeviceUser(device.user_id)?.email || 'Unassigned' }}
-                                        </span>
-                                        <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
+                            <div v-if="devices.filter(d => d.is_approved).length === 0"
+                                class="empty-placeholder col-span-full">
+                                <div class="empty-state-content">
+                                    <div class="empty-icon-large">📱</div>
+                                    <h3>No Devices Connected</h3>
+                                    <p>Login from the mobile app to see your devices here.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- IGNORED DEVICES -->
+                        <div v-if="devices.some(d => d.is_ignored)" class="mt-8">
+                            <div class="device-section-header">
+                                <div class="device-section-title text-muted">
+                                    <span>🚫 Ignored Devices</span>
+                                </div>
+                            </div>
+                            <div class="devices-grid-premium">
+                                <div v-for="device in devices.filter(d => d.is_ignored)" :key="device.id"
+                                    class="device-card-premium ignored">
+                                    <div class="dev-header">
+                                        <div class="dev-icon-wrapper">
+                                            📱
+                                        </div>
+                                        <div class="dev-info-main">
+                                            <h3 class="dev-name text-muted">{{ device.device_name }}</h3>
+                                            <span class="dev-id-mono">{{ device.device_id }}</span>
+                                        </div>
+                                        <div class="status-indicator">Ignored</div>
                                     </div>
-                                    <span class="meta-val text-xs text-muted" title="Last Synchronization">
-                                        Sync: {{ formatDate(device.last_seen_at || device.created_at).meta }}
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="dev-id-footer">
-                                <div class="dev-id-row">
-                                    <span class="dev-id-mono">{{ device.device_id }}</span>
-                                    <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
-                                        title="Copy Full ID">📋</button>
-                                </div>
-                            </div>
-
-                            <div class="dev-actions">
-                                <button @click="toggleDeviceEnabled(device)" class="btn-dev secondary">
-                                    {{ device.is_enabled ? 'Pause' : 'Resume' }}
-                                </button>
-                                <button @click="deleteDeviceRequest(device)" class="btn-dev danger"
-                                    style="flex: 0 0 2.25rem;">🗑️</button>
-                            </div>
-                        </div>
-
-                        <div v-if="devices.filter(d => d.is_approved).length === 0"
-                            class="empty-placeholder col-span-full">
-                            <div class="empty-state-content">
-                                <div class="empty-icon-large">📱</div>
-                                <h3>No Devices Connected</h3>
-                                <p>Login from the mobile app to see your devices here.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- IGNORED DEVICES -->
-                    <div v-if="devices.some(d => d.is_ignored)" class="mt-8">
-                        <div class="device-section-header">
-                            <div class="device-section-title text-muted">
-                                <span>🚫 Ignored Devices</span>
-                            </div>
-                        </div>
-                        <div class="devices-grid-premium">
-                            <div v-for="device in devices.filter(d => d.is_ignored)" :key="device.id"
-                                class="device-card-premium ignored">
-                                <div class="dev-header">
-                                    <div class="dev-icon-wrapper">
-                                        📱
+                                    <div class="dev-actions">
+                                        <button @click="toggleDeviceIgnored(device, false)"
+                                            class="btn-dev secondary">Restore</button>
+                                        <button @click="deleteDeviceRequest(device)" class="btn-dev danger">Delete
+                                            Forever</button>
                                     </div>
-                                    <div class="dev-info-main">
-                                        <h3 class="dev-name text-muted">{{ device.device_name }}</h3>
-                                        <span class="dev-id-mono">{{ device.device_id }}</span>
-                                    </div>
-                                    <div class="status-indicator">Ignored</div>
-                                </div>
-                                <div class="dev-actions">
-                                    <button @click="toggleDeviceIgnored(device, false)"
-                                        class="btn-dev secondary">Restore</button>
-                                    <button @click="deleteDeviceRequest(device)" class="btn-dev danger">Delete
-                                        Forever</button>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- RECENT ACTIVITY LOG -->
-                    <div
-                        class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-center gap-4">
-                                <h3 class="text-lg font-bold flex items-center gap-2">
-                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📋</span>
-                                    Recent Activity Log
-                                </h3>
-                                <button v-if="selectedEvents.length > 0" @click="handleBulkDeleteEvents"
-                                    class="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-100 transition-all hover:bg-rose-100 flex items-center gap-2 animate-in slide-in-from-left">
-                                    🗑️ Delete {{ selectedEvents.length }} Selected
-                                </button>
+                        <!-- RECENT ACTIVITY LOG -->
+                        <div
+                            class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-4">
+                                    <h3 class="text-lg font-bold flex items-center gap-2">
+                                        <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📋</span>
+                                        Recent Activity Log
+                                    </h3>
+                                    <button v-if="selectedEvents.length > 0" @click="handleBulkDeleteEvents"
+                                        class="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-100 transition-all hover:bg-rose-100 flex items-center gap-2 animate-in slide-in-from-left">
+                                        🗑️ Delete {{ selectedEvents.length }} Selected
+                                    </button>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total:
+                                        {{
+                                            eventPagination.total }}</span>
+                                    <button @click="fetchIngestionEvents(undefined, true)" class="btn-icon-circle"
+                                        title="Refresh Log">🔄</button>
+                                </div>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total: {{
-                                    eventPagination.total }}</span>
-                                <button @click="fetchIngestionEvents(undefined, true)" class="btn-icon-circle"
-                                    title="Refresh Log">🔄</button>
+
+                            <div class="overflow-x-auto min-h-[300px]">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="text-muted border-b border-gray-100">
+                                        <tr>
+                                            <th class="pb-3 w-8">
+                                                <input type="checkbox" @change="toggleSelectAllEvents"
+                                                    :checked="selectedEvents.length === ingestionEvents.length && ingestionEvents.length > 0"
+                                                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                            </th>
+                                            <th class="pb-3 pr-4 font-semibold">Timestamp</th>
+                                            <th class="pb-3 pr-4 font-semibold">Event</th>
+                                            <th class="pb-3 pr-4 font-semibold">Device</th>
+                                            <th class="pb-3 pr-4 font-semibold">Status</th>
+                                            <th class="pb-3 pr-4 font-semibold">Message</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-50">
+                                        <tr v-for="event in ingestionEvents" :key="event.id"
+                                            class="hover:bg-white/40 transition-colors group">
+                                            <td class="py-3">
+                                                <input type="checkbox" v-model="selectedEvents" :value="event.id"
+                                                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                            </td>
+                                            <td class="py-3 pr-4 whitespace-nowrap text-xs">
+                                                {{ formatDate(event.created_at).meta }}
+                                            </td>
+                                            <td class="py-3 pr-4">
+                                                <span
+                                                    class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100">
+                                                    {{ event.event_type.replace('_', ' ') }}
+                                                </span>
+                                            </td>
+                                            <td class="py-3 pr-4 text-xs font-mono text-muted">
+                                                {{ event.device_id }}
+                                            </td>
+                                            <td class="py-3 pr-4">
+                                                <span :class="{
+                                                    'text-emerald-600 bg-emerald-50': event.status === 'success',
+                                                    'text-amber-600 bg-amber-50': event.status === 'warning',
+                                                    'text-rose-600 bg-rose-50': event.status === 'error',
+                                                    'text-slate-600 bg-slate-50': event.status === 'skipped'
+                                                }" class="px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                                    {{ event.status }}
+                                                </span>
+                                            </td>
+                                            <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="event.message">
+                                                {{ event.message }}
+                                            </td>
+                                        </tr>
+                                        <tr v-if="ingestionEvents.length === 0">
+                                            <td colspan="6" class="py-12 text-center text-muted italic">
+                                                <div class="flex flex-col items-center gap-2">
+                                                    <span class="text-2xl">🔍</span>
+                                                    No activity logs found.
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
-                        </div>
 
-                        <div class="overflow-x-auto min-h-[300px]">
-                            <table class="w-full text-left text-sm">
-                                <thead class="text-muted border-b border-gray-100">
-                                    <tr>
-                                        <th class="pb-3 w-8">
-                                            <input type="checkbox" @change="toggleSelectAllEvents"
-                                                :checked="selectedEvents.length === ingestionEvents.length && ingestionEvents.length > 0"
-                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                                        </th>
-                                        <th class="pb-3 pr-4 font-semibold">Timestamp</th>
-                                        <th class="pb-3 pr-4 font-semibold">Event</th>
-                                        <th class="pb-3 pr-4 font-semibold">Device</th>
-                                        <th class="pb-3 pr-4 font-semibold">Status</th>
-                                        <th class="pb-3 pr-4 font-semibold">Message</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-50">
-                                    <tr v-for="event in ingestionEvents" :key="event.id"
-                                        class="hover:bg-white/40 transition-colors group">
-                                        <td class="py-3">
-                                            <input type="checkbox" v-model="selectedEvents" :value="event.id"
-                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                                        </td>
-                                        <td class="py-3 pr-4 whitespace-nowrap text-xs">
-                                            {{ formatDate(event.created_at).meta }}
-                                        </td>
-                                        <td class="py-3 pr-4">
-                                            <span
-                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100">
-                                                {{ event.event_type.replace('_', ' ') }}
-                                            </span>
-                                        </td>
-                                        <td class="py-3 pr-4 text-xs font-mono text-muted">
-                                            {{ event.device_id }}
-                                        </td>
-                                        <td class="py-3 pr-4">
-                                            <span :class="{
-                                                'text-emerald-600 bg-emerald-50': event.status === 'success',
-                                                'text-amber-600 bg-amber-50': event.status === 'warning',
-                                                'text-rose-600 bg-rose-50': event.status === 'error',
-                                                'text-slate-600 bg-slate-50': event.status === 'skipped'
-                                            }" class="px-2 py-0.5 rounded-full text-[10px] font-bold">
-                                                {{ event.status }}
-                                            </span>
-                                        </td>
-                                        <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="event.message">
-                                            {{ event.message }}
-                                        </td>
-                                    </tr>
-                                    <tr v-if="ingestionEvents.length === 0">
-                                        <td colspan="6" class="py-12 text-center text-muted italic">
-                                            <div class="flex flex-col items-center gap-2">
-                                                <span class="text-2xl">🔍</span>
-                                                No activity logs found.
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- Pagination Controls -->
-                        <div v-if="eventPagination.total > eventPagination.limit"
-                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
-                            <span class="text-[10px] text-muted">
-                                Showing {{ eventPagination.skip + 1 }} to {{ Math.min(eventPagination.skip +
-                                    eventPagination.limit, eventPagination.total) }} of {{ eventPagination.total }}
-                            </span>
-                            <div class="flex items-center gap-1">
-                                <button @click="eventPagination.skip -= eventPagination.limit; fetchIngestionEvents()"
-                                    :disabled="eventPagination.skip === 0"
-                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
-                                    Previous
-                                </button>
-                                <button @click="eventPagination.skip += eventPagination.limit; fetchIngestionEvents()"
-                                    :disabled="eventPagination.skip + eventPagination.limit >= eventPagination.total"
-                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
-                                    Next
-                                </button>
+                            <!-- Pagination Controls -->
+                            <div v-if="eventPagination.total > eventPagination.limit"
+                                class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                                <span class="text-[10px] text-muted">
+                                    Showing {{ eventPagination.skip + 1 }} to {{ Math.min(eventPagination.skip +
+                                        eventPagination.limit, eventPagination.total) }} of {{ eventPagination.total }}
+                                </span>
+                                <div class="flex items-center gap-1">
+                                    <button
+                                        @click="eventPagination.skip -= eventPagination.limit; fetchIngestionEvents()"
+                                        :disabled="eventPagination.skip === 0"
+                                        class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                        Previous
+                                    </button>
+                                    <button
+                                        @click="eventPagination.skip += eventPagination.limit; fetchIngestionEvents()"
+                                        :disabled="eventPagination.skip + eventPagination.limit >= eventPagination.total"
+                                        class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                        Next
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- PARSER ENGINE TAB -->
-            <div v-if="activeTab === 'parser'" class="tab-content animate-in">
-                <div class="w-full">
-                    <!-- Status & Stats Row -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div class="glass-card p-6 flex items-center gap-4">
-                            <div class="p-3 rounded-xl"
-                                :class="parserStatus.isOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'">
-                                <CheckCircle v-if="parserStatus.isOnline" :size="32" />
-                                <XCircle v-else :size="32" />
+                <!-- PARSER ENGINE TAB -->
+                <div v-if="activeTab === 'parser'" class="tab-content animate-in">
+                    <div class="w-full">
+                        <!-- Status & Stats Row -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div class="glass-card p-6 flex items-center gap-4">
+                                <div class="p-3 rounded-xl"
+                                    :class="parserStatus.isOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'">
+                                    <CheckCircle v-if="parserStatus.isOnline" :size="32" />
+                                    <XCircle v-else :size="32" />
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-gray-800">Parser Status</h3>
+                                    <p class="text-sm"
+                                        :class="parserStatus.isOnline ? 'text-emerald-600' : 'text-rose-600'">
+                                        {{ parserStatus.isOnline ? 'Active & Online' : 'Service Down' }}
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <h3 class="font-bold text-gray-800">Parser Status</h3>
-                                <p class="text-sm"
-                                    :class="parserStatus.isOnline ? 'text-emerald-600' : 'text-rose-600'">
-                                    {{ parserStatus.isOnline ? 'Active & Online' : 'Service Down' }}
-                                </p>
+
+                            <div class="glass-card p-6 flex items-center gap-4">
+                                <div class="p-3 rounded-xl bg-indigo-50 text-indigo-600">
+                                    <Zap :size="32" />
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-gray-800">24h Throughput</h3>
+                                    <p class="text-sm text-gray-500">{{ parserStats?.summary?.total_processed || 0 }}
+                                        Requests</p>
+                                </div>
+                            </div>
+
+                            <div class="glass-card p-6 flex items-center gap-4">
+                                <div class="p-3 rounded-xl bg-amber-50 text-amber-600">
+                                    <ShieldCheck :size="32" />
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-gray-800">Success Rate</h3>
+                                    <p class="text-sm text-gray-500">{{ calculateSuccessRate }}% accuracy</p>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="glass-card p-6 flex items-center gap-4">
-                            <div class="p-3 rounded-xl bg-indigo-50 text-indigo-600">
-                                <Zap :size="32" />
+
+
+                        <div class="ai-layout mb-12">
+                            <!-- Parser Configuration -->
+                            <div class="ai-config-section">
+                                <div class="ai-card">
+                                    <div class="ai-card-header">
+                                        <BrainCircuit :size="18" class="text-indigo-600" />
+                                        <h4 class="ai-card-title">Parser AI Configuration</h4>
+                                    </div>
+                                    <div class="ai-card-body">
+                                        <div v-if="appAiMatch"
+                                            class="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between">
+                                            <div class="flex items-center gap-3">
+                                                <span class="text-emerald-600">✨</span>
+                                                <span class="text-xs text-emerald-800 font-medium">Synced with App
+                                                    Intelligence</span>
+                                            </div>
+                                            <button @click="syncAppAiToParser"
+                                                class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 hover:underline">
+                                                Force Resync
+                                            </button>
+                                        </div>
+                                        <div v-else
+                                            class="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-xl flex items-center justify-between">
+                                            <div class="flex items-center gap-3">
+                                                <span class="text-amber-600">⚠️</span>
+                                                <span class="text-xs text-amber-800 font-medium">Config out of sync with
+                                                    App</span>
+                                            </div>
+                                            <button @click="syncAppAiToParser"
+                                                class="px-3 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold shadow-sm">
+                                                Fix Now
+                                            </button>
+                                        </div>
+
+                                        <div class="flex flex-col gap-6">
+                                            <div class="text-sm text-gray-500">
+                                                The Parser Engine runs as a separate microservice. Sync your main
+                                                application's AI settings (Model & API Key) to ensure consistent
+                                                parsing.
+                                            </div>
+
+                                            <div
+                                                class="p-4 bg-gray-50 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label
+                                                        class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Current
+                                                        Model</label>
+                                                    <div class="font-mono text-sm font-semibold text-gray-800">{{
+                                                        parserAiForm.model_name || 'Not Configured' }}</div>
+                                                </div>
+                                                <div>
+                                                    <label
+                                                        class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">AI
+                                                        Status</label>
+                                                    <span
+                                                        :class="parserAiForm.is_enabled ? 'text-emerald-600 bg-emerald-100' : 'text-gray-500 bg-gray-200'"
+                                                        class="px-2 py-0.5 rounded textxs font-bold">
+                                                        {{ parserAiForm.is_enabled ? 'ENABLED' : 'DISABLED' }}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <button @click="syncAppAiToParser"
+                                                class="flex items-center justify-center w-full px-4 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                                                <div class="flex items-center gap-2">
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                                        class="animate-spin-slow" stroke="currentColor"
+                                                        stroke-width="2">
+                                                        <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                                    </svg>
+                                                    <span>Sync AI Config to Parser</span>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <h3 class="font-bold text-gray-800">24h Throughput</h3>
-                                <p class="text-sm text-gray-500">{{ parserStats?.summary?.total_processed || 0 }}
-                                    Requests</p>
+
+                            <!-- Performance Breakdown -->
+                            <div class="ai-playground">
+                                <div class="ai-card">
+                                    <div class="ai-card-header">
+                                        <Activity :size="18" class="text-amber-500" />
+                                        <h4 class="ai-card-title">Parser Performance</h4>
+                                    </div>
+                                    <div class="ai-card-body">
+                                        <div class="space-y-4">
+                                            <div v-for="(count, parser) in parserStats?.parser_performance"
+                                                :key="parser" class="flex flex-col gap-1">
+                                                <div class="flex justify-between text-xs">
+                                                    <span class="font-bold text-gray-700">{{ parser }}</span>
+                                                    <span class="text-muted">{{ count }} hits</span>
+                                                </div>
+                                                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                    <div class="h-full bg-indigo-500"
+                                                        :style="{ width: (count / parserStats.summary.total_processed * 100) + '%' }">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="glass-card p-6 flex items-center gap-4">
-                            <div class="p-3 rounded-xl bg-amber-50 text-amber-600">
-                                <ShieldCheck :size="32" />
+                        <!-- Parser History & Lookups Layout -->
+                        <div class="ai-layout mt-12 pb-12">
+                            <!-- Left: Parser History -->
+                            <div
+                                class="activity-log-section bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                                <div class="flex items-center justify-between mb-6">
+                                    <div class="flex items-center gap-4">
+                                        <h3 class="text-lg font-bold flex items-center gap-2">
+                                            <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📜</span>
+                                            Parser Request History
+                                        </h3>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total:
+                                            {{
+                                                parserLogPagination.total }}</span>
+                                        <button @click="fetchParserData(undefined, true)" class="btn-icon-circle"
+                                            title="Refresh">🔄</button>
+                                    </div>
+                                </div>
+
+                                <div class="overflow-x-auto min-h-[300px]">
+                                    <table class="w-full text-left text-sm">
+                                        <thead class="text-muted border-b border-gray-100">
+                                            <tr>
+                                                <th class="pb-3 pr-4 font-semibold w-24">Time</th>
+                                                <th class="pb-3 pr-4 font-semibold w-20">Source</th>
+                                                <th class="pb-3 pr-4 font-semibold w-24">Status</th>
+                                                <th class="pb-3 pr-4 font-semibold max-w-xs">Input Preview</th>
+                                                <th class="pb-3 pr-4 font-semibold">Extracted Details</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-50">
+                                            <tr v-for="log in parserLogs" :key="log.id"
+                                                class="hover:bg-white/40 group transition-colors">
+                                                <td class="py-3 text-xs whitespace-nowrap">{{
+                                                    formatDate(log.created_at).meta }}
+                                                </td>
+                                                <td class="py-3">
+                                                    <span
+                                                        class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 text-gray-600 border border-gray-200">
+                                                        {{ log.source }}
+                                                    </span>
+                                                </td>
+                                                <td class="py-3">
+                                                    <span
+                                                        :class="log.status === 'success' ? 'text-emerald-700 bg-emerald-50 border border-emerald-100' : 'text-rose-700 bg-rose-50 border border-rose-100'"
+                                                        class="px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center justify-center w-fit">
+                                                        {{ log.status }}
+                                                    </span>
+                                                    <div v-if="log.error_message"
+                                                        class="text-[10px] text-rose-500 mt-1 truncate max-w-[100px]"
+                                                        :title="log.error_message">
+                                                        {{ log.error_message }}
+                                                    </div>
+                                                </td>
+                                                <td class="py-3 text-xs text-muted max-w-xs">
+                                                    <div class="truncate" :title="JSON.stringify(log.input_payload)">
+                                                        {{ log.input_payload?.message || log.input_payload?.body ||
+                                                            log.input_payload?.content || 'Raw Input' }}
+                                                    </div>
+                                                </td>
+                                                <td class="py-3 text-xs">
+                                                    <div v-if="log.output_payload" class="flex flex-col gap-1">
+                                                        <div v-if="log.output_payload.results?.length > 1"
+                                                            class="font-bold text-indigo-600">
+                                                            📦 {{ log.output_payload.results.length }} items
+                                                        </div>
+                                                        <div v-if="log.output_payload.results?.[0]?.transaction"
+                                                            class="font-medium text-gray-800">
+                                                            {{
+                                                                log.output_payload.results[0].transaction.merchant?.cleaned
+                                                                ||
+                                                                log.output_payload.results[0].transaction.description }}
+                                                        </div>
+                                                        <div v-if="log.output_payload.results?.[0]?.transaction"
+                                                            class="text-gray-500">
+                                                            {{
+                                                                formatAmount(log.output_payload.results[0].transaction.amount)
+                                                            }}
+                                                        </div>
+                                                        <div v-else-if="log.output_payload.error"
+                                                            class="text-rose-500 italic">
+                                                            {{ log.output_payload.error }}
+                                                        </div>
+                                                        <div v-else class="text-gray-400 italic">No extraction</div>
+                                                    </div>
+                                                    <div v-else class="text-gray-400 italic">No output</div>
+                                                </td>
+                                            </tr>
+                                            <tr v-if="parserLogs.length === 0">
+                                                <td colspan="5" class="py-12 text-center text-muted italic">
+                                                    No parser logs found.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Pagination Controls -->
+                                <div v-if="parserLogPagination.total > parserLogPagination.limit"
+                                    class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                                    <span class="text-[10px] text-muted">
+                                        Showing {{ parserLogPagination.skip + 1 }} to {{
+                                            Math.min(parserLogPagination.skip +
+                                                parserLogPagination.limit, parserLogPagination.total) }} of {{
+                                            parserLogPagination.total
+                                        }}
+                                    </span>
+                                    <div class="flex items-center gap-1">
+                                        <button
+                                            @click="parserLogPagination.skip -= parserLogPagination.limit; fetchParserData()"
+                                            :disabled="parserLogPagination.skip === 0"
+                                            class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all"
+                                            title="Previous Page">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path d="M15 18l-6-6 6-6" />
+                                            </svg>
+                                        </button>
+                                        <button
+                                            @click="parserLogPagination.skip += parserLogPagination.limit; fetchParserData()"
+                                            :disabled="parserLogPagination.skip + parserLogPagination.limit >= parserLogPagination.total"
+                                            class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all"
+                                            title="Next Page">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path d="M9 18l6-6-6-6" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <h3 class="font-bold text-gray-800">Success Rate</h3>
-                                <p class="text-sm text-gray-500">{{ calculateSuccessRate }}% accuracy</p>
+
+                            <!-- Right: Merchant Lookups -->
+                            <div class="ai-card h-fit">
+                                <div class="ai-card-header">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2.5" class="text-emerald-600">
+                                        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                    </svg>
+                                    <h4 class="ai-card-title">Merchant Lookups</h4>
+                                    <span v-if="aliases.length > 0" class="pulse-status-badge ml-auto"
+                                        style="background: #ecfdf5; color: #047857;">{{ aliases.length }}</span>
+                                </div>
+                                <div class="ai-card-body p-4">
+                                    <p class="text-[10px] text-muted mb-4 leading-relaxed">
+                                        These rules automatically rename merchants during ingestion.
+                                    </p>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-[10px]">
+                                            <thead class="text-gray-500 uppercase font-bold border-b">
+                                                <tr>
+                                                    <th class="py-2 text-left">Pattern</th>
+                                                    <th class="py-2 text-left">Alias</th>
+                                                    <th class="py-2 text-right"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-50">
+                                                <tr v-for="alias in aliases" :key="alias.id" class="group">
+                                                    <td class="py-2 font-mono text-muted truncate max-w-[80px]"
+                                                        :title="alias.pattern">{{ alias.pattern }}</td>
+                                                    <td class="py-2">
+                                                        <span class="font-bold text-gray-800">{{ alias.alias }}</span>
+                                                    </td>
+                                                    <td class="py-2 text-right">
+                                                        <button @click="deleteAlias(alias.id)"
+                                                            class="text-gray-300 hover:text-red-500 transition-colors">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                                                stroke="currentColor" stroke-width="2">
+                                                                <path
+                                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                            </svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="aliases.length === 0">
+                                                    <td colspan="3" class="py-6 text-center text-gray-400 italic">
+                                                        No lookups.
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <div class="ai-layout mb-12">
-                        <!-- Parser Configuration -->
-                        <div class="ai-config-section">
-                            <div class="ai-card">
-                                <div class="ai-card-header">
-                                    <BrainCircuit :size="18" class="text-indigo-600" />
-                                    <h4 class="ai-card-title">Parser AI Configuration</h4>
+                <!-- Account Modal -->
+                <div v-if="showAccountModal" class="modal-overlay-global">
+                    <div class="modal-global glass">
+                        <div class="modal-header">
+                            <h2 class="modal-title">{{ editingAccountId ? 'Edit Account' : 'New Account' }}</h2>
+                            <button class="btn-icon-circle" @click="showAccountModal = false">✕</button>
+                        </div>
+
+                        <form @submit.prevent="handleAccountSubmit" class="form-compact">
+                            <div class="form-group">
+                                <label class="form-label">Account Name</label>
+                                <input v-model="newAccount.name" class="form-input" required
+                                    placeholder="e.g. HDFC Savings" />
+                            </div>
+
+
+                            <div class="form-row">
+                                <div class="form-group half">
+                                    <label class="form-label">Type</label>
+                                    <CustomSelect v-model="newAccount.type" :options="[
+                                        { label: '🏦 Bank Account', value: 'BANK' },
+                                        { label: '💳 Credit Card', value: 'CREDIT_CARD' },
+                                        { label: '💸 Loan / EMIs', value: 'LOAN' },
+                                        { label: '👛 Wallet / Cash', value: 'WALLET' },
+                                        { label: '📈 Investment', value: 'INVESTMENT' }
+                                    ]" />
                                 </div>
-                                <div class="ai-card-body">
-                                    <div v-if="appAiMatch"
-                                        class="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between">
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-emerald-600">✨</span>
-                                            <span class="text-xs text-emerald-800 font-medium">Synced with App
-                                                Intelligence</span>
+                                <div class="form-group half">
+                                    <label class="form-label">Currency</label>
+                                    <CustomSelect v-model="newAccount.currency" :options="[
+                                        { label: 'INR - Indian Rupee', value: 'INR' },
+                                        { label: 'USD - US Dollar', value: 'USD' }
+                                    ]" />
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Account Mask (Last 4 Digits)</label>
+                                <input v-model="newAccount.account_mask" class="form-input" placeholder="e.g. 1234"
+                                    maxlength="4" />
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Account Owner</label>
+                                <CustomSelect v-model="newAccount.owner_id"
+                                    :options="familyMembers.map(m => ({ label: m.full_name || m.email, value: m.id }))"
+                                    placeholder="Select Owner" />
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group" :class="newAccount.type === 'CREDIT_CARD' ? 'half' : 'full'">
+                                    <label class="form-label">{{ consumedLimitMsg }}</label>
+                                    <input type="number" v-model.number="newAccount.balance" class="form-input"
+                                        step="0.01" />
+                                </div>
+                                <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
+                                    <label class="form-label">Total Credit Limit</label>
+                                    <input type="number" v-model.number="newAccount.credit_limit" class="form-input"
+                                        step="0.01" placeholder="e.g. 100000" />
+                                </div>
+                            </div>
+
+                            <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-row">
+                                <div class="form-group half">
+                                    <label class="form-label">Billing Day (1-31)</label>
+                                    <input type="number" v-model.number="newAccount.billing_day" class="form-input"
+                                        min="1" max="31" placeholder="e.g. 15" />
+                                </div>
+                                <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
+                                    <label class="form-label">Due Day (1-31)</label>
+                                    <input type="number" v-model.number="newAccount.due_day" class="form-input" min="1"
+                                        max="31" placeholder="e.g. 5" />
+                                </div>
+                            </div>
+
+                            <div class="setting-toggle-row">
+                                <div class="toggle-label">
+                                    <span class="font-medium">Verified Account</span>
+                                    <span class="text-xs text-muted">Trust transactions from this source</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" v-model="newAccount.is_verified">
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+
+                            <div class="modal-footer">
+                                <button type="button" @click="showAccountModal = false"
+                                    class="btn-secondary">Cancel</button>
+                                <button type="submit" class="btn-primary-glow">Save Changes</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Email Config Modal - PREMIUM REDESIGN -->
+                <div v-if="showEmailModal" class="modal-overlay-global" @click.self="showEmailModal = false">
+                    <div class="email-modal-premium">
+                        <!-- Modal Header -->
+                        <div class="email-modal-header">
+                            <div class="header-icon-wrapper">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path
+                                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                            </div>
+                            <div class="header-text">
+                                <h2 class="email-modal-title">{{ emailModalTitle }}</h2>
+                                <p class="email-modal-subtitle">{{ emailModalSubtitle }}</p>
+                            </div>
+                            <button class="email-modal-close" @click="showEmailModal = false">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <form @submit.prevent="saveEmailConfig" class="email-modal-form">
+                            <!-- Connection Details Section -->
+                            <div class="modal-section">
+                                <div class="section-header">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path d="M21 12h-8m8 0a9 9 0 11-18 0 9 9 0 0118 0zM8 12V8l4-4 4 4v4" />
+                                    </svg>
+                                    <h3>Connection Details</h3>
+                                </div>
+
+                                <div class="form-grid grid-2">
+                                    <div class="form-field">
+                                        <label>Email Address</label>
+                                        <div class="input-with-icon">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2" class="input-icon">
+                                                <path
+                                                    d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                                <polyline points="22,6 12,13 2,6" />
+                                            </svg>
+                                            <input v-model="emailForm.email" class="premium-input" required
+                                                placeholder="name@gmail.com" />
                                         </div>
-                                        <button @click="syncAppAiToParser"
-                                            class="text-[10px] uppercase tracking-wider font-bold text-emerald-700 hover:underline">
-                                            Force Resync
-                                        </button>
                                     </div>
-                                    <div v-else
-                                        class="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-xl flex items-center justify-between">
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-amber-600">⚠️</span>
-                                            <span class="text-xs text-amber-800 font-medium">Config out of sync with
-                                                App</span>
+
+                                    <div class="form-field">
+                                        <label>App Password</label>
+                                        <div class="input-with-icon">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2" class="input-icon">
+                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                                <path d="M7 11V7a5 5 0 0110 0v4" />
+                                            </svg>
+                                            <input type="password" v-model="emailForm.password" class="premium-input"
+                                                required placeholder="•••• •••• •••• ••••" />
                                         </div>
-                                        <button @click="syncAppAiToParser"
-                                            class="px-3 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold shadow-sm">
-                                            Fix Now
-                                        </button>
                                     </div>
 
-                                    <div class="flex flex-col gap-6">
-                                        <div class="text-sm text-gray-500">
-                                            The Parser Engine runs as a separate microservice. Sync your main
-                                            application's AI settings (Model & API Key) to ensure consistent parsing.
-                                        </div>
+                                    <div class="form-field">
+                                        <label>IMAP Server</label>
+                                        <input v-model="emailForm.host" class="premium-input" required
+                                            placeholder="imap.gmail.com" />
+                                    </div>
 
-                                        <div
-                                            class="p-4 bg-gray-50 rounded-xl border border-gray-100 grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label
-                                                    class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Current
-                                                    Model</label>
-                                                <div class="font-mono text-sm font-semibold text-gray-800">{{
-                                                    parserAiForm.model_name || 'Not Configured' }}</div>
-                                            </div>
-                                            <div>
-                                                <label
-                                                    class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">AI
-                                                    Status</label>
-                                                <span
-                                                    :class="parserAiForm.is_enabled ? 'text-emerald-600 bg-emerald-100' : 'text-gray-500 bg-gray-200'"
-                                                    class="px-2 py-0.5 rounded textxs font-bold">
-                                                    {{ parserAiForm.is_enabled ? 'ENABLED' : 'DISABLED' }}
-                                                </span>
-                                            </div>
-                                        </div>
+                                    <div class="form-field">
+                                        <label>Folder</label>
+                                        <input v-model="emailForm.folder" class="premium-input" placeholder="INBOX" />
+                                    </div>
+                                </div>
 
-                                        <button @click="syncAppAiToParser"
-                                            class="flex items-center justify-center w-full px-4 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
-                                            <div class="flex items-center gap-2">
+                                <div class="field-hint">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="12" y1="16" x2="12" y2="12" />
+                                        <line x1="12" y1="8" x2="12.01" y2="8" />
+                                    </svg>
+                                    Use a generated <strong>App Password</strong>, not your main password.
+                                </div>
+                            </div>
+
+                            <!-- Assignment Section -->
+                            <div class="modal-section">
+                                <div class="section-header">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                                        <circle cx="12" cy="7" r="4" />
+                                    </svg>
+                                    <h3>Ownership & Automation</h3>
+                                </div>
+
+                                <div class="form-grid grid-2">
+                                    <div class="form-field">
+                                        <label>Assign to Family Member</label>
+                                        <CustomSelect v-model="emailForm.user_id as any" :options="[
+                                            { label: '👤 Unassigned (Self)', value: null as any },
+                                            ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
+                                        ]" placeholder="Select inbox owner" />
+                                    </div>
+
+                                    <div class="toggle-field-premium">
+                                        <div class="toggle-content">
+                                            <div class="toggle-icon-wrapper active">
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                                    class="animate-spin-slow" stroke="currentColor" stroke-width="2">
+                                                    stroke="currentColor" stroke-width="2">
                                                     <path d="M21 12a9 9 0 11-6.219-8.56" />
                                                 </svg>
-                                                <span>Sync AI Config to Parser</span>
                                             </div>
+                                            <div class="toggle-info">
+                                                <span class="toggle-title">Auto Sync</span>
+                                            </div>
+                                        </div>
+                                        <label class="switch-premium">
+                                            <input type="checkbox" v-model="emailForm.auto_sync">
+                                            <span class="slider-premium"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="field-hint">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    Imported transactions will automatically assign to the owner. Syncs every 15 mins.
+                                </div>
+                            </div>
+
+                            <!-- Advanced Actions (Edit Mode Only) -->
+                            <div v-if="editingEmailConfig" class="advanced-actions-section">
+                                <div class="advanced-actions-header">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <circle cx="12" cy="12" r="1" />
+                                        <circle cx="12" cy="5" r="1" />
+                                        <circle cx="12" cy="19" r="1" />
+                                    </svg>
+                                    <span>Advanced & History Controls</span>
+                                </div>
+
+                                <div class="form-grid grid-2 mb-2">
+                                    <div class="form-field">
+                                        <label>Custom Sync Point</label>
+                                        <input type="datetime-local" v-model="emailForm.last_sync_at"
+                                            class="premium-input" style="height: 40px;" />
+                                    </div>
+                                    <div class="advanced-actions-buttons" style="align-self: flex-end; gap: 0.5rem;">
+                                        <button type="button" @click="rewindSync(3)" class="btn-advanced"
+                                            style="height: 40px; flex: 1;" title="Rescan last 3 hours">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <polyline points="1 4 1 10 7 10" />
+                                                <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
+                                            </svg>
+                                            Rewind 3h
+                                        </button>
+                                        <button type="button" @click="resetSyncHistory" class="btn-advanced"
+                                            style="height: 40px; flex: 1;" title="Reset all history tracking">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path d="M21 12a9 9 0 11-6.219-8.56" />
+                                                <path d="M12 7v5l3 3" />
+                                            </svg>
+                                            Reset
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Performance Breakdown -->
-                        <div class="ai-playground">
-                            <div class="ai-card">
-                                <div class="ai-card-header">
-                                    <Activity :size="18" class="text-amber-500" />
-                                    <h4 class="ai-card-title">Parser Performance</h4>
-                                </div>
-                                <div class="ai-card-body">
-                                    <div class="space-y-4">
-                                        <div v-for="(count, parser) in parserStats?.parser_performance" :key="parser"
-                                            class="flex flex-col gap-1">
-                                            <div class="flex justify-between text-xs">
-                                                <span class="font-bold text-gray-700">{{ parser }}</span>
-                                                <span class="text-muted">{{ count }} hits</span>
-                                            </div>
-                                            <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                                <div class="h-full bg-indigo-500"
-                                                    :style="{ width: (count / parserStats.summary.total_processed * 100) + '%' }">
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                            <!-- Modal Footer -->
+                            <div class="email-modal-footer">
+                                <button v-if="editingEmailConfig" type="button"
+                                    @click="deleteEmailConfig(editingEmailConfig)" class="btn-advanced danger mr-auto">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6" />
+                                        <path
+                                            d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                    </svg>
+                                    Remove Configuration
+                                </button>
+                                <button type="button" @click="showEmailModal = false"
+                                    class="btn-secondary-premium">Cancel</button>
+                                <button type="submit" class="btn-primary-premium">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    {{ editingEmailConfig ? 'Update Configuration' : 'Connect Account' }}
+                                </button>
                             </div>
-                        </div>
+                        </form>
                     </div>
+                </div>
 
-                    <!-- Parser History -->
-                    <!-- Parser History -->
-                    <div
-                        class="activity-log-section bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-center gap-4">
-                                <h3 class="text-lg font-bold flex items-center gap-2">
-                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📜</span>
-                                    Parser Request History
-                                </h3>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total: {{
-                                    parserLogPagination.total }}</span>
-                                <button @click="fetchParserData(undefined, true)" class="btn-icon-circle"
-                                    title="Refresh">🔄</button>
-                            </div>
+                <!-- Sync History Modal -->
+                <div v-if="showHistoryModal" class="modal-overlay-global">
+                    <div class="modal-global modal-lg glass">
+                        <div class="modal-header">
+                            <h2 class="modal-title">Sync History</h2>
+                            <button class="btn-icon-circle" @click="showHistoryModal = false">✕</button>
                         </div>
 
-                        <div class="overflow-x-auto min-h-[300px]">
-                            <table class="w-full text-left text-sm">
-                                <thead class="text-muted border-b border-gray-100">
+                        <div class="history-list">
+                            <div v-if="syncLogs.length === 0" class="empty-state-small">No logs found.</div>
+                            <table v-else class="compact-table">
+                                <thead>
                                     <tr>
-                                        <th class="pb-3 pr-4 font-semibold w-24">Time</th>
-                                        <th class="pb-3 pr-4 font-semibold w-20">Source</th>
-                                        <th class="pb-3 pr-4 font-semibold w-24">Status</th>
-                                        <th class="pb-3 pr-4 font-semibold max-w-xs">Input Preview</th>
-                                        <th class="pb-3 pr-4 font-semibold">Extracted Details</th>
+                                        <th>Status</th>
+                                        <th>Time</th>
+                                        <th>Items</th>
+                                        <th>Message</th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-gray-50">
-                                    <tr v-for="log in parserLogs" :key="log.id"
-                                        class="hover:bg-white/40 group transition-colors">
-                                        <td class="py-3 text-xs whitespace-nowrap">{{ formatDate(log.created_at).meta }}
-                                        </td>
-                                        <td class="py-3">
-                                            <span
-                                                class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 text-gray-600 border border-gray-200">
-                                                {{ log.source }}
-                                            </span>
-                                        </td>
-                                        <td class="py-3">
-                                            <span
-                                                :class="log.status === 'success' ? 'text-emerald-700 bg-emerald-50 border border-emerald-100' : 'text-rose-700 bg-rose-50 border border-rose-100'"
-                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center justify-center w-fit">
-                                                {{ log.status }}
-                                            </span>
-                                            <div v-if="log.error_message"
-                                                class="text-[10px] text-rose-500 mt-1 truncate max-w-[100px]"
-                                                :title="log.error_message">
-                                                {{ log.error_message }}
-                                            </div>
-                                        </td>
-                                        <td class="py-3 text-xs text-muted max-w-xs">
-                                            <div class="truncate" :title="JSON.stringify(log.input_payload)">
-                                                {{ log.input_payload?.message || log.input_payload?.body ||
-                                                    log.input_payload?.content || 'Raw Input' }}
-                                            </div>
-                                        </td>
-                                        <td class="py-3 text-xs">
-                                            <div v-if="log.output_payload" class="flex flex-col gap-1">
-                                                <div v-if="log.output_payload.results?.length > 1"
-                                                    class="font-bold text-indigo-600">
-                                                    📦 {{ log.output_payload.results.length }} items
-                                                </div>
-                                                <div v-if="log.output_payload.results?.[0]?.transaction"
-                                                    class="font-medium text-gray-800">
-                                                    {{ log.output_payload.results[0].transaction.merchant?.cleaned ||
-                                                        log.output_payload.results[0].transaction.description }}
-                                                </div>
-                                                <div v-if="log.output_payload.results?.[0]?.transaction"
-                                                    class="text-gray-500">
-                                                    {{ formatAmount(log.output_payload.results[0].transaction.amount) }}
-                                                </div>
-                                                <div v-else-if="log.output_payload.error" class="text-rose-500 italic">
-                                                    {{ log.output_payload.error }}
-                                                </div>
-                                                <div v-else class="text-gray-400 italic">No extraction</div>
-                                            </div>
-                                            <div v-else class="text-gray-400 italic">No output</div>
-                                        </td>
-                                    </tr>
-                                    <tr v-if="parserLogs.length === 0">
-                                        <td colspan="5" class="py-12 text-center text-muted italic">
-                                            No parser logs found.
-                                        </td>
+                                <tbody>
+                                    <tr v-for="log in syncLogs" :key="log.id">
+                                        <td class="text-center">{{ getLogIcon(log.status) }}</td>
+                                        <td>{{ formatDateFull(log.started_at) }}</td>
+                                        <td>{{ log.items_processed || 0 }}</td>
+                                        <td class="text-muted">{{ log.message }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
 
-                        <!-- Pagination Controls -->
-                        <div v-if="parserLogPagination.total > parserLogPagination.limit"
-                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
-                            <span class="text-[10px] text-muted">
-                                Showing {{ parserLogPagination.skip + 1 }} to {{ Math.min(parserLogPagination.skip +
-                                    parserLogPagination.limit, parserLogPagination.total) }} of {{ parserLogPagination.total
-                                }}
-                            </span>
-                            <div class="flex items-center gap-1">
-                                <button
-                                    @click="parserLogPagination.skip -= parserLogPagination.limit; fetchParserData()"
-                                    :disabled="parserLogPagination.skip === 0"
-                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all"
-                                    title="Previous Page">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
-                                        <path d="M15 18l-6-6 6-6" />
-                                    </svg>
-                                </button>
-                                <button
-                                    @click="parserLogPagination.skip += parserLogPagination.limit; fetchParserData()"
-                                    :disabled="parserLogPagination.skip + parserLogPagination.limit >= parserLogPagination.total"
-                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all"
-                                    title="Next Page">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
-                                        <path d="M9 18l6-6-6-6" />
-                                    </svg>
-                                </button>
-                            </div>
+                        <div class="modal-footer">
+                            <button type="button" @click="showHistoryModal = false" class="btn-secondary">Close</button>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Account Modal -->
-            <div v-if="showAccountModal" class="modal-overlay-global">
-                <div class="modal-global glass">
-                    <div class="modal-header">
-                        <h2 class="modal-title">{{ editingAccountId ? 'Edit Account' : 'New Account' }}</h2>
-                        <button class="btn-icon-circle" @click="showAccountModal = false">✕</button>
+                <!-- Add/Edit Rule Modal -->
+                <div v-if="showModal" class="modal-overlay-global">
+                    <div class="modal-global glass">
+                        <div class="modal-header">
+                            <h2 class="modal-title">{{ isEditing ? 'Edit Rule' : 'New Rule' }}</h2>
+                            <button class="btn-icon-circle" @click="showModal = false">✕</button>
+                        </div>
+
+                        <form @submit.prevent="saveRule" class="form-compact">
+                            <div class="form-group">
+                                <label class="form-label">Rule Name</label>
+                                <input v-model="newRule.name" class="form-input" required
+                                    placeholder="e.g. Ride Apps" />
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Category</label>
+                                <CustomSelect v-model="newRule.category" :options="categoryOptions"
+                                    placeholder="Select Category" />
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Keywords (Comma Separated)</label>
+                                <textarea v-model="newRule.keywords" class="form-input" rows="3"
+                                    placeholder="Uber, Lyft, Ola"></textarea>
+                            </div>
+
+                            <div class="setting-toggle-row">
+                                <div class="toggle-label">
+                                    <span class="font-medium">Auto-Exclude from Reports</span>
+                                    <span class="text-xs text-muted">Automatically hide matching transactions from
+                                        analytics</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" v-model="newRule.exclude_from_reports">
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+
+                            <div class="modal-footer">
+                                <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
+                                <button type="submit" class="btn-primary-glow">Save Rule</button>
+                            </div>
+                        </form>
                     </div>
+                </div>
 
-                    <form @submit.prevent="handleAccountSubmit" class="form-compact">
-                        <div class="form-group">
-                            <label class="form-label">Account Name</label>
-                            <input v-model="newAccount.name" class="form-input" required
-                                placeholder="e.g. HDFC Savings" />
+
+
+                <!-- Confirmations -->
+                <div v-if="showDeleteConfirm" class="modal-overlay-global">
+                    <div class="modal-global glass alert">
+                        <h2 class="modal-title">Delete Rule?</h2>
+                        <p>This will stop automatic categorization for matching transactions.</p>
+                        <div class="modal-footer">
+                            <button @click="showDeleteConfirm = false" class="btn-secondary">Keep it</button>
+                            <button @click="confirmDelete" class="btn-danger">Delete Rule</button>
                         </div>
-
-
-                        <div class="form-row">
-                            <div class="form-group half">
-                                <label class="form-label">Type</label>
-                                <CustomSelect v-model="newAccount.type" :options="[
-                                    { label: '🏦 Bank Account', value: 'BANK' },
-                                    { label: '💳 Credit Card', value: 'CREDIT_CARD' },
-                                    { label: '💸 Loan / EMIs', value: 'LOAN' },
-                                    { label: '👛 Wallet / Cash', value: 'WALLET' },
-                                    { label: '📈 Investment', value: 'INVESTMENT' }
-                                ]" />
-                            </div>
-                            <div class="form-group half">
-                                <label class="form-label">Currency</label>
-                                <CustomSelect v-model="newAccount.currency" :options="[
-                                    { label: 'INR - Indian Rupee', value: 'INR' },
-                                    { label: 'USD - US Dollar', value: 'USD' }
-                                ]" />
-                            </div>
+                    </div>
+                </div>
+                <!-- Delete Account Confirmation -->
+                <div v-if="showAccountDeleteConfirm" class="modal-overlay-global">
+                    <div class="modal-global glass alert max-w-md">
+                        <div class="modal-icon-header danger">🗑️</div>
+                        <h2 class="modal-title">Delete Account?</h2>
+                        <div class="alert-info-box mb-6">
+                            <p class="mb-2">You are about to delete <strong>{{ accountToDelete?.name }}</strong>.</p>
+                            <p class="text-danger font-bold" v-if="accountTxCount > 0">
+                                ⚠️ This will also permanently delete {{ accountTxCount }} transactions.
+                            </p>
+                            <p v-else class="text-muted">No transactions are currently linked to this account.</p>
                         </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Account Mask (Last 4 Digits)</label>
-                            <input v-model="newAccount.account_mask" class="form-input" placeholder="e.g. 1234"
-                                maxlength="4" />
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Account Owner</label>
-                            <CustomSelect v-model="newAccount.owner_id"
-                                :options="familyMembers.map(m => ({ label: m.full_name || m.email, value: m.id }))"
-                                placeholder="Select Owner" />
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group" :class="newAccount.type === 'CREDIT_CARD' ? 'half' : 'full'">
-                                <label class="form-label">{{ consumedLimitMsg }}</label>
-                                <input type="number" v-model.number="newAccount.balance" class="form-input"
-                                    step="0.01" />
-                            </div>
-                            <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
-                                <label class="form-label">Total Credit Limit</label>
-                                <input type="number" v-model.number="newAccount.credit_limit" class="form-input"
-                                    step="0.01" placeholder="e.g. 100000" />
-                            </div>
-                        </div>
-
-                        <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-row">
-                            <div class="form-group half">
-                                <label class="form-label">Billing Day (1-31)</label>
-                                <input type="number" v-model.number="newAccount.billing_day" class="form-input" min="1"
-                                    max="31" placeholder="e.g. 15" />
-                            </div>
-                            <div v-if="newAccount.type === 'CREDIT_CARD'" class="form-group half">
-                                <label class="form-label">Due Day (1-31)</label>
-                                <input type="number" v-model.number="newAccount.due_day" class="form-input" min="1"
-                                    max="31" placeholder="e.g. 5" />
-                            </div>
-                        </div>
-
-                        <div class="setting-toggle-row">
-                            <div class="toggle-label">
-                                <span class="font-medium">Verified Account</span>
-                                <span class="text-xs text-muted">Trust transactions from this source</span>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" v-model="newAccount.is_verified">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
+                        <p class="text-xs text-muted mb-6">This action cannot be undone. Are you absolutely sure?</p>
 
                         <div class="modal-footer">
-                            <button type="button" @click="showAccountModal = false"
-                                class="btn-secondary">Cancel</button>
-                            <button type="submit" class="btn-primary-glow">Save Changes</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Email Config Modal - PREMIUM REDESIGN -->
-            <div v-if="showEmailModal" class="modal-overlay-global" @click.self="showEmailModal = false">
-                <div class="email-modal-premium">
-                    <!-- Modal Header -->
-                    <div class="email-modal-header">
-                        <div class="header-icon-wrapper">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <path
-                                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                        </div>
-                        <div class="header-text">
-                            <h2 class="email-modal-title">{{ emailModalTitle }}</h2>
-                            <p class="email-modal-subtitle">{{ emailModalSubtitle }}</p>
-                        </div>
-                        <button class="email-modal-close" @click="showEmailModal = false">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <form @submit.prevent="saveEmailConfig" class="email-modal-form">
-                        <!-- Connection Details Section -->
-                        <div class="modal-section">
-                            <div class="section-header">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <path d="M21 12h-8m8 0a9 9 0 11-18 0 9 9 0 0118 0zM8 12V8l4-4 4 4v4" />
-                                </svg>
-                                <h3>Connection Details</h3>
-                            </div>
-
-                            <div class="form-grid grid-2">
-                                <div class="form-field">
-                                    <label>Email Address</label>
-                                    <div class="input-with-icon">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2" class="input-icon">
-                                            <path
-                                                d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                            <polyline points="22,6 12,13 2,6" />
-                                        </svg>
-                                        <input v-model="emailForm.email" class="premium-input" required
-                                            placeholder="name@gmail.com" />
-                                    </div>
-                                </div>
-
-                                <div class="form-field">
-                                    <label>App Password</label>
-                                    <div class="input-with-icon">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2" class="input-icon">
-                                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                                            <path d="M7 11V7a5 5 0 0110 0v4" />
-                                        </svg>
-                                        <input type="password" v-model="emailForm.password" class="premium-input"
-                                            required placeholder="•••• •••• •••• ••••" />
-                                    </div>
-                                </div>
-
-                                <div class="form-field">
-                                    <label>IMAP Server</label>
-                                    <input v-model="emailForm.host" class="premium-input" required
-                                        placeholder="imap.gmail.com" />
-                                </div>
-
-                                <div class="form-field">
-                                    <label>Folder</label>
-                                    <input v-model="emailForm.folder" class="premium-input" placeholder="INBOX" />
-                                </div>
-                            </div>
-
-                            <div class="field-hint">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <line x1="12" y1="16" x2="12" y2="12" />
-                                    <line x1="12" y1="8" x2="12.01" y2="8" />
-                                </svg>
-                                Use a generated <strong>App Password</strong>, not your main password.
-                            </div>
-                        </div>
-
-                        <!-- Assignment Section -->
-                        <div class="modal-section">
-                            <div class="section-header">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                                    <circle cx="12" cy="7" r="4" />
-                                </svg>
-                                <h3>Ownership & Automation</h3>
-                            </div>
-
-                            <div class="form-grid grid-2">
-                                <div class="form-field">
-                                    <label>Assign to Family Member</label>
-                                    <CustomSelect v-model="emailForm.user_id as any" :options="[
-                                        { label: '👤 Unassigned (Self)', value: null as any },
-                                        ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
-                                    ]" placeholder="Select inbox owner" />
-                                </div>
-
-                                <div class="toggle-field-premium">
-                                    <div class="toggle-content">
-                                        <div class="toggle-icon-wrapper active">
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2">
-                                                <path d="M21 12a9 9 0 11-6.219-8.56" />
-                                            </svg>
-                                        </div>
-                                        <div class="toggle-info">
-                                            <span class="toggle-title">Auto Sync</span>
-                                        </div>
-                                    </div>
-                                    <label class="switch-premium">
-                                        <input type="checkbox" v-model="emailForm.auto_sync">
-                                        <span class="slider-premium"></span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div class="field-hint">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                                Imported transactions will automatically assign to the owner. Syncs every 15 mins.
-                            </div>
-                        </div>
-
-                        <!-- Advanced Actions (Edit Mode Only) -->
-                        <div v-if="editingEmailConfig" class="advanced-actions-section">
-                            <div class="advanced-actions-header">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <circle cx="12" cy="12" r="1" />
-                                    <circle cx="12" cy="5" r="1" />
-                                    <circle cx="12" cy="19" r="1" />
-                                </svg>
-                                <span>Advanced & History Controls</span>
-                            </div>
-
-                            <div class="form-grid grid-2 mb-2">
-                                <div class="form-field">
-                                    <label>Custom Sync Point</label>
-                                    <input type="datetime-local" v-model="emailForm.last_sync_at" class="premium-input"
-                                        style="height: 40px;" />
-                                </div>
-                                <div class="advanced-actions-buttons" style="align-self: flex-end; gap: 0.5rem;">
-                                    <button type="button" @click="rewindSync(3)" class="btn-advanced"
-                                        style="height: 40px; flex: 1;" title="Rescan last 3 hours">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <polyline points="1 4 1 10 7 10" />
-                                            <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
-                                        </svg>
-                                        Rewind 3h
-                                    </button>
-                                    <button type="button" @click="resetSyncHistory" class="btn-advanced"
-                                        style="height: 40px; flex: 1;" title="Reset all history tracking">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M21 12a9 9 0 11-6.219-8.56" />
-                                            <path d="M12 7v5l3 3" />
-                                        </svg>
-                                        Reset
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Modal Footer -->
-                        <div class="email-modal-footer">
-                            <button v-if="editingEmailConfig" type="button"
-                                @click="deleteEmailConfig(editingEmailConfig)" class="btn-advanced danger mr-auto">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <polyline points="3 6 5 6 21 6" />
-                                    <path
-                                        d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                                </svg>
-                                Remove Configuration
-                            </button>
-                            <button type="button" @click="showEmailModal = false"
-                                class="btn-secondary-premium">Cancel</button>
-                            <button type="submit" class="btn-primary-premium">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                                {{ editingEmailConfig ? 'Update Configuration' : 'Connect Account' }}
+                            <button @click="showAccountDeleteConfirm = false" class="btn-secondary"
+                                :disabled="isDeletingAccount">Cancel</button>
+                            <button @click="confirmAccountDelete" class="btn-danger-glow" :disabled="isDeletingAccount">
+                                {{ isDeletingAccount ? 'Deleting...' : 'Yes, Delete Everything' }}
                             </button>
                         </div>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Sync History Modal -->
-            <div v-if="showHistoryModal" class="modal-overlay-global">
-                <div class="modal-global modal-lg glass">
-                    <div class="modal-header">
-                        <h2 class="modal-title">Sync History</h2>
-                        <button class="btn-icon-circle" @click="showHistoryModal = false">✕</button>
-                    </div>
-
-                    <div class="history-list">
-                        <div v-if="syncLogs.length === 0" class="empty-state-small">No logs found.</div>
-                        <table v-else class="compact-table">
-                            <thead>
-                                <tr>
-                                    <th>Status</th>
-                                    <th>Time</th>
-                                    <th>Items</th>
-                                    <th>Message</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="log in syncLogs" :key="log.id">
-                                    <td class="text-center">{{ getLogIcon(log.status) }}</td>
-                                    <td>{{ formatDateFull(log.started_at) }}</td>
-                                    <td>{{ log.items_processed || 0 }}</td>
-                                    <td class="text-muted">{{ log.message }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="modal-footer">
-                        <button type="button" @click="showHistoryModal = false" class="btn-secondary">Close</button>
                     </div>
                 </div>
-            </div>
 
-            <!-- Add/Edit Rule Modal -->
-            <div v-if="showModal" class="modal-overlay-global">
-                <div class="modal-global glass">
-                    <div class="modal-header">
-                        <h2 class="modal-title">{{ isEditing ? 'Edit Rule' : 'New Rule' }}</h2>
-                        <button class="btn-icon-circle" @click="showModal = false">✕</button>
-                    </div>
 
-                    <form @submit.prevent="saveRule" class="form-compact">
-                        <div class="form-group">
-                            <label class="form-label">Rule Name</label>
-                            <input v-model="newRule.name" class="form-input" required placeholder="e.g. Ride Apps" />
+
+                <!-- Auto-Exclude Confirmation -->
+                <div v-if="showExcludeConfirm" class="modal-overlay-global">
+                    <div class="modal-global glass alert max-w-md">
+                        <div class="modal-icon-header warning">⚠️</div>
+                        <h2 class="modal-title">Enable Auto-Exclude?</h2>
+                        <div class="alert-info-box mb-6">
+                            <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.
+                            </p>
+                            <p class="text-sm text-muted">
+                                Matching transactions will be tagged as non-reportable and will be <strong>hidden from
+                                    analytics</strong> by default.
+                            </p>
                         </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Category</label>
-                            <CustomSelect v-model="newRule.category" :options="categoryOptions"
-                                placeholder="Select Category" />
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Keywords (Comma Separated)</label>
-                            <textarea v-model="newRule.keywords" class="form-input" rows="3"
-                                placeholder="Uber, Lyft, Ola"></textarea>
-                        </div>
-
-                        <div class="setting-toggle-row">
-                            <div class="toggle-label">
-                                <span class="font-medium">Auto-Exclude from Reports</span>
-                                <span class="text-xs text-muted">Automatically hide matching transactions from
-                                    analytics</span>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" v-model="newRule.exclude_from_reports">
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-
                         <div class="modal-footer">
-                            <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
-                            <button type="submit" class="btn-primary-glow">Save Rule</button>
+                            <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
+                            <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
                         </div>
-                    </form>
-                </div>
-            </div>
-
-
-
-            <!-- Confirmations -->
-            <div v-if="showDeleteConfirm" class="modal-overlay-global">
-                <div class="modal-global glass alert">
-                    <h2 class="modal-title">Delete Rule?</h2>
-                    <p>This will stop automatic categorization for matching transactions.</p>
-                    <div class="modal-footer">
-                        <button @click="showDeleteConfirm = false" class="btn-secondary">Keep it</button>
-                        <button @click="confirmDelete" class="btn-danger">Delete Rule</button>
                     </div>
                 </div>
-            </div>
-            <!-- Delete Account Confirmation -->
-            <div v-if="showAccountDeleteConfirm" class="modal-overlay-global">
-                <div class="modal-global glass alert max-w-md">
-                    <div class="modal-icon-header danger">🗑️</div>
-                    <h2 class="modal-title">Delete Account?</h2>
-                    <div class="alert-info-box mb-6">
-                        <p class="mb-2">You are about to delete <strong>{{ accountToDelete?.name }}</strong>.</p>
-                        <p class="text-danger font-bold" v-if="accountTxCount > 0">
-                            ⚠️ This will also permanently delete {{ accountTxCount }} transactions.
-                        </p>
-                        <p v-else class="text-muted">No transactions are currently linked to this account.</p>
-                    </div>
-                    <p class="text-xs text-muted mb-6">This action cannot be undone. Are you absolutely sure?</p>
-
-                    <div class="modal-footer">
-                        <button @click="showAccountDeleteConfirm = false" class="btn-secondary"
-                            :disabled="isDeletingAccount">Cancel</button>
-                        <button @click="confirmAccountDelete" class="btn-danger-glow" :disabled="isDeletingAccount">
-                            {{ isDeletingAccount ? 'Deleting...' : 'Yes, Delete Everything' }}
-                        </button>
-                    </div>
-                </div>
-            </div>
 
 
+                <!-- Add/Edit Family Member Modal -->
+                <div v-if="showMemberModal" class="modal-overlay-global">
+                    <div class="modal-global glass">
+                        <div class="modal-header">
+                            <h2 class="modal-title">{{ isEditingMember ? 'Edit Profile' : 'Add Family Member' }}</h2>
+                            <button class="btn-icon-circle" @click="showMemberModal = false">✕</button>
+                        </div>
 
-            <!-- Auto-Exclude Confirmation -->
-            <div v-if="showExcludeConfirm" class="modal-overlay-global">
-                <div class="modal-global glass alert max-w-md">
-                    <div class="modal-icon-header warning">⚠️</div>
-                    <h2 class="modal-title">Enable Auto-Exclude?</h2>
-                    <div class="alert-info-box mb-6">
-                        <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.</p>
-                        <p class="text-sm text-muted">
-                            Matching transactions will be tagged as non-reportable and will be <strong>hidden from
-                                analytics</strong> by default.
-                        </p>
-                    </div>
-                    <div class="modal-footer">
-                        <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
-                        <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
-                    </div>
-                </div>
-            </div>
-
-
-            <!-- Add/Edit Family Member Modal -->
-            <div v-if="showMemberModal" class="modal-overlay-global">
-                <div class="modal-global glass">
-                    <div class="modal-header">
-                        <h2 class="modal-title">{{ isEditingMember ? 'Edit Profile' : 'Add Family Member' }}</h2>
-                        <button class="btn-icon-circle" @click="showMemberModal = false">✕</button>
-                    </div>
-
-                    <form @submit.prevent="handleMemberSubmit" class="form-compact">
-                        <div class="avatar-picker-grid">
-                            <div v-for="a in ['👨‍💼', '👩‍💼', '👶', '👴', '👵', '👨‍🎓', '👩‍🎓', '🐶']" :key="a"
-                                class="avatar-option" :class="{ active: memberForm.avatar === a }"
-                                @click="memberForm.avatar = a">
-                                {{ a }}
+                        <form @submit.prevent="handleMemberSubmit" class="form-compact">
+                            <div class="avatar-picker-grid">
+                                <div v-for="a in ['👨‍💼', '👩‍💼', '👶', '👴', '👵', '👨‍🎓', '👩‍🎓', '🐶']" :key="a"
+                                    class="avatar-option" :class="{ active: memberForm.avatar === a }"
+                                    @click="memberForm.avatar = a">
+                                    {{ a }}
+                                </div>
+                                <input v-model="memberForm.avatar" class="form-input emoji-input-sm" maxlength="2"
+                                    placeholder="🔍" />
                             </div>
-                            <input v-model="memberForm.avatar" class="form-input emoji-input-sm" maxlength="2"
-                                placeholder="🔍" />
-                        </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Full Name</label>
-                            <input v-model="memberForm.full_name" class="form-input" required
-                                placeholder="e.g. Sarah Smith" />
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group half">
-                                <label class="form-label">Date of Birth</label>
-                                <input type="date" v-model="memberForm.dob" class="form-input" />
+                            <div class="form-group">
+                                <label class="form-label">Full Name</label>
+                                <input v-model="memberForm.full_name" class="form-input" required
+                                    placeholder="e.g. Sarah Smith" />
                             </div>
-                            <div class="form-group half">
-                                <label class="form-label">PAN Number</label>
-                                <div style="position: relative;">
-                                    <input :type="showPan ? 'text' : 'password'" v-model="memberForm.pan_number"
-                                        class="form-input" style="padding-right: 2.5rem;" placeholder="ABCDE1234F"
-                                        maxlength="10" />
-                                    <button type="button" @click="showPan = !showPan"
-                                        style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; opacity: 0.5;">
-                                        {{ showPan ? '🙈' : '👁️' }}
-                                    </button>
+
+                            <div class="form-row">
+                                <div class="form-group half">
+                                    <label class="form-label">Date of Birth</label>
+                                    <input type="date" v-model="memberForm.dob" class="form-input" />
+                                </div>
+                                <div class="form-group half">
+                                    <label class="form-label">PAN Number</label>
+                                    <div style="position: relative;">
+                                        <input :type="showPan ? 'text' : 'password'" v-model="memberForm.pan_number"
+                                            class="form-input" style="padding-right: 2.5rem;" placeholder="ABCDE1234F"
+                                            maxlength="10" />
+                                        <button type="button" @click="showPan = !showPan"
+                                            style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; opacity: 0.5;">
+                                            {{ showPan ? '🙈' : '👁️' }}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Email Address</label>
-                            <input v-model="memberForm.email" class="form-input" :disabled="isEditingMember"
-                                type="email" required placeholder="sarah@example.com" />
-                        </div>
+                            <div class="form-group">
+                                <label class="form-label">Email Address</label>
+                                <input v-model="memberForm.email" class="form-input" :disabled="isEditingMember"
+                                    type="email" required placeholder="sarah@example.com" />
+                            </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)' : ''
-                            }}</label>
-                            <input v-model="memberForm.password" class="form-input" type="password"
-                                :required="!isEditingMember" />
-                        </div>
+                            <div class="form-group">
+                                <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)'
+                                    : ''
+                                    }}</label>
+                                <input v-model="memberForm.password" class="form-input" type="password"
+                                    :required="!isEditingMember" />
+                            </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Role / Permissions</label>
-                            <CustomSelect v-model="memberForm.role" :options="[
-                                { label: 'Admin (See everything)', value: 'OWNER' },
-                                { label: 'Adult (Edit access)', value: 'ADULT' },
-                                { label: 'Child (Watch only / Restricted)', value: 'CHILD' },
-                                { label: 'Guest', value: 'GUEST' }
-                            ]" />
-                        </div>
+                            <div class="form-group">
+                                <label class="form-label">Role / Permissions</label>
+                                <CustomSelect v-model="memberForm.role" :options="[
+                                    { label: 'Admin (See everything)', value: 'OWNER' },
+                                    { label: 'Adult (Edit access)', value: 'ADULT' },
+                                    { label: 'Child (Watch only / Restricted)', value: 'CHILD' },
+                                    { label: 'Guest', value: 'GUEST' }
+                                ]" />
+                            </div>
 
-                        <div class="modal-footer">
-                            <button type="button" @click="showMemberModal = false" class="btn-secondary">Cancel</button>
-                            <button type="submit" class="btn-primary-glow">{{ addMemberMsg }}</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            <!-- Device Assignment Modal -->
-            <div v-if="showDeviceAssignModal" class="modal-overlay-global">
-                <div class="modal-global glass text-center">
-                    <div class="modal-header">
-                        <h2 class="modal-title">Edit Device Settings</h2>
-                        <button class="btn-icon-circle" @click="showDeviceAssignModal = false">✕</button>
-                    </div>
-                    <div class="p-4" style="text-align: left;">
-                        <div class="form-group mb-4">
-                            <label class="form-label">Display Name</label>
-                            <input v-model="editDeviceName" class="form-input" placeholder="e.g. My Phone" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Assign Family Member</label>
-                            <CustomSelect v-model="selectedAssignUserId as any" :options="[
-                                { label: '👤 Unassigned', value: null as any },
-                                ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
-                            ]" placeholder="Select Owner" />
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button @click="showDeviceAssignModal = false" class="btn-secondary">Cancel</button>
-                        <button @click="confirmAssignUser" class="btn-primary-glow">Save Settings</button>
+                            <div class="modal-footer">
+                                <button type="button" @click="showMemberModal = false"
+                                    class="btn-secondary">Cancel</button>
+                                <button type="submit" class="btn-primary-glow">{{ addMemberMsg }}</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
-            </div>
-
-            <!-- Device Delete Confirmation Modal -->
-            <div v-if="showDeviceDeleteConfirm" class="modal-overlay-global">
-                <div class="modal-global glass text-center" style="max-width: 400px;">
-                    <div class="p-6">
-                        <div class="text-4xl mb-4">🗑️</div>
-                        <h2 class="text-xl font-bold mb-2">Delete Device?</h2>
-                        <p class="text-muted mb-6">Are you sure you want to permanently remove <strong>{{
-                            deviceToDelete?.device_name }}</strong>? This action cannot be undone.</p>
-
-                        <div class="flex gap-3">
-                            <button @click="showDeviceDeleteConfirm = false" class="btn-dev secondary flex-1">Keep
-                                Device</button>
-                            <button @click="confirmDeleteDevice" class="btn-dev danger flex-1">Delete
-                                Permanently</button>
+                <!-- Device Assignment Modal -->
+                <div v-if="showDeviceAssignModal" class="modal-overlay-global">
+                    <div class="modal-global glass text-center">
+                        <div class="modal-header">
+                            <h2 class="modal-title">Edit Device Settings</h2>
+                            <button class="btn-icon-circle" @click="showDeviceAssignModal = false">✕</button>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tenant Rename Modal -->
-            <div v-if="showTenantModal" class="modal-overlay-global">
-                <div class="modal-global glass">
-                    <div class="modal-header">
-                        <h2 class="modal-title">Rename Family Circle</h2>
-                        <button class="btn-icon-circle" @click="showTenantModal = false">✕</button>
-                    </div>
-
-                    <form @submit.prevent="handleRenameTenant" class="form-compact">
-                        <div class="form-group">
-                            <label class="form-label">New Family Name</label>
-                            <input v-model="tenantForm.name" class="form-input" required
-                                placeholder="e.g. The Smiths" />
+                        <div class="p-4" style="text-align: left;">
+                            <div class="form-group mb-4">
+                                <label class="form-label">Display Name</label>
+                                <input v-model="editDeviceName" class="form-input" placeholder="e.g. My Phone" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Assign Family Member</label>
+                                <CustomSelect v-model="selectedAssignUserId as any" :options="[
+                                    { label: '👤 Unassigned', value: null as any },
+                                    ...familyMembers.map(m => ({ label: `${m.avatar || '👤'} ${m.full_name || m.email}`, value: (m.id as any) }))
+                                ]" placeholder="Select Owner" />
+                            </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" @click="showTenantModal = false" class="btn-secondary">Cancel</button>
-                            <button type="submit" class="btn-primary-glow">Save Changes</button>
+                            <button @click="showDeviceAssignModal = false" class="btn-secondary">Cancel</button>
+                            <button @click="confirmAssignUser" class="btn-primary-glow">Save Settings</button>
                         </div>
-                    </form>
+                    </div>
+                </div>
+
+                <!-- Device Delete Confirmation Modal -->
+                <div v-if="showDeviceDeleteConfirm" class="modal-overlay-global">
+                    <div class="modal-global glass text-center" style="max-width: 400px;">
+                        <div class="p-6">
+                            <div class="text-4xl mb-4">🗑️</div>
+                            <h2 class="text-xl font-bold mb-2">Delete Device?</h2>
+                            <p class="text-muted mb-6">Are you sure you want to permanently remove <strong>{{
+                                deviceToDelete?.device_name }}</strong>? This action cannot be undone.</p>
+
+                            <div class="flex gap-3">
+                                <button @click="showDeviceDeleteConfirm = false" class="btn-dev secondary flex-1">Keep
+                                    Device</button>
+                                <button @click="confirmDeleteDevice" class="btn-dev danger flex-1">Delete
+                                    Permanently</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tenant Rename Modal -->
+                <div v-if="showTenantModal" class="modal-overlay-global">
+                    <div class="modal-global glass">
+                        <div class="modal-header">
+                            <h2 class="modal-title">Rename Family Circle</h2>
+                            <button class="btn-icon-circle" @click="showTenantModal = false">✕</button>
+                        </div>
+
+                        <form @submit.prevent="handleRenameTenant" class="form-compact">
+                            <div class="form-group">
+                                <label class="form-label">New Family Name</label>
+                                <input v-model="tenantForm.name" class="form-input" required
+                                    placeholder="e.g. The Smiths" />
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" @click="showTenantModal = false"
+                                    class="btn-secondary">Cancel</button>
+                                <button type="submit" class="btn-primary-glow">Save Changes</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
     </MainLayout>
+
 </template>
 
 <script setup lang="ts">
@@ -2203,6 +2284,27 @@ const aiTesting = ref(false)
 const aiTestResult = ref<any>(null)
 const aiTestMessage = ref("Spent Rs 500.50 at Amazon using card ending in 1234 on 14/01/2026")
 
+const aliases = ref<any[]>([])
+async function fetchAliases() {
+    try {
+        const res = await aiApi.getAliases()
+        aliases.value = res.data || []
+    } catch (e) {
+        console.error("Failed to fetch aliases", e)
+    }
+}
+
+async function deleteAlias(id: string) {
+    if (!confirm("Are you sure you want to remove this merchant lookup?")) return
+    try {
+        await aiApi.deleteAlias(id)
+        notify.success("Lookup removed")
+        fetchAliases()
+    } catch (e) {
+        notify.error("Failed to remove lookup")
+    }
+}
+
 // Parser Engine State
 const parserStatus = ref({ isOnline: false })
 const parserStats = ref<any>(null)
@@ -2243,10 +2345,10 @@ const fetchParserData = async (sourceFilter?: string, refresh: boolean = false) 
             }),
             parserApi.getAiConfig()
         ])
-        parserStatus.value.isOnline = health.data.status === 'ok'
-        parserStats.value = stats.data
-        parserLogs.value = logs.data.logs
-        parserLogPagination.value.total = logs.data.total
+        parserStatus.value.isOnline = health.data?.status === 'ok'
+        parserStats.value = stats.data || null
+        parserLogs.value = logs.data?.logs || []
+        parserLogPagination.value.total = logs.data?.total || 0
 
         parserAiForm.value = {
             is_enabled: config.data.is_enabled || false,
@@ -2410,6 +2512,7 @@ async function fetchData() {
         fetchParserData()
         fetchIngestionEvents()
         fetchEmailLogs()
+        fetchAliases()
     } catch (err) {
         console.error('Failed to fetch settings data', err)
     } finally {
