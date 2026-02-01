@@ -34,7 +34,6 @@ class GeminiParser:
         model_id = self.config.model_name or "gemini-1.5-flash"
 
         # Standard Prompt
-        # We can eventually load this from self.config.prompts_json if specialized
         prompt = f"""
         You are a precise financial parser. Extract transaction details from the following {source} message.
         Return ONLY valid JSON.
@@ -54,8 +53,10 @@ class GeminiParser:
         }}
         
         Rules:
-        1. If date is missing/relative (like 'today'), assume today's date: {datetime.now().strftime('%Y-%m-%d')}.
-        2. If unable to extract strictly, return null.
+        1. If date is missing/relative (e.g. 'today', 'yesterday'), calculate it based on today's reference: {datetime.now().strftime('%Y-%m-%d')}.
+        2. ALWAYS return date in ISO format (YYYY-MM-DD). Convert '28-03-24' to '2024-03-28'.
+        3. For 'merchant', extract the actual entity name (e.g. 'Uber', 'Zomato').
+        4. If unable to extract strictly, return null.
         """
 
         try:
@@ -72,25 +73,37 @@ class GeminiParser:
                 text = text[3:-3]
             
             data = json.loads(text)
-            
             if not data: return None
             
+            # Robust Date Parsing
+            extracted_date = data.get("date")
+            final_date = datetime.now()
+            if extracted_date:
+                try:
+                    if "-" in extracted_date and len(extracted_date) == 10:
+                        final_date = datetime.strptime(extracted_date, "%Y-%m-%d")
+                    else:
+                        from dateutil import parser as date_parser
+                        final_date = date_parser.parse(extracted_date)
+                except:
+                    final_date = datetime.now()
+
             # Map to Schema
             return Transaction(
                 amount=Decimal(str(data.get("amount", 0))),
                 type=TransactionType(data.get("type", "DEBIT").upper()),
-                date=datetime.strptime(data.get("date"), "%Y-%m-%d"),
+                date=final_date,
                 currency=data.get("currency", "INR"),
                 account=AccountInfo(
                     mask=data.get("account_mask"), 
                     provider=data.get("bank_name")
                 ),
                 merchant=MerchantInfo(
-                    raw=data.get("description"), 
-                    cleaned=data.get("merchant")
+                    raw=data.get("description") or data.get("merchant") or "Unknown", 
+                    cleaned=data.get("merchant") or "Unknown"
                 ),
-                description=data.get("description"),
-                recipient=data.get("merchant"),
+                description=data.get("description") or content,
+                recipient=data.get("merchant") or "Unknown",
                 raw_message=content
             )
 

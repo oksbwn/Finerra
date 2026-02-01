@@ -92,3 +92,32 @@ def create_pattern_rule(payload: PatternRuleCreate, db: Session = Depends(get_db
     db.add(rule)
     db.commit()
     return {"status": "success", "id": rule.id}
+
+class AliasCreate(BaseModel):
+    pattern: str
+    alias: str
+
+@router.get("/aliases")
+def get_aliases(db: Session = Depends(get_db)):
+    from parser.db.models import MerchantAlias
+    return db.query(MerchantAlias).order_by(MerchantAlias.created_at.desc()).all()
+
+@router.post("/aliases")
+def create_alias(payload: AliasCreate, db: Session = Depends(get_db)):
+    from parser.db.models import MerchantAlias
+    # Upsert logic
+    existing = db.query(MerchantAlias).filter(MerchantAlias.pattern == payload.pattern).first()
+    if existing:
+        existing.alias = payload.alias
+    else:
+        new_alias = MerchantAlias(pattern=payload.pattern, alias=payload.alias)
+        db.add(new_alias)
+    db.commit()
+    return {"status": "success"}
+
+@router.delete("/aliases/{alias_id}")
+def delete_alias(alias_id: str, db: Session = Depends(get_db)):
+    from parser.db.models import MerchantAlias
+    db.query(MerchantAlias).filter(MerchantAlias.id == alias_id).delete()
+    db.commit()
+    return {"status": "success"}
