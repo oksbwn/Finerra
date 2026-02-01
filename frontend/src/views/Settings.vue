@@ -829,99 +829,42 @@
 
                         </div>
                     </div>
+                </div>
 
-                    <!-- DEVICES TAB (MOBILE) -->
-                    <div v-if="activeTab === 'devices'" class="tab-content animate-in">
-                        <!-- Search Bar -->
-                        <div class="account-control-bar mb-6">
-                            <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" class="search-icon">
-                                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                <input type="text" v-model="searchQuery" placeholder="Search devices..."
-                                    class="search-input">
-                            </div>
-                            <div class="header-with-badge"
-                                style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
-                                <h3
-                                    style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
-                                    Mobile Devices</h3>
-                                <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
-                                    devices.length }} Total</span>
-                            </div>
+                <!-- DEVICES TAB (MOBILE) -->
+                <div v-if="activeTab === 'devices'" class="tab-content animate-in">
+                    <!-- Search Bar -->
+                    <div class="account-control-bar mb-6">
+                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" class="search-icon">
+                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <input type="text" v-model="searchQuery" placeholder="Search devices..."
+                                class="search-input">
                         </div>
-
-                        <!-- PENDING DEVICES -->
-                        <div v-if="devices.some(d => !d.is_approved && !d.is_ignored)" class="mb-8">
-                            <div class="device-section-header">
-                                <div class="device-section-title">
-                                    <span>🔔 Pending Approval</span>
-                                    <span class="badge-count warning">{{devices.filter(d => !d.is_approved &&
-                                        !d.is_ignored).length}}</span>
-                                </div>
-                            </div>
-                            <div class="devices-grid-premium">
-                                <div v-for="device in devices.filter(d => !d.is_approved && !d.is_ignored)"
-                                    :key="device.id" class="device-card-premium unapproved">
-                                    <div class="dev-header">
-                                        <div class="dev-icon-wrapper"
-                                            :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
-                                            {{ (device.device_name.toLowerCase().includes('iphone') ||
-                                                device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
-                                        </div>
-                                        <div class="dev-info-main">
-                                            <h3 class="dev-name">{{ device.device_name }}</h3>
-                                        </div>
-                                    </div>
-                                    <div class="dev-meta">
-                                        <div class="meta-row">
-                                            <div class="flex items-center gap-1">
-                                                <span class="meta-val text-xs">
-                                                    {{ (getDeviceUser(device.user_id)?.full_name ||
-                                                        getDeviceUser(device.user_id)?.email || 'Unassigned').split('@')[0]
-                                                    }}
-                                                </span>
-                                                <button @click="openAssignModal(device)"
-                                                    class="btn-icon-tiny">✎</button>
-                                            </div>
-                                            <span class="meta-val text-xs text-muted" title="First Seen">
-                                                🕒 {{ formatDate(device.created_at).day }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div class="dev-id-footer">
-                                        <div class="dev-id-row">
-                                            <span class="dev-id-mono">{{ device.device_id }}</span>
-                                            <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
-                                                title="Copy Full ID">📋</button>
-                                        </div>
-                                    </div>
-                                    <div class="dev-actions">
-                                        <button @click="toggleDeviceApproval(device)"
-                                            class="btn-dev primary">Approve</button>
-                                        <button @click="toggleDeviceIgnored(device, true)"
-                                            class="btn-dev secondary">Ignore</button>
-                                    </div>
-                                </div>
-                            </div>
+                        <div class="header-with-badge"
+                            style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+                            <h3
+                                style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
+                                Mobile Devices</h3>
+                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
+                                devices.length }} Total</span>
                         </div>
+                    </div>
 
-                        <!-- ACTIVE DEVICES -->
+                    <!-- PENDING DEVICES -->
+                    <div v-if="devices.some(d => !d.is_approved && !d.is_ignored)" class="mb-8">
                         <div class="device-section-header">
                             <div class="device-section-title">
-                                <span>✅ Active Devices</span>
-                                <span class="badge-count">{{devices.filter(d => d.is_approved).length}}</span>
+                                <span>🔔 Pending Approval</span>
+                                <span class="badge-count warning">{{devices.filter(d => !d.is_approved &&
+                                    !d.is_ignored).length}}</span>
                             </div>
                         </div>
-
-                        <div class="devices-grid-premium mb-12">
-                            <div v-for="device in devices.filter(d => d.is_approved)" :key="device.id"
-                                class="device-card-premium" :class="{
-                                    'ignored': device.is_ignored,
-                                    'online-accent': isOnline(device.last_seen_at),
-                                    'offline-accent': !isOnline(device.last_seen_at)
-                                }">
+                        <div class="devices-grid-premium">
+                            <div v-for="device in devices.filter(d => !d.is_approved && !d.is_ignored)" :key="device.id"
+                                class="device-card-premium unapproved">
                                 <div class="dev-header">
                                     <div class="dev-icon-wrapper"
                                         :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
@@ -932,21 +875,18 @@
                                         <h3 class="dev-name">{{ device.device_name }}</h3>
                                     </div>
                                 </div>
-
                                 <div class="dev-meta">
                                     <div class="meta-row">
-                                        <div class="flex items-center gap-2">
-                                            <span class="meta-val p-0 text-xs flex items-center gap-1">
-                                                <img v-if="getDeviceUser(device.user_id)?.avatar?.length > 4"
-                                                    :src="getDeviceUser(device.user_id)?.avatar"
-                                                    class="w-4 h-4 rounded-full" />
-                                                {{ getDeviceUser(device.user_id)?.full_name ||
-                                                    getDeviceUser(device.user_id)?.email || 'Unassigned' }}
+                                        <div class="flex items-center gap-1">
+                                            <span class="meta-val text-xs">
+                                                {{ (getDeviceUser(device.user_id)?.full_name ||
+                                                    getDeviceUser(device.user_id)?.email || 'Unassigned').split('@')[0]
+                                                }}
                                             </span>
                                             <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
                                         </div>
-                                        <span class="meta-val text-xs text-muted" title="Last Synchronization">
-                                            Sync: {{ formatDate(device.last_seen_at || device.created_at).meta }}
+                                        <span class="meta-val text-xs text-muted" title="First Seen">
+                                            🕒 {{ formatDate(device.created_at).day }}
                                         </span>
                                     </div>
                                 </div>
@@ -957,161 +897,218 @@
                                             title="Copy Full ID">📋</button>
                                     </div>
                                 </div>
-
                                 <div class="dev-actions">
-                                    <button @click="toggleDeviceEnabled(device)" class="btn-dev secondary">
-                                        {{ device.is_enabled ? 'Pause' : 'Resume' }}
-                                    </button>
-                                    <button @click="deleteDeviceRequest(device)" class="btn-dev danger"
-                                        style="flex: 0 0 2.25rem;">🗑️</button>
-                                </div>
-                            </div>
-
-                            <div v-if="devices.filter(d => d.is_approved).length === 0"
-                                class="empty-placeholder col-span-full">
-                                <div class="empty-state-content">
-                                    <div class="empty-icon-large">📱</div>
-                                    <h3>No Devices Connected</h3>
-                                    <p>Login from the mobile app to see your devices here.</p>
+                                    <button @click="toggleDeviceApproval(device)"
+                                        class="btn-dev primary">Approve</button>
+                                    <button @click="toggleDeviceIgnored(device, true)"
+                                        class="btn-dev secondary">Ignore</button>
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- IGNORED DEVICES -->
-                        <div v-if="devices.some(d => d.is_ignored)" class="mt-8">
-                            <div class="device-section-header">
-                                <div class="device-section-title text-muted">
-                                    <span>🚫 Ignored Devices</span>
+                    <!-- ACTIVE DEVICES -->
+                    <div class="device-section-header">
+                        <div class="device-section-title">
+                            <span>✅ Active Devices</span>
+                            <span class="badge-count">{{devices.filter(d => d.is_approved).length}}</span>
+                        </div>
+                    </div>
+
+                    <div class="devices-grid-premium mb-12">
+                        <div v-for="device in devices.filter(d => d.is_approved)" :key="device.id"
+                            class="device-card-premium" :class="{
+                                'ignored': device.is_ignored,
+                                'online-accent': isOnline(device.last_seen_at),
+                                'offline-accent': !isOnline(device.last_seen_at)
+                            }">
+                            <div class="dev-header">
+                                <div class="dev-icon-wrapper"
+                                    :class="{ 'android': device.device_name.toLowerCase().includes('pixel') || device.device_name.toLowerCase().includes('samsung'), 'apple': device.device_name.toLowerCase().includes('iphone') || device.device_name.toLowerCase().includes('ipad') }">
+                                    {{ (device.device_name.toLowerCase().includes('iphone') ||
+                                        device.device_name.toLowerCase().includes('ipad')) ? '' : '📱' }}
+                                </div>
+                                <div class="dev-info-main">
+                                    <h3 class="dev-name">{{ device.device_name }}</h3>
                                 </div>
                             </div>
-                            <div class="devices-grid-premium">
-                                <div v-for="device in devices.filter(d => d.is_ignored)" :key="device.id"
-                                    class="device-card-premium ignored">
-                                    <div class="dev-header">
-                                        <div class="dev-icon-wrapper">
-                                            📱
-                                        </div>
-                                        <div class="dev-info-main">
-                                            <h3 class="dev-name text-muted">{{ device.device_name }}</h3>
-                                            <span class="dev-id-mono">{{ device.device_id }}</span>
-                                        </div>
-                                        <div class="status-indicator">Ignored</div>
+
+                            <div class="dev-meta">
+                                <div class="meta-row">
+                                    <div class="flex items-center gap-2">
+                                        <span class="meta-val p-0 text-xs flex items-center gap-1">
+                                            <img v-if="getDeviceUser(device.user_id)?.avatar?.length > 4"
+                                                :src="getDeviceUser(device.user_id)?.avatar"
+                                                class="w-4 h-4 rounded-full" />
+                                            {{ getDeviceUser(device.user_id)?.full_name ||
+                                                getDeviceUser(device.user_id)?.email || 'Unassigned' }}
+                                        </span>
+                                        <button @click="openAssignModal(device)" class="btn-icon-tiny">✎</button>
                                     </div>
-                                    <div class="dev-actions">
-                                        <button @click="toggleDeviceIgnored(device, false)"
-                                            class="btn-dev secondary">Restore</button>
-                                        <button @click="deleteDeviceRequest(device)" class="btn-dev danger">Delete
-                                            Forever</button>
-                                    </div>
+                                    <span class="meta-val text-xs text-muted" title="Last Synchronization">
+                                        Sync: {{ formatDate(device.last_seen_at || device.created_at).meta }}
+                                    </span>
                                 </div>
+                            </div>
+                            <div class="dev-id-footer">
+                                <div class="dev-id-row">
+                                    <span class="dev-id-mono">{{ device.device_id }}</span>
+                                    <button @click="copyToClipboard(device.device_id)" class="copy-small-btn"
+                                        title="Copy Full ID">📋</button>
+                                </div>
+                            </div>
+
+                            <div class="dev-actions">
+                                <button @click="toggleDeviceEnabled(device)" class="btn-dev secondary">
+                                    {{ device.is_enabled ? 'Pause' : 'Resume' }}
+                                </button>
+                                <button @click="deleteDeviceRequest(device)" class="btn-dev danger"
+                                    style="flex: 0 0 2.25rem;">🗑️</button>
                             </div>
                         </div>
 
-                        <!-- RECENT ACTIVITY LOG -->
-                        <div
-                            class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-center gap-4">
-                                    <h3 class="text-lg font-bold flex items-center gap-2">
-                                        <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📋</span>
-                                        Recent Activity Log
-                                    </h3>
-                                    <button v-if="selectedEvents.length > 0" @click="handleBulkDeleteEvents"
-                                        class="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-100 transition-all hover:bg-rose-100 flex items-center gap-2 animate-in slide-in-from-left">
-                                        🗑️ Delete {{ selectedEvents.length }} Selected
-                                    </button>
+                        <div v-if="devices.filter(d => d.is_approved).length === 0"
+                            class="empty-placeholder col-span-full">
+                            <div class="empty-state-content">
+                                <div class="empty-icon-large">📱</div>
+                                <h3>No Devices Connected</h3>
+                                <p>Login from the mobile app to see your devices here.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- IGNORED DEVICES -->
+                    <div v-if="devices.some(d => d.is_ignored)" class="mt-8">
+                        <div class="device-section-header">
+                            <div class="device-section-title text-muted">
+                                <span>🚫 Ignored Devices</span>
+                            </div>
+                        </div>
+                        <div class="devices-grid-premium">
+                            <div v-for="device in devices.filter(d => d.is_ignored)" :key="device.id"
+                                class="device-card-premium ignored">
+                                <div class="dev-header">
+                                    <div class="dev-icon-wrapper">
+                                        📱
+                                    </div>
+                                    <div class="dev-info-main">
+                                        <h3 class="dev-name text-muted">{{ device.device_name }}</h3>
+                                        <span class="dev-id-mono">{{ device.device_id }}</span>
+                                    </div>
+                                    <div class="status-indicator">Ignored</div>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total:
-                                        {{
-                                            eventPagination.total }}</span>
-                                    <button @click="fetchIngestionEvents(undefined, true)" class="btn-icon-circle"
-                                        title="Refresh Log">🔄</button>
+                                <div class="dev-actions">
+                                    <button @click="toggleDeviceIgnored(device, false)"
+                                        class="btn-dev secondary">Restore</button>
+                                    <button @click="deleteDeviceRequest(device)" class="btn-dev danger">Delete
+                                        Forever</button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
 
-                            <div class="overflow-x-auto min-h-[300px]">
-                                <table class="w-full text-left text-sm">
-                                    <thead class="text-muted border-b border-gray-100">
-                                        <tr>
-                                            <th class="pb-3 w-8">
-                                                <input type="checkbox" @change="toggleSelectAllEvents"
-                                                    :checked="selectedEvents.length === ingestionEvents.length && ingestionEvents.length > 0"
-                                                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                                            </th>
-                                            <th class="pb-3 pr-4 font-semibold">Timestamp</th>
-                                            <th class="pb-3 pr-4 font-semibold">Event</th>
-                                            <th class="pb-3 pr-4 font-semibold">Device</th>
-                                            <th class="pb-3 pr-4 font-semibold">Status</th>
-                                            <th class="pb-3 pr-4 font-semibold">Message</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-50">
-                                        <tr v-for="event in ingestionEvents" :key="event.id"
-                                            class="hover:bg-white/40 transition-colors group">
-                                            <td class="py-3">
-                                                <input type="checkbox" v-model="selectedEvents" :value="event.id"
-                                                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
-                                            </td>
-                                            <td class="py-3 pr-4 whitespace-nowrap text-xs">
-                                                {{ formatDate(event.created_at).meta }}
-                                            </td>
-                                            <td class="py-3 pr-4">
-                                                <span
-                                                    class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100">
-                                                    {{ event.event_type.replace('_', ' ') }}
-                                                </span>
-                                            </td>
-                                            <td class="py-3 pr-4 text-xs font-mono text-muted">
-                                                {{ event.device_id }}
-                                            </td>
-                                            <td class="py-3 pr-4">
-                                                <span :class="{
-                                                    'text-emerald-600 bg-emerald-50': event.status === 'success',
-                                                    'text-amber-600 bg-amber-50': event.status === 'warning',
-                                                    'text-rose-600 bg-rose-50': event.status === 'error',
-                                                    'text-slate-600 bg-slate-50': event.status === 'skipped'
-                                                }" class="px-2 py-0.5 rounded-full text-[10px] font-bold">
-                                                    {{ event.status }}
-                                                </span>
-                                            </td>
-                                            <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="event.message">
-                                                {{ event.message }}
-                                            </td>
-                                        </tr>
-                                        <tr v-if="ingestionEvents.length === 0">
-                                            <td colspan="6" class="py-12 text-center text-muted italic">
-                                                <div class="flex flex-col items-center gap-2">
-                                                    <span class="text-2xl">🔍</span>
-                                                    No activity logs found.
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                    <!-- RECENT ACTIVITY LOG -->
+                    <div
+                        class="activity-log-section mt-12 bg-white/30 backdrop-blur-md rounded-2xl border border-white/20 p-6 overflow-hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-4">
+                                <h3 class="text-lg font-bold flex items-center gap-2">
+                                    <span class="bg-indigo-100 text-indigo-600 p-2 rounded-lg text-sm">📋</span>
+                                    Recent Activity Log
+                                </h3>
+                                <button v-if="selectedEvents.length > 0" @click="handleBulkDeleteEvents"
+                                    class="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-100 transition-all hover:bg-rose-100 flex items-center gap-2 animate-in slide-in-from-left">
+                                    🗑️ Delete {{ selectedEvents.length }} Selected
+                                </button>
                             </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] text-muted font-mono bg-gray-100 px-2 py-1 rounded">Total:
+                                    {{
+                                        eventPagination.total }}</span>
+                                <button @click="fetchIngestionEvents(undefined, true)" class="btn-icon-circle"
+                                    title="Refresh Log">🔄</button>
+                            </div>
+                        </div>
 
-                            <!-- Pagination Controls -->
-                            <div v-if="eventPagination.total > eventPagination.limit"
-                                class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
-                                <span class="text-[10px] text-muted">
-                                    Showing {{ eventPagination.skip + 1 }} to {{ Math.min(eventPagination.skip +
-                                        eventPagination.limit, eventPagination.total) }} of {{ eventPagination.total }}
-                                </span>
-                                <div class="flex items-center gap-1">
-                                    <button
-                                        @click="eventPagination.skip -= eventPagination.limit; fetchIngestionEvents()"
-                                        :disabled="eventPagination.skip === 0"
-                                        class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
-                                        Previous
-                                    </button>
-                                    <button
-                                        @click="eventPagination.skip += eventPagination.limit; fetchIngestionEvents()"
-                                        :disabled="eventPagination.skip + eventPagination.limit >= eventPagination.total"
-                                        class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
-                                        Next
-                                    </button>
-                                </div>
+                        <div class="overflow-x-auto min-h-[300px]">
+                            <table class="w-full text-left text-sm">
+                                <thead class="text-muted border-b border-gray-100">
+                                    <tr>
+                                        <th class="pb-3 w-8">
+                                            <input type="checkbox" @change="toggleSelectAllEvents"
+                                                :checked="selectedEvents.length === ingestionEvents.length && ingestionEvents.length > 0"
+                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        </th>
+                                        <th class="pb-3 pr-4 font-semibold">Timestamp</th>
+                                        <th class="pb-3 pr-4 font-semibold">Event</th>
+                                        <th class="pb-3 pr-4 font-semibold">Device</th>
+                                        <th class="pb-3 pr-4 font-semibold">Status</th>
+                                        <th class="pb-3 pr-4 font-semibold">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-50">
+                                    <tr v-for="event in ingestionEvents" :key="event.id"
+                                        class="hover:bg-white/40 transition-colors group">
+                                        <td class="py-3">
+                                            <input type="checkbox" v-model="selectedEvents" :value="event.id"
+                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        </td>
+                                        <td class="py-3 pr-4 whitespace-nowrap text-xs">
+                                            {{ formatDate(event.created_at).meta }}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span
+                                                class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100">
+                                                {{ event.event_type.replace('_', ' ') }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 text-xs font-mono text-muted">
+                                            {{ event.device_id }}
+                                        </td>
+                                        <td class="py-3 pr-4">
+                                            <span :class="{
+                                                'text-emerald-600 bg-emerald-50': event.status === 'success',
+                                                'text-amber-600 bg-amber-50': event.status === 'warning',
+                                                'text-rose-600 bg-rose-50': event.status === 'error',
+                                                'text-slate-600 bg-slate-50': event.status === 'skipped'
+                                            }" class="px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                                {{ event.status }}
+                                            </span>
+                                        </td>
+                                        <td class="py-3 pr-4 max-w-xs truncate text-xs" :title="event.message">
+                                            {{ event.message }}
+                                        </td>
+                                    </tr>
+                                    <tr v-if="ingestionEvents.length === 0">
+                                        <td colspan="6" class="py-12 text-center text-muted italic">
+                                            <div class="flex flex-col items-center gap-2">
+                                                <span class="text-2xl">🔍</span>
+                                                No activity logs found.
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination Controls -->
+                        <div v-if="eventPagination.total > eventPagination.limit"
+                            class="mt-6 flex items-center justify-between border-t border-gray-100 pt-6">
+                            <span class="text-[10px] text-muted">
+                                Showing {{ eventPagination.skip + 1 }} to {{ Math.min(eventPagination.skip +
+                                    eventPagination.limit, eventPagination.total) }} of {{ eventPagination.total }}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <button @click="eventPagination.skip -= eventPagination.limit; fetchIngestionEvents()"
+                                    :disabled="eventPagination.skip === 0"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Previous
+                                </button>
+                                <button @click="eventPagination.skip += eventPagination.limit; fetchIngestionEvents()"
+                                    :disabled="eventPagination.skip + eventPagination.limit >= eventPagination.total"
+                                    class="p-1 px-3 rounded-md bg-white border border-gray-200 text-xs font-bold disabled:opacity-50 hover:bg-gray-50 transition-all">
+                                    Next
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1950,7 +1947,7 @@
                             <div class="form-group">
                                 <label class="form-label">Password {{ isEditingMember ? '(Leave empty to keep current)'
                                     : ''
-                                }}</label>
+                                    }}</label>
                                 <input v-model="memberForm.password" class="form-input" type="password"
                                     :required="!isEditingMember" />
                             </div>
