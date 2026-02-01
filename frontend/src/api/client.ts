@@ -87,7 +87,8 @@ export const financeApi = {
     updateRule: (id: string, data: any) => apiClient.put(`/finance/rules/${id}`, data),
     deleteRule: (id: string) => apiClient.delete(`/finance/rules/${id}`),
     applyRuleRetrospectively: (id: string) => apiClient.post(`/finance/transactions/rules/${id}/apply-retrospective`),
-    getMatchCount: (keywords: string[]) => apiClient.post('/finance/transactions/match-count', { keywords }),
+    getMatchCount: (keywords: string[], onlyUncategorized: boolean = true) => apiClient.post('/finance/transactions/match-count', { keywords, only_uncategorized: onlyUncategorized }),
+    bulkRename: (old_name: string, new_name: string, sync_to_parser: boolean) => apiClient.post('/finance/transactions/bulk-rename', { old_name, new_name, sync_to_parser }),
 
     getCategories: (tree: boolean = false) => apiClient.get('/finance/categories', { params: { tree } }),
     createCategory: (data: any) => apiClient.post('/finance/categories', data),
@@ -231,6 +232,9 @@ export const parserApi = {
     getLogDetail: (id: string) => parserClient.get(`/logs/${id}`),
     getAiConfig: () => parserClient.get('/config/ai'),
     updateAiConfig: (data: any) => parserClient.post('/config/ai', data),
+    getAliases: () => parserClient.get('/config/aliases'),
+    createAlias: (pattern: string, alias: string) => parserClient.post('/config/aliases', { pattern, alias }),
+    deleteAlias: (id: string) => parserClient.delete(`/config/aliases/${id}`),
     getPatterns: () => parserClient.get('/config/patterns'),
     createPattern: (data: any) => parserClient.post('/config/patterns', data),
     deletePattern: (id: string) => parserClient.delete(`/config/patterns/${id}`),
@@ -241,7 +245,10 @@ export const aiApi = {
     updateSettings: (data: any) => apiClient.post('/ingestion/ai/settings', data),
     testConnection: (content: string) => apiClient.post('/ingestion/ai/test', { content }),
     listModels: (provider: string, apiKey?: string) => apiClient.get('/ingestion/ai/models', { params: { provider, api_key: apiKey } }),
-    generateSummaryInsights: (summary_data: any) => apiClient.post('/ingestion/ai/generate-insights', { summary_data })
+    generateSummaryInsights: (summary_data: any) => apiClient.post('/ingestion/ai/generate-insights', { summary_data }),
+    getAliases: () => apiClient.get('/ingestion/ai/aliases'),
+    createAlias: (pattern: string, alias: string) => apiClient.post('/ingestion/ai/aliases', { pattern, alias }),
+    deleteAlias: (id: string) => apiClient.delete(`/ingestion/ai/aliases/${id}`)
 }
 
 export const mobileApi = {
