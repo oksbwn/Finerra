@@ -131,6 +131,11 @@ class HdfcEmailParser(BaseEmailParser):
         re.IGNORECASE
     )
 
+    SPENT_PATTERN = re.compile(
+        r"(?i)spent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*.*?card\s*(?:.*?|x*|X*)(\d+)\s*at\s*(.*?)\s*(?:on|Date)\s*(\d{2,4}[-/]\d{2}[-/]\d{2,4})(?:.*?Ref[:\.\s]+(\w+))?",
+        re.IGNORECASE
+    )
+
     ACCOUNT_DEBIT_PATTERN = re.compile(
         r"(?i)A/c\s*(?:.*?|x*|X*)(\d+)\s*has\s*been\s*debited\s*for\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*(\d{2}-\d{2}-\d{2,4})\s*towards\s*(.*?)(?:\.\s*Ref[:\s]+(\w+))?",
         re.IGNORECASE
@@ -187,9 +192,15 @@ class HdfcEmailParser(BaseEmailParser):
                 
             return None
 
-        # 1. Card
+        # 1. Card (Transaction made)
         match = self.DEBIT_CARD_PATTERN.search(clean_content)
         if match:
+            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5), date_hint)
+
+        # 1.b Card (Spent) - NEW
+        match = self.SPENT_PATTERN.search(clean_content)
+        if match:
+            # groups: 1=amount, 2=card_mask, 3=merchant, 4=date, 5=ref (optional)
             return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, get_ref(match, 5), date_hint)
 
         # 2. Account
@@ -211,7 +222,7 @@ class HdfcEmailParser(BaseEmailParser):
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
-            formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
+            formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d"]
             txn_date = None
             for fmt in formats:
                 try:
