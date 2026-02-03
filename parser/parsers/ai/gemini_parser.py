@@ -16,7 +16,7 @@ class GeminiParser:
     def _get_config(self) -> Optional[AIConfig]:
         return self.db.query(AIConfig).filter(AIConfig.is_enabled == True).first()
 
-    def parse(self, content: str, source: str) -> Optional[Transaction]:
+    def parse(self, content: str, source: str, date_hint: Optional[Any] = None) -> Optional[Transaction]:
         if not self.config or not self.config.api_key_enc:
             return None
 
@@ -32,6 +32,17 @@ class GeminiParser:
         )
 
         model_id = self.config.model_name or "gemini-1.5-flash"
+
+        # Determine reference date
+        ref_date = datetime.now()
+        if date_hint and isinstance(date_hint, datetime):
+            ref_date = date_hint
+        elif date_hint and isinstance(date_hint, str):
+             try:
+                 ref_date = datetime.fromisoformat(date_hint)
+             except: pass
+             
+        ref_date_str = ref_date.strftime('%Y-%m-%d')
 
         # Standard Prompt
         prompt = f"""
@@ -49,11 +60,12 @@ class GeminiParser:
             "account_mask": "1234" (last 4 digits or null),
             "bank_name": "HDFC" (or null),
             "merchant": "Amazon" (clean name),
-            "description": "raw description"
+            "description": "raw description",
+            "ref_id": "transaction reference/UTR number or null"
         }}
         
         Rules:
-        1. If date is missing/relative (e.g. 'today', 'yesterday'), calculate it based on today's reference: {datetime.now().strftime('%Y-%m-%d')}.
+        1. If date is missing/relative (e.g. 'today', 'yesterday'), calculate it based on reference date: {ref_date_str}.
         2. ALWAYS return date in ISO format (YYYY-MM-DD). Convert '28-03-24' to '2024-03-28'.
         3. For 'merchant', extract the actual entity name (e.g. 'Uber', 'Zomato').
         4. If unable to extract strictly, return null.
@@ -94,6 +106,7 @@ class GeminiParser:
                 type=TransactionType(data.get("type", "DEBIT").upper()),
                 date=final_date,
                 currency=data.get("currency", "INR"),
+                ref_id=data.get("ref_id"),
                 account=AccountInfo(
                     mask=data.get("account_mask"), 
                     provider=data.get("bank_name")

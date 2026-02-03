@@ -52,7 +52,7 @@ def ingest_sms(
     db: Session = Depends(get_db)
 ):
     pipeline = IngestionPipeline(db)
-    result = pipeline.run(payload.body, "SMS", payload.sender)
+    result = pipeline.run(payload.body, "SMS", sender=payload.sender, date_hint=payload.received_at)
     return result
 
 @router.post("/email", response_model=IngestionResult)
@@ -62,7 +62,7 @@ def ingest_email(
     db: Session = Depends(get_db)
 ):
     pipeline = IngestionPipeline(db)
-    result = pipeline.run(payload.body_text, "EMAIL", sender=payload.sender, subject=payload.subject)
+    result = pipeline.run(payload.body_text, "EMAIL", sender=payload.sender, subject=payload.subject, date_hint=payload.received_at)
     return result
 
 @router.post("/file", response_model=IngestionResult)

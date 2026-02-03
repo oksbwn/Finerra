@@ -87,7 +87,7 @@ class IngestionPipeline:
             raw_message=pt.raw_message
         )
 
-    def run(self, content: str, source: str, sender: Optional[str] = None, subject: Optional[str] = None) -> IngestionResult:
+    def run(self, content: str, source: str, sender: Optional[str] = None, subject: Optional[str] = None, date_hint: Optional[str] = None) -> IngestionResult:
         # 1. Idempotency Check
         input_hash = hashlib.sha256(f"{source}:{content}".encode()).hexdigest()
         
@@ -102,7 +102,7 @@ class IngestionPipeline:
             return IngestionResult(status="duplicate_submission", results=[], logs=["Duplicate submission detected"])
 
         # Create Log Entry
-        log = RequestLog(input_hash=input_hash, source=source, input_payload={"content": content, "sender": sender, "subject": subject}, status="processing")
+        log = RequestLog(input_hash=input_hash, source=source, input_payload={"content": content, "sender": sender, "subject": subject, "date_hint": date_hint}, status="processing")
         self.db.add(log)
         self.db.commit()
 
@@ -132,7 +132,12 @@ class IngestionPipeline:
                 
             if can_handle:
                 try:
-                    pt = p.parse(content)
+                    # Pass date_hint check if supported
+                    if hasattr(p, 'parse') and 'date_hint' in p.parse.__code__.co_varnames:
+                         pt = p.parse(content, date_hint=date_hint)
+                    else:
+                         pt = p.parse(content)
+                         
                     if pt:
                         parsed_txn = self._convert_to_schema_txn(pt)
                         parser_used = getattr(p, 'name', type(p).__name__)
@@ -158,7 +163,7 @@ class IngestionPipeline:
         if not parsed_txn:
              try:
                  ai_parser = GeminiParser(self.db)
-                 pt = ai_parser.parse(content, source)
+                 pt = ai_parser.parse(content, source, date_hint=date_hint)
                  if pt:
                      parsed_txn = self._convert_to_schema_txn(pt)
                      parser_used = "Gemini AI"

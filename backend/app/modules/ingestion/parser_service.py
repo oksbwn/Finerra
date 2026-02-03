@@ -1,10 +1,11 @@
 import requests
 from typing import Optional, Dict, Any, List
+from datetime import datetime
 from backend.app.core.config import settings
 
 class ExternalParserService:
     @staticmethod
-    def parse_sms(sender: str, body: str) -> Optional[Dict[str, Any]]:
+    def parse_sms(sender: str, body: str, received_at: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         """
         Call the external parser microservice for SMS ingestion.
         """
@@ -12,6 +13,9 @@ class ExternalParserService:
             url = f"{settings.PARSER_SERVICE_URL}/ingest/sms"
             # Parser expects 'sender' and 'body'
             payload = {"sender": sender, "body": body}
+            if received_at:
+                payload["received_at"] = received_at.isoformat()
+                
             response = requests.post(url, json=payload, timeout=10)
             
             if response.status_code == 200:
@@ -22,7 +26,7 @@ class ExternalParserService:
             return None
 
     @staticmethod
-    def parse_email(subject: str, body_text: str, sender: str = "Unknown") -> Optional[Dict[str, Any]]:
+    def parse_email(subject: str, body_text: str, sender: str = "Unknown", received_at: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         """
         Call the external parser microservice for Email ingestion.
         """
@@ -34,6 +38,9 @@ class ExternalParserService:
                 "body_text": body_text,
                 "sender": sender
             }
+            if received_at:
+                payload["received_at"] = received_at.isoformat()
+                
             response = requests.post(url, json=payload, timeout=10)
             
             if response.status_code == 200:
