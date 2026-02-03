@@ -1,7 +1,10 @@
 import requests
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+import logging
 from backend.app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 class ExternalParserService:
     @staticmethod
@@ -22,7 +25,7 @@ class ExternalParserService:
                 return response.json()
             return None
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return None
 
     @staticmethod
@@ -47,7 +50,7 @@ class ExternalParserService:
                 return response.json()
             return None
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return None
 
     @staticmethod
@@ -65,7 +68,7 @@ class ExternalParserService:
             response = requests.post(url, json=payload, timeout=10)
             return response.status_code == 200
         except Exception as e:
-            print(f"Error syncing AI config: {e}")
+            logger.error(f"Error syncing AI config: {e}")
             return False
 
     @staticmethod
@@ -92,7 +95,7 @@ class ExternalParserService:
                 return response.json()
             return {"status": "error", "message": f"Parser returned {response.status_code}", "logs": [response.text]}
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return {"status": "error", "message": str(e)}
 
     @staticmethod
@@ -112,7 +115,7 @@ class ExternalParserService:
                 return response.json() 
             return None
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return None
 
     @staticmethod
@@ -130,7 +133,7 @@ class ExternalParserService:
             response = requests.post(url, json=payload, timeout=10)
             return response.status_code == 200
         except Exception as e:
-            print(f"Error creating pattern in external parser: {e}")
+            logger.error(f"Error creating pattern in external parser: {e}")
             return False
 
     @staticmethod
@@ -144,7 +147,7 @@ class ExternalParserService:
             response = requests.post(url, json=payload, timeout=10)
             return response.status_code == 200
         except Exception as e:
-            print(f"Error creating alias in external parser: {e}")
+            logger.error(f"Error creating alias in external parser: {e}")
             return False
 
     @staticmethod
@@ -159,7 +162,7 @@ class ExternalParserService:
                 return response.json()
             return []
         except Exception as e:
-            print(f"Error fetching aliases: {e}")
+            logger.error(f"Error fetching aliases: {e}")
             return []
 
     @staticmethod
@@ -172,6 +175,6 @@ class ExternalParserService:
             response = requests.delete(url, timeout=10)
             return response.status_code == 200
         except Exception as e:
-            print(f"Error deleting alias: {e}")
+            logger.error(f"Error deleting alias: {e}")
             return False
 

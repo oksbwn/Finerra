@@ -1,4 +1,7 @@
+import logging
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.engine import Engine
 
 def run_auto_migrations(engine: Engine):
@@ -11,7 +14,7 @@ def run_auto_migrations(engine: Engine):
     """
     try:
         with engine.connect() as connection:
-            print("Running auto-migration for mobile features...")
+            logger.info("Running auto-migration for mobile features...")
             
             # Helper to add columns safely
             def safe_add_column(table, col, type_def):
@@ -20,7 +23,7 @@ def run_auto_migrations(engine: Engine):
                     # but we can also check existence to be sure
                     connection.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {type_def}"))
                 except Exception as e:
-                    print(f"DEBUG: safe_add_column potential issue: {e}")
+                    logger.info(f"DEBUG: safe_add_column potential issue: {e}")
                     # If it failed because it already exists, we are fine. 
                     # If it failed for another reason, we might want to know, but 
                     # we don't want to abort the whole migration if possible.
@@ -245,9 +248,9 @@ def run_auto_migrations(engine: Engine):
 
             # Explicitly commit the transaction!
             connection.commit()
-            print("Auto-migration complete.")
+            logger.info("Auto-migration complete.")
             
     except Exception as e:
         # Re-raise lock errors or critical failures so the app doesn't start in a bad state
-        print(f"CRITICAL: Migration failed: {e}")
+        logger.info(f"CRITICAL: Migration failed: {e}")
         raise e

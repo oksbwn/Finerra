@@ -3,7 +3,10 @@ from datetime import datetime
 import json
 import uuid
 from sqlalchemy.orm import Session
+import logging
 from backend.app.modules.finance import models, schemas
+
+logger = logging.getLogger(__name__)
 from backend.app.modules.finance.models import TransactionType
 from backend.app.modules.finance.services.category_service import CategoryService
 from backend.app.modules.finance.services.transfer_service import TransferService
@@ -680,6 +683,6 @@ class TransactionService:
                  from backend.app.modules.ingestion.parser_service import ExternalParserService
                  ExternalParserService.create_alias(old_name, new_name)
              except Exception as e:
-                 print(f"Failed to sync alias to parser: {e}")
+                 logger.error(f"Failed to sync alias to parser: {e}")
                  
         return len(txns)

@@ -828,7 +828,7 @@ def label_message(
             )
             # Legacy local save removed to enforce single source of truth
         except Exception as e:
-            print(f"Error creating pattern: {e}")
+            logger.error(f"Error creating pattern: {e}")
             pass
         
     db.delete(msg)

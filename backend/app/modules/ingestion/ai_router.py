@@ -7,6 +7,9 @@ from backend.app.modules.auth import models as auth_models
 from backend.app.modules.auth.dependencies import get_current_user
 from backend.app.modules.ingestion import models as ingestion_models
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["AI Settings"])
 
@@ -88,7 +91,7 @@ def update_ai_settings(
             is_enabled=config.is_enabled
         )
     except Exception as e:
-        print(f"Failed to sync AI config: {e}")
+        logger.error(f"Failed to sync AI config: {e}")
 
     return {"status": "updated"}
 
