@@ -20,10 +20,7 @@
                             Family
                         </button>
 
-                        <button class="tab-btn" :class="{ active: activeTab === 'rules' }"
-                            @click="activeTab = 'rules'; searchQuery = ''">
-                            Rules
-                        </button>
+
                         <button class="tab-btn" :class="{ active: activeTab === 'emails' }"
                             @click="activeTab = 'emails'; searchQuery = ''">
                             Emails
@@ -577,138 +574,7 @@
 
 
                 <!-- RULES TAB -->
-                <div v-if="activeTab === 'rules'" class="tab-content animate-in">
-                    <!-- Search Bar -->
-                    <div class="account-control-bar mb-6">
-                        <div class="search-bar-premium no-margin" style="flex: 1; max-width: 300px;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" class="search-icon">
-                                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                            <input type="text" v-model="searchQuery" placeholder="Search rules..." class="search-input">
-                        </div>
 
-                        <div class="header-with-badge"
-                            style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
-                            <h3
-                                style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
-                                Rules</h3>
-                            <span class="pulse-status-badge" style="background: #ecfdf5; color: #047857;">{{
-                                filteredRules.length }} Total</span>
-                        </div>
-                    </div>
-
-                    <!-- Suggestions (Premium Intelligence Section) -->
-                    <div v-if="suggestions.length > 0 && !searchQuery" class="alert-section mb-8 animate-in">
-                        <div class="header-with-badge mb-4">
-                            <div class="flex items-center gap-2">
-                                <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: #4f46e5;">✨ Smart
-                                    Suggestion Insights</h3>
-                            </div>
-                            <span class="status-badge-mini primary">{{ suggestions.length }} New Patterns Found</span>
-                        </div>
-
-                        <div class="settings-grid">
-                            <div v-for="s in suggestions" :key="s.name"
-                                class="glass-card suggestion-card-premium glow-border-indigo">
-                                <div class="s-card-top">
-                                    <div class="s-card-info">
-                                        <h4 class="s-card-title">{{ s.name }}</h4>
-                                        <div class="s-card-path">
-                                            <span class="keyword-pill">{{ s.keywords[0] }}</span>
-                                            <svg width="12" height="12" viewBox="0 0 48 24" fill="none"
-                                                stroke="currentColor" stroke-width="3">
-                                                <path d="M5 12h14M12 5l7 7-7 7" />
-                                            </svg>
-                                            <span class="category-pill-sm">{{ getCategoryDisplay(s.category) }}</span>
-                                        </div>
-                                    </div>
-                                    <div class="s-card-actions">
-                                        <button @click="approveSuggestion(s)" class="btn-icon-subtle success"
-                                            title="Approve Suggestion">
-                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2.5">
-                                                <path d="M20 6L9 17l-5-5" />
-                                            </svg>
-                                        </button>
-                                        <button @click="ignoreSuggestion(s)" class="btn-icon-subtle danger"
-                                            title="Dismiss Suggestion">
-                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2">
-                                                <path d="M18 6L6 18M6 6l12 12" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="s-card-footer">
-                                    <span class="confidence-label">Based on <strong>{{ s.confidence }}</strong> similar
-                                        transactions detected by AI</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Existing Rules -->
-                    <div class="header-with-badge mb-4 mt-8">
-                        <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main);">Active
-                            Ruleset</h3>
-                        <span v-if="searchQuery" class="text-xs text-muted">Filtered results</span>
-                    </div>
-
-                    <div class="settings-grid">
-                        <div v-for="rule in filteredRules" :key="rule.id" class="glass-card rule-entry-premium">
-                            <div class="rule-header">
-                                <div class="rule-main">
-                                    <h3 class="rule-name">{{ rule.name }}</h3>
-                                    <div class="rule-target" style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <span class="category-pill-sm">{{ getCategoryDisplay(rule.category) }}</span>
-                                        <span v-if="rule.exclude_from_reports" class="status-badge-mini danger"
-                                            title="Automatically hidden from analytics">🚫 Hidden</span>
-                                    </div>
-                                </div>
-                                <div class="rule-actions">
-                                    <button @click="handleApplyRuleRetrospectively(rule.id)"
-                                        class="btn-icon-subtle primary" title="Apply to existing transactions">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                    </button>
-                                    <button @click="openEditModal(rule)" class="btn-icon-subtle" title="Edit Rule">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                    </button>
-                                    <button @click="deleteRule(rule.id)" class="btn-icon-subtle danger"
-                                        title="Delete Rule">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <path
-                                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="rule-footer">
-                                <div class="keyword-cloud">
-                                    <span v-for="k in rule.keywords" :key="k" class="keyword-tag-pill">{{ k }}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Add New Rule Card -->
-                        <div v-if="!searchQuery" class="glass-card add-account-card" @click="openAddModal">
-                            <div class="add-icon-circle">+</div>
-                            <span>Add New Rule</span>
-                        </div>
-                    </div>
-
-                    <div v-if="filteredRules.length === 0" class="empty-placeholder">
-                        <p>{{ emptyRulesMsg }}</p>
-                    </div>
-                </div>
 
                 <!-- AI INTEGRATION TAB (RE-DESIGNED) -->
                 <div v-if="activeTab === 'ai'" class="tab-content animate-in">
@@ -1787,66 +1653,7 @@
                     </div>
                 </div>
 
-                <!-- Add/Edit Rule Modal -->
-                <div v-if="showModal" class="modal-overlay-global">
-                    <div class="modal-global glass">
-                        <div class="modal-header">
-                            <h2 class="modal-title">{{ isEditing ? 'Edit Rule' : 'New Rule' }}</h2>
-                            <button class="btn-icon-circle" @click="showModal = false">✕</button>
-                        </div>
 
-                        <form @submit.prevent="saveRule" class="form-compact">
-                            <div class="form-group">
-                                <label class="form-label">Rule Name</label>
-                                <input v-model="newRule.name" class="form-input" required
-                                    placeholder="e.g. Ride Apps" />
-                            </div>
-
-                            <div class="form-group">
-                                <label class="form-label">Category</label>
-                                <CustomSelect v-model="newRule.category" :options="categoryOptions"
-                                    placeholder="Select Category" />
-                            </div>
-
-                            <div class="form-group">
-                                <label class="form-label">Keywords (Comma Separated)</label>
-                                <textarea v-model="newRule.keywords" class="form-input" rows="3"
-                                    placeholder="Uber, Lyft, Ola"></textarea>
-                            </div>
-
-                            <div class="setting-toggle-row">
-                                <div class="toggle-label">
-                                    <span class="font-medium">Auto-Exclude from Reports</span>
-                                    <span class="text-xs text-muted">Automatically hide matching transactions from
-                                        analytics</span>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" v-model="newRule.exclude_from_reports">
-                                    <span class="slider round"></span>
-                                </label>
-                            </div>
-
-                            <div class="modal-footer">
-                                <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
-                                <button type="submit" class="btn-primary-glow">Save Rule</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-
-
-                <!-- Confirmations -->
-                <div v-if="showDeleteConfirm" class="modal-overlay-global">
-                    <div class="modal-global glass alert">
-                        <h2 class="modal-title">Delete Rule?</h2>
-                        <p>This will stop automatic categorization for matching transactions.</p>
-                        <div class="modal-footer">
-                            <button @click="showDeleteConfirm = false" class="btn-secondary">Keep it</button>
-                            <button @click="confirmDelete" class="btn-danger">Delete Rule</button>
-                        </div>
-                    </div>
-                </div>
                 <!-- Delete Account Confirmation -->
                 <div v-if="showAccountDeleteConfirm" class="modal-overlay-global">
                     <div class="modal-global glass alert max-w-md">
@@ -1873,25 +1680,7 @@
 
 
 
-                <!-- Auto-Exclude Confirmation -->
-                <div v-if="showExcludeConfirm" class="modal-overlay-global">
-                    <div class="modal-global glass alert max-w-md">
-                        <div class="modal-icon-header warning">⚠️</div>
-                        <h2 class="modal-title">Enable Auto-Exclude?</h2>
-                        <div class="alert-info-box mb-6">
-                            <p class="mb-2">You are enabling <strong>Auto-Exclude from Reports</strong> for this rule.
-                            </p>
-                            <p class="text-sm text-muted">
-                                Matching transactions will be tagged as non-reportable and will be <strong>hidden from
-                                    analytics</strong> by default.
-                            </p>
-                        </div>
-                        <div class="modal-footer">
-                            <button @click="showExcludeConfirm = false" class="btn-secondary">Cancel</button>
-                            <button @click="confirmSaveRule" class="btn-primary-glow">Yes, Enable & Save</button>
-                        </div>
-                    </div>
-                </div>
+
 
 
                 <!-- Add/Edit Family Member Modal -->
@@ -2180,54 +1969,14 @@ const accountMetrics = computed(() => {
     return { total, cash, bank, credit }
 })
 
-// Rules/Categories State
-const rules = ref<any[]>([])
-const filteredRules = computed(() => {
-    if (!searchQuery.value) return rules.value
 
-    const q = searchQuery.value.toLowerCase()
-    return rules.value.filter(r =>
-        r.name.toLowerCase().includes(q) ||
-        r.category.toLowerCase().includes(q) ||
-        r.keywords.some((k: string) => k.toLowerCase().includes(q))
-    )
-})
-
-
-const emptyRulesMsg = computed(() => searchQuery.value ? 'No rules match your search.' : 'No rules found. Define rules to automate categorization.')
 const consumedLimitMsg = computed(() => newAccount.value.type === 'CREDIT_CARD' ? 'Consumed Limit' : 'Current Balance')
 const emailModalTitle = computed(() => editingEmailConfig.value ? 'Edit Email Configuration' : 'Connect Email Account')
 const emailModalSubtitle = computed(() => editingEmailConfig.value ? 'Update your email sync settings' : 'Link your bank email for automatic transaction imports')
 const addMemberMsg = computed(() => isEditingMember.value ? 'Save Changes' : 'Add Member')
-const suggestions = ref<any[]>([])
-const showModal = ref(false)
-const showDeleteConfirm = ref(false)
-const ruleToDelete = ref<string | null>(null)
-const showExcludeConfirm = ref(false)
 
-const isEditing = ref(false)
-const editingId = ref<string | null>(null)
-const newRule = ref({
-    name: '',
-    category: '',
-    keywords: '',
-    exclude_from_reports: false
-})
 
-async function handleApplyRuleRetrospectively(ruleId: string) {
-    if (!confirm("Apply this rule to all uncategorized transactions? This cannot be undone.")) return
 
-    try {
-        const res = await financeApi.applyRuleRetrospectively(ruleId)
-        if (res.data.success) {
-            notify.success(`Success! Applied to ${res.data.affected} transactions.`)
-        } else {
-            notify.error(res.data.message || "Failed to apply rule")
-        }
-    } catch (e) {
-        notify.error("Failed to apply rule retrospectively")
-    }
-}
 
 // Account Deletion State
 const showAccountDeleteConfirm = ref(false)
@@ -2421,7 +2170,6 @@ async function saveAiSettings() {
                     model_name: aiForm.value.model_name,
                     api_key: aiForm.value.api_key || undefined
                 })
-                console.log("Parser auto-configured with App AI settings")
             } catch (pe) {
                 console.error("Failed to auto-configure parser", pe)
             }
@@ -2456,12 +2204,7 @@ async function testAi() {
 
 
 
-const categoryOptions = computed(() => {
-    return categories.value.map(c => ({
-        label: `${c.icon} ${c.name}`,
-        value: c.name
-    }))
-})
+
 
 const accountGoalMap = computed(() => {
     const map: Record<string, string[]> = {}
@@ -2483,11 +2226,9 @@ const accountGoalMap = computed(() => {
 async function fetchData() {
     loading.value = true
     try {
-        const [accRes, rulesRes, catRes, sugRes, emailRes, tenantRes, usersRes, meRes, devicesRes] = await Promise.all([
+        const [accRes, catRes, emailRes, tenantRes, usersRes, meRes, devicesRes] = await Promise.all([
             financeApi.getAccounts(),
-            financeApi.getRules(),
             financeApi.getCategories(), // We might want tree here, but list is better for Settings
-            financeApi.getRuleSuggestions(),
             financeApi.getEmailConfigs(),
             financeApi.getTenants(),
             financeApi.getUsers(),
@@ -2495,9 +2236,7 @@ async function fetchData() {
             mobileApi.getDevices(),
         ])
         accounts.value = accRes.data
-        rules.value = rulesRes.data
         categories.value = catRes.data
-        suggestions.value = sugRes.data
         emailConfigs.value = emailRes.data
         tenants.value = tenantRes.data
         familyMembers.value = usersRes.data
@@ -2935,128 +2674,7 @@ const getLogIcon = (status: string) => {
 
 // End of script logic
 
-// --- Rule Functions ---
-async function deleteRule(id: string) {
-    ruleToDelete.value = id
-    showDeleteConfirm.value = true
-}
 
-async function confirmDelete() {
-    if (!ruleToDelete.value) return
-    try {
-        await financeApi.deleteRule(ruleToDelete.value)
-        notify.success("Rule deleted")
-        fetchData()
-    } catch (err) {
-        notify.error("Failed to delete rule")
-    } finally {
-        showDeleteConfirm.value = false
-        ruleToDelete.value = null
-    }
-}
-
-function openAddModal() {
-    isEditing.value = false
-    editingId.value = null
-    newRule.value = { name: '', category: '', keywords: '', exclude_from_reports: false }
-    showModal.value = true
-}
-
-function openEditModal(rule: any) {
-    isEditing.value = true
-    editingId.value = rule.id
-    newRule.value = {
-        name: rule.name,
-        category: rule.category,
-        keywords: rule.keywords.join(', '),
-        exclude_from_reports: rule.exclude_from_reports || false
-    }
-    showModal.value = true
-}
-
-async function approveSuggestion(s: any) {
-    try {
-        await financeApi.createRule({
-            name: s.name,
-            category: s.category,
-            keywords: s.keywords,
-            priority: 5
-        })
-        notify.success(`Rule for "${s.name}" approved!`)
-        fetchData()
-    } catch (err) {
-        console.error(err)
-        notify.error("Failed to approve rule")
-    }
-}
-
-async function ignoreSuggestion(s: any) {
-    try {
-        await financeApi.ignoreSuggestion({ pattern: s.keywords[0] })
-        notify.success(`Suggestion for "${s.name}" ignored`)
-        fetchData()
-    } catch (err) {
-        console.error(err)
-        notify.error("Failed to ignore suggestion")
-    }
-}
-
-async function saveRule() {
-    if (!newRule.value.name || !newRule.value.category || !newRule.value.keywords) return
-
-    // If auto-exclude is on, ask for confirmation first
-    if (newRule.value.exclude_from_reports) {
-        showExcludeConfirm.value = true
-        return
-    }
-
-    // Otherwise proceed directly
-    await confirmSaveRule()
-}
-
-async function confirmSaveRule() {
-    // Parse keywords: comma separated -> list
-    const keywordList = newRule.value.keywords.split(',').map(k => k.trim())
-    const payload = {
-        ...newRule.value,
-        keywords: keywordList,
-        priority: 10
-    }
-
-    try {
-        let isUpdate = false
-        if (isEditing.value && editingId.value) {
-            isUpdate = true
-            await financeApi.updateRule(editingId.value, payload)
-        } else {
-            await financeApi.createRule(payload)
-        }
-
-        if (newRule.value.exclude_from_reports) {
-            notify.success(`Rule saved! ${isUpdate ? 'Matching' : 'Future'} transactions will be hidden from reports.`)
-        } else {
-            notify.success(isUpdate ? "Rule updated successfully!" : "New rule created successfully!")
-        }
-
-        showModal.value = false
-        showExcludeConfirm.value = false
-        newRule.value = { name: '', category: '', keywords: '', exclude_from_reports: false }
-        fetchData()
-    } catch (err) {
-        console.error(err)
-        notify.error("Failed to save rule")
-    }
-}
-
-
-
-
-
-function getCategoryDisplay(name: string) {
-    if (!name) return '📝 General'
-    const cat = categories.value.find(c => c.name === name)
-    return cat ? `${cat.icon || '🏷️'} ${cat.name}` : `🏷️ ${name}`
-}
 
 
 

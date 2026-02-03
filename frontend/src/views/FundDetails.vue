@@ -6,7 +6,7 @@ import { financeApi } from '@/api/client'
 import { useNotificationStore } from '@/stores/notification'
 import LineChart from '@/components/LineChart.vue'
 import { useCurrency } from '@/composables/useCurrency'
-import { 
+import {
     History,
     Trash2,
     Shield,
@@ -67,10 +67,10 @@ const searchQuery = ref('')
 
 const filteredUsers = computed(() => {
     if (!searchQuery.value) return familyMembers.value
-    
+
     const query = searchQuery.value.toLowerCase()
-    return familyMembers.value.filter(u => 
-        u.full_name.toLowerCase().includes(query) || 
+    return familyMembers.value.filter(u =>
+        u.full_name.toLowerCase().includes(query) ||
         (u.email && u.email.toLowerCase().includes(query))
     )
 })
@@ -80,8 +80,6 @@ onMounted(() => {
 })
 
 async function updateOwner(userId: string | null) {
-    console.log('Updating owner to:', userId)
-    
     // Optimistic close or wait? Let's close at end.
     try {
         // Prevent redundant updates
@@ -92,11 +90,11 @@ async function updateOwner(userId: string | null) {
 
         await financeApi.updateHolding(holdingId, { user_id: userId })
         notify.success("Ownership updated successfully")
-        
+
         // Update local holding data to reflect change immediately
         if (holding.value) {
             holding.value.user_id = userId
-            
+
             if (userId) {
                 const user = familyMembers.value.find(u => u.id === userId)
                 if (user) {
@@ -134,21 +132,21 @@ const navChartData = computed(() => {
     // Prefer full history if available
     let dataMap = [];
     if (holding.value?.nav_history && holding.value.nav_history.length > 0) {
-       dataMap = holding.value.nav_history.map((h: any) => ({
-           dateObj: new Date(h.date), // Store object for valid sorting/usage
-           date: new Date(h.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }),
-           value: Number(h.value),
-           invested: Number(h.value) 
-       }));
+        dataMap = holding.value.nav_history.map((h: any) => ({
+            dateObj: new Date(h.date), // Store object for valid sorting/usage
+            date: new Date(h.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }),
+            value: Number(h.value),
+            invested: Number(h.value)
+        }));
     } else if (holding.value?.transactions) {
-       dataMap = holding.value.transactions.map((t: any) => ({
+        dataMap = holding.value.transactions.map((t: any) => ({
             dateObj: new Date(t.date),
             date: new Date(t.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }),
             value: Number(t.nav),
             invested: Number(t.nav)
         }));
     }
-    
+
     // Sort safely using date objects
     return dataMap.sort((a: any, b: any) => a.dateObj.getTime() - b.dateObj.getTime());
 });
@@ -156,7 +154,7 @@ const navChartData = computed(() => {
 // Transaction markers for chart
 const transactionMarkers = computed(() => {
     if (!holding.value?.transactions) return []
-    
+
     return holding.value.transactions.map((t: any) => ({
         date: new Date(t.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }),
         type: t.type,
@@ -174,10 +172,10 @@ const formatDate = (dateStr: string) => {
     // Ensure we handle YYYY-MM-DD correctly without timezone shifts
     const [year, month, day] = dateStr.split('-').map(Number)
     const date = new Date(year, month - 1, day)
-    return date.toLocaleDateString('en-GB', { 
-        day: 'numeric', 
-        month: 'short', 
-        year: 'numeric' 
+    return date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
     })
 }
 </script>
@@ -197,15 +195,15 @@ const formatDate = (dateStr: string) => {
                             <ChevronLeft :size="20" />
                         </button>
                         <div class="flex flex-col gap-2">
-                             <h1 class="page-title mb-1">{{ holding.scheme_name }}</h1>
-                             <div class="meta-row">
+                            <h1 class="page-title mb-1">{{ holding.scheme_name }}</h1>
+                            <div class="meta-row">
                                 <span class="badge">{{ holding.category || 'Mutual Fund' }}</span>
                                 <span class="pill-meta">{{ holding.scheme_code }}</span>
                                 <span class="pill-meta">NAV: {{ formatAmount(holding.last_nav) }}</span>
-                             </div>
+                            </div>
                         </div>
                     </div>
-                    
+
                     <div class="header-actions">
                         <button v-if="!holding.is_aggregate" class="btn-danger" @click="showDeleteConfirm = true">
                             <Trash2 :size="16" />
@@ -234,14 +232,17 @@ const formatDate = (dateStr: string) => {
                                         <div class="stat-value">{{ formatAmount(holding.current_value) }}</div>
                                         <div class="stat-sub">Invested: {{ formatAmount(holding.invested_value) }}</div>
                                     </div>
-                                    
+
                                     <div class="stat-item">
                                         <div class="stat-label">Total Returns</div>
-                                        <div class="stat-value" :class="holding.profit_loss >= 0 ? 'text-emerald-400' : 'text-rose-400'">
-                                            {{ holding.profit_loss >= 0 ? '+' : '' }}{{ formatAmount(holding.profit_loss) }}
+                                        <div class="stat-value"
+                                            :class="holding.profit_loss >= 0 ? 'text-emerald-400' : 'text-rose-400'">
+                                            {{ holding.profit_loss >= 0 ? '+' : '' }}{{
+                                            formatAmount(holding.profit_loss) }}
                                         </div>
                                         <div class="stat-sub">
-                                            {{ holding.invested_value > 0 ? ((holding.profit_loss / holding.invested_value) * 100).toFixed(2) : '0.00' }}% Absolute
+                                            {{ holding.invested_value > 0 ? ((holding.profit_loss /
+                                                holding.invested_value) * 100).toFixed(2) : '0.00' }}% Absolute
                                         </div>
                                     </div>
 
@@ -253,16 +254,10 @@ const formatDate = (dateStr: string) => {
                                         <div class="stat-sub">Annualized Return</div>
                                     </div>
                                 </div>
-                                
+
                                 <div class="h-48 w-full">
-                                    <LineChart 
-                                        :data="navChartData" 
-                                        :markers="transactionMarkers"
-                                        :hide-legend="true"
-                                        y-min="auto"
-                                        value-label="NAV"
-                                        invested-label="NAV"
-                                    />
+                                    <LineChart :data="navChartData" :markers="transactionMarkers" :hide-legend="true"
+                                        y-min="auto" value-label="NAV" invested-label="NAV" />
                                 </div>
                             </div>
                         </div>
@@ -291,10 +286,8 @@ const formatDate = (dateStr: string) => {
                                         <tr v-for="order in holding.transactions" :key="order.id">
                                             <td class="text-slate-600">{{ formatDate(order.date) }}</td>
                                             <td>
-                                                <span 
-                                                    class="badge-pill"
-                                                    :class="order.type === 'BUY' || order.type === 'SIP' ? 'emerald' : 'rose'"
-                                                >
+                                                <span class="badge-pill"
+                                                    :class="order.type === 'BUY' || order.type === 'SIP' ? 'emerald' : 'rose'">
                                                     {{ order.type.toLowerCase() }}
                                                 </span>
                                             </td>
@@ -303,7 +296,9 @@ const formatDate = (dateStr: string) => {
                                             <td class="font-bold text-right">{{ formatAmount(order.amount) }}</td>
                                             <td v-if="holding.is_aggregate" class="text-right pl-4">
                                                 <div class="flex justify-end">
-                                                    <div v-if="order.user" class="member-avatar-mini w-6 h-6 text-[10px]" :title="order.user.name">
+                                                    <div v-if="order.user"
+                                                        class="member-avatar-mini w-6 h-6 text-[10px]"
+                                                        :title="order.user.name">
                                                         {{ order.user.avatar || '👤' }}
                                                     </div>
                                                     <span v-else class="text-xs text-slate-400">-</span>
@@ -322,40 +317,45 @@ const formatDate = (dateStr: string) => {
                             <h4 class="sidebar-title">
                                 <Shield :size="14" /> Ownership
                             </h4>
-                            
-                            <div 
-                                class="owner-box premium-owner"
-                                :class="{ 'interactive': !holding.is_aggregate }"
-                                @click="!holding.is_aggregate && (showUserModal = true)"
-                            >
+
+                            <div class="owner-box premium-owner" :class="{ 'interactive': !holding.is_aggregate }"
+                                @click="!holding.is_aggregate && (showUserModal = true)">
                                 <div class="avatar-ring">
-                                    <template v-if="(holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar) && isImageUrl(holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar)">
-                                        <img :src="holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar" class="avatar-img" />
+                                    <template
+                                        v-if="(holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar) && isImageUrl(holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar)">
+                                        <img :src="holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar"
+                                            class="avatar-img" />
                                     </template>
                                     <div v-else class="avatar">
-                                        {{ holding.user_avatar || familyMembers.find(u => u.id === holding.user_id)?.avatar || '👤' }}
+                                        {{holding.user_avatar || familyMembers.find(u => u.id ===
+                                        holding.user_id)?.avatar || '👤' }}
                                     </div>
                                 </div>
                                 <div class="owner-info flex-1">
                                     <div class="label-xs-caps">Assigned To</div>
                                     <div class="owner-name-lg">
-                                        {{ holding.user_name || familyMembers.find(u => u.id === holding.user_id)?.full_name || 'Unassigned' }}
+                                        {{holding.user_name || familyMembers.find(u => u.id ===
+                                            holding.user_id)?.full_name || 'Unassigned' }}
                                     </div>
                                 </div>
                                 <div v-if="!holding.is_aggregate" class="edit-icon">
                                     <Edit2 :size="18" class="text-slate-400" />
                                 </div>
                             </div>
-                            
+
                             <!-- Multiple Owners List -->
-                            <div v-if="holding.is_aggregate && holding.owners && holding.owners.length > 1" class="px-6 pb-6">
-                                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Includes portfolios of:</div>
+                            <div v-if="holding.is_aggregate && holding.owners && holding.owners.length > 1"
+                                class="px-6 pb-6">
+                                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Includes
+                                    portfolios of:</div>
                                 <div class="flex flex-col gap-2">
-                                    <div v-for="owner in holding.owners" :key="owner.id" class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                         <div class="w-6 h-6 rounded-full bg-white flex items-center justify-center text-xs border border-slate-200 shadow-sm">
+                                    <div v-for="owner in holding.owners" :key="owner.id"
+                                        class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                        <div
+                                            class="w-6 h-6 rounded-full bg-white flex items-center justify-center text-xs border border-slate-200 shadow-sm">
                                             {{ owner.avatar || '👤' }}
-                                         </div>
-                                         <span class="text-sm font-medium text-slate-700">{{ owner.name }}</span>
+                                        </div>
+                                        <span class="text-sm font-medium text-slate-700">{{ owner.name }}</span>
                                     </div>
                                 </div>
                             </div>
@@ -402,45 +402,34 @@ const formatDate = (dateStr: string) => {
                         <span class="text-2xl leading-none">&times;</span>
                     </button>
                 </div>
-                
+
                 <div class="modal-search">
                     <div class="search-input-wrapper">
                         <Search :size="16" class="search-icon" />
-                        <input 
-                            v-model="searchQuery" 
-                            type="text" 
-                            placeholder="Search family members..." 
-                            class="search-input"
-                            autofocus
-                        />
+                        <input v-model="searchQuery" type="text" placeholder="Search family members..."
+                            class="search-input" autofocus />
                     </div>
                 </div>
 
                 <div class="user-list-scroll">
                     <!-- Self Option (Always visible or filtered? Let's keep distinct) -->
-                    <div 
-                        class="picker-item" 
-                        :class="{ 'selected': !holding.user_id }"
-                        @click="updateOwner(null)"
-                        v-if="!searchQuery || 'unassigned self'.includes(searchQuery.toLowerCase())"
-                    >
+                    <div class="picker-item" :class="{ 'selected': !holding.user_id }" @click="updateOwner(null)"
+                        v-if="!searchQuery || 'unassigned self'.includes(searchQuery.toLowerCase())">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-lg">👤</div>
+                            <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-lg">👤
+                            </div>
                             <span class="font-medium text-slate-700">Unassigned (Self)</span>
                         </div>
                         <Check v-if="!holding.user_id" :size="20" class="text-indigo-600" />
                     </div>
-                    
-                    <div 
-                        v-for="user in filteredUsers" 
-                        :key="user.id" 
-                        class="picker-item"
-                        :class="{ 'selected': holding.user_id === user.id }"
-                        @click="updateOwner(user.id)"
-                    >
+
+                    <div v-for="user in filteredUsers" :key="user.id" class="picker-item"
+                        :class="{ 'selected': holding.user_id === user.id }" @click="updateOwner(user.id)">
                         <div class="flex items-center gap-3">
-                            <img v-if="isImageUrl(user.avatar)" :src="user.avatar" class="w-10 h-10 rounded-full object-cover shadow-sm" />
-                            <div v-else class="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold shadow-sm border border-indigo-100">
+                            <img v-if="isImageUrl(user.avatar)" :src="user.avatar"
+                                class="w-10 h-10 rounded-full object-cover shadow-sm" />
+                            <div v-else
+                                class="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold shadow-sm border border-indigo-100">
                                 {{ user.avatar || user.full_name[0] }}
                             </div>
                             <div class="flex flex-col">
@@ -452,7 +441,8 @@ const formatDate = (dateStr: string) => {
                     </div>
 
                     <!-- Empty State -->
-                    <div v-if="filteredUsers.length === 0 && !('unassigned self'.includes(searchQuery.toLowerCase()))" class="empty-search-state">
+                    <div v-if="filteredUsers.length === 0 && !('unassigned self'.includes(searchQuery.toLowerCase()))"
+                        class="empty-search-state">
                         <Search :size="32" class="text-slate-300 mb-2" />
                         <p class="text-slate-500 text-sm">No users found matching "{{ searchQuery }}"</p>
                     </div>
@@ -469,7 +459,9 @@ const formatDate = (dateStr: string) => {
                 <div class="delete-modal-content">
                     <h3 class="delete-modal-title">Delete Holding?</h3>
                     <p class="delete-modal-subtitle">
-                        Are you sure you want to remove <strong>{{ holding?.scheme_name }}</strong>? This will permanently delete all transaction history.
+                        Are you sure you want to remove <strong>{{ holding?.scheme_name }}</strong>? This will
+                        permanently
+                        delete all transaction history.
                     </p>
                     <div class="delete-modal-actions">
                         <button class="delete-btn-cancel" @click="showDeleteConfirm = false">Cancel</button>
@@ -749,8 +741,15 @@ const formatDate = (dateStr: string) => {
     text-transform: capitalize;
 }
 
-.badge-pill.emerald { background: #dcfce7; color: #15803d; }
-.badge-pill.rose { background: #ffe4e6; color: #be123c; }
+.badge-pill.emerald {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.badge-pill.rose {
+    background: #ffe4e6;
+    color: #be123c;
+}
 
 /* Sidebar Styles */
 .sidebar-column {
@@ -792,7 +791,9 @@ const formatDate = (dateStr: string) => {
     transition: all 0.2s;
 }
 
-.flex-1 { flex: 1; }
+.flex-1 {
+    flex: 1;
+}
 
 .avatar-ring {
     padding: 3px;
@@ -804,13 +805,14 @@ const formatDate = (dateStr: string) => {
 .avatar {
     width: 3.5rem;
     height: 3.5rem;
-    background: #fee2e2; /* Fallback color */
+    background: #fee2e2;
+    /* Fallback color */
     color: #ef4444;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .avatar-img {
@@ -820,23 +822,32 @@ const formatDate = (dateStr: string) => {
     object-fit: cover;
 }
 
-.label-xs-caps { 
-    font-size: 0.65rem; 
-    color: #64748b; 
-    font-weight: 700; 
+.label-xs-caps {
+    font-size: 0.65rem;
+    color: #64748b;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 0.25rem;
 }
 
-.owner-name-lg { 
-    font-weight: 800; 
-    color: #0f172a; 
-    font-size: 1.125rem; 
+.owner-name-lg {
+    font-weight: 800;
+    color: #0f172a;
+    font-size: 1.125rem;
 }
 
-.form-group { padding: 0 1.5rem 1.5rem; }
-.label-sm { display: block; font-size: 0.8rem; font-weight: 600; color: #64748b; margin-bottom: 0.5rem; }
+.form-group {
+    padding: 0 1.5rem 1.5rem;
+}
+
+.label-sm {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 0.5rem;
+}
 
 /* Custom Dropdown Styles */
 .premium-select-trigger {
@@ -895,16 +906,32 @@ const formatDate = (dateStr: string) => {
     color: #4338ca;
 }
 
-.details-list { padding: 0 1.5rem 1.5rem; }
+.details-list {
+    padding: 0 1.5rem 1.5rem;
+}
+
 .detail-row {
     display: flex;
     justify-content: space-between;
     padding: 0.875rem 0;
     border-bottom: 1px solid #f1f5f9;
 }
-.detail-row:last-child { border-bottom: none; padding-bottom: 0; }
-.label-detail { font-size: 0.9rem; color: #64748b; }
-.value-detail { font-size: 0.9rem; font-weight: 600; color: #1e293b; }
+
+.detail-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.label-detail {
+    font-size: 0.9rem;
+    color: #64748b;
+}
+
+.value-detail {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1e293b;
+}
 
 /* Modal Styles */
 .modal-overlay {
@@ -995,7 +1022,15 @@ const formatDate = (dateStr: string) => {
     font-size: 1rem;
 }
 
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
 
 /* User Picker Modal Styles */
 .user-picker-modal {
@@ -1013,7 +1048,8 @@ const formatDate = (dateStr: string) => {
 
 .modal-header {
     padding: 1.5rem 1.5rem 1rem;
-    border-bottom: none; /* Removed border as search has it */
+    border-bottom: none;
+    /* Removed border as search has it */
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1122,8 +1158,22 @@ const formatDate = (dateStr: string) => {
     border-color: #dbeafe;
 }
 
-@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-.anim-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.anim-fade-in {
+    animation: fadeIn 0.4s ease-out forwards;
+}
+
 .loader {
     width: 48px;
     height: 48px;
@@ -1132,5 +1182,10 @@ const formatDate = (dateStr: string) => {
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
 </style>

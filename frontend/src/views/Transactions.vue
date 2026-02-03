@@ -282,7 +282,6 @@ const currentCategoryBudget = computed(() => {
 })
 
 async function fetchData() {
-    console.log('[Transactions] fetchData called, loading=true')
     loading.value = true
     try {
         if (accounts.value.length === 0) {
@@ -309,13 +308,6 @@ async function fetchData() {
         // Helper to format date for API (YYYY-MM-DD or ISO)
         // If they are coming from the date inputs, they are already YYYY-MM-DD
 
-        console.log('[Transactions] Fetching transactions', {
-            page: page.value,
-            account: selectedAccount.value || 'all',
-            start,
-            end
-        })
-
         const res = await financeApi.getTransactions(
             selectedAccount.value || undefined,
             page.value,
@@ -328,7 +320,6 @@ async function fetchData() {
             txnSortOrder.value
         )
 
-        console.log('[Transactions] API response:', res.data)
         transactions.value = res.data.items
         total.value = res.data.total
 
@@ -1073,7 +1064,7 @@ onMounted(() => {
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
-                        }}</span>
+                            }}</span>
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'heatmap' }" @click="switchTab('heatmap')">
                         Heatmap 🗺️
@@ -1245,7 +1236,7 @@ onMounted(() => {
                                             <span class="category-pill"
                                                 :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                                 <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                                }}</span>
+                                                    }}</span>
                                                 {{ getCategoryDisplay(txn.category).text }}
                                             </span>
                                         </div>
@@ -1565,7 +1556,7 @@ onMounted(() => {
                                         <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
                                             class="mr-2" />
                                         <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
-                                        }}</span>
+                                            }}</span>
                                         <span class="ai-badge-mini"
                                             style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
                                             Training</span>
