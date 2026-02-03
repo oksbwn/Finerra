@@ -27,13 +27,16 @@ def read_transactions(
     end_date: Optional[datetime] = None,
     search: Optional[str] = None,
     category: Optional[str] = None,
+    sort_by: Optional[str] = "date",
+    sort_order: Optional[str] = "desc",
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     skip = (page - 1) * limit
     items = TransactionService.get_transactions(
         db, str(current_user.tenant_id), account_id, skip, limit, start_date, end_date, 
-        search=search, category=category, user_role=current_user.role
+        search=search, category=category, user_role=current_user.role,
+        sort_by=sort_by, sort_order=sort_order
     )
     total = TransactionService.count_transactions(
         db, str(current_user.tenant_id), account_id, start_date, end_date, 

@@ -639,10 +639,14 @@ class PendingTransactionRead(BaseModel):
 def list_triage(
     limit: int = 50,
     skip: int = 0,
+    sort_by: str = "date",
+    sort_order: str = "desc",
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    items, total = TransactionService.get_pending_transactions(db, str(current_user.tenant_id), skip=skip, limit=limit)
+    items, total = TransactionService.get_pending_transactions(
+        db, str(current_user.tenant_id), skip=skip, limit=limit, sort_by=sort_by, sort_order=sort_order
+    )
     return {
         "total": total,
         "items": items,

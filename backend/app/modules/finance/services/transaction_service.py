@@ -119,7 +119,9 @@ class TransactionService:
         user_role: str = "ADULT",
         user_id: Optional[str] = None,
         exclude_from_reports: bool = False,
-        exclude_transfers: bool = False
+        exclude_transfers: bool = False,
+        sort_by: str = "date",
+        sort_order: str = "desc"
     ) -> List[models.Transaction]:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
         
@@ -156,7 +158,22 @@ class TransactionService:
             query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
                          .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
             
-        return query.order_by(models.Transaction.date.desc()).offset(skip).limit(limit).all()
+        sort_column = models.Transaction.date
+        if sort_by == "amount":
+            sort_column = models.Transaction.amount
+        elif sort_by == "description":
+            sort_column = models.Transaction.description
+        elif sort_by == "recipient":
+            sort_column = models.Transaction.recipient
+        elif sort_by == "category":
+            sort_column = models.Transaction.category
+
+        if sort_order == "asc":
+            query = query.order_by(sort_column.asc())
+        else:
+            query = query.order_by(sort_column.desc())
+
+        return query.offset(skip).limit(limit).all()
 
     @staticmethod
     def count_transactions(
@@ -335,13 +352,25 @@ class TransactionService:
 
     # --- Triage Functions ---
     @staticmethod
-    def get_pending_transactions(db: Session, tenant_id: str, skip: int = 0, limit: int = 50):
+    def get_pending_transactions(db: Session, tenant_id: str, skip: int = 0, limit: int = 50, sort_by: str = "date", sort_order: str = "desc"):
         query = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.tenant_id == tenant_id
         )
         total = query.count()
-        items = query.order_by(ingestion_models.PendingTransaction.created_at.desc()).offset(skip).limit(limit).all()
-        return items, total
+        total = query.count()
+        
+        sort_column = ingestion_models.PendingTransaction.created_at
+        if sort_by == "amount":
+            sort_column = ingestion_models.PendingTransaction.amount
+        elif sort_by == "description":
+            sort_column = ingestion_models.PendingTransaction.description
+        
+        if sort_order == "asc":
+            query = query.order_by(sort_column.asc())
+        else:
+            query = query.order_by(sort_column.desc())
+            
+        return query.offset(skip).limit(limit).all(), total
 
     @staticmethod
     def approve_pending_transaction(

@@ -100,6 +100,68 @@ const selectedTriageIds = ref<string[]>([])
 const selectedTrainingIds = ref<string[]>([])
 const isProcessingBulk = ref(false)
 
+// --- Sorting State ---
+const txnSortKey = ref('date')
+const txnSortOrder = ref<'asc' | 'desc'>('desc')
+
+const triageSortKey = ref('date')
+const triageSortOrder = ref<'asc' | 'desc'>('desc')
+
+const trainingSortKey = ref('created_at')
+const trainingSortOrder = ref<'asc' | 'desc'>('desc')
+
+function sortArray<T>(items: T[], key: string, order: 'asc' | 'desc') {
+    return [...items].sort((a: any, b: any) => {
+        // Handle nested keys safely
+        const valA = key.split('.').reduce((o, i) => o?.[i], a)
+        const valB = key.split('.').reduce((o, i) => o?.[i], b)
+
+        let cmpA = valA
+        let cmpB = valB
+
+        // Special handling for dates strings
+        if (key === 'date' || key === 'created_at') {
+            cmpA = new Date(valA || 0).getTime()
+            cmpB = new Date(valB || 0).getTime()
+        } else if (key === 'amount' || key === 'balance') {
+            cmpA = Number(valA || 0)
+            cmpB = Number(valB || 0)
+        } else if (typeof valA === 'string') {
+            cmpA = valA.toLowerCase()
+            cmpB = (valB || '').toLowerCase()
+        }
+
+        if (cmpA < cmpB) return order === 'asc' ? -1 : 1
+        if (cmpA > cmpB) return order === 'asc' ? 1 : -1
+        return 0
+    })
+}
+
+const sortedTrainingMessages = computed(() => {
+    return sortArray(unparsedMessages.value, trainingSortKey.value, trainingSortOrder.value)
+})
+
+function toggleTxnSort(key: string) {
+    if (txnSortKey.value === key) {
+        txnSortOrder.value = txnSortOrder.value === 'asc' ? 'desc' : 'asc'
+    } else {
+        txnSortKey.value = key
+        txnSortOrder.value = 'desc'
+    }
+    // API call triggered by watcher
+}
+
+// Watchers for Backend Sorting
+watch([txnSortKey, txnSortOrder], () => {
+    page.value = 1 // Reset to first page on sort change
+    fetchData()
+})
+
+watch([triageSortKey, triageSortOrder], () => {
+    triagePagination.value.skip = 0
+    fetchTriage()
+})
+
 // Date Filter State
 const startDate = ref<string>('')
 const endDate = ref<string>('')
@@ -261,7 +323,9 @@ async function fetchData() {
             start || undefined,
             end || undefined,
             searchQuery.value || undefined,
-            categoryFilter.value || undefined
+            categoryFilter.value || undefined,
+            txnSortKey.value,
+            txnSortOrder.value
         )
 
         console.log('[Transactions] API response:', res.data)
@@ -300,7 +364,12 @@ async function fetchTriage(resetSkip = false) {
         }
 
         const [res, trainingRes] = await Promise.all([
-            financeApi.getTriage({ limit: triagePagination.value.limit, skip: triagePagination.value.skip }),
+            financeApi.getTriage({
+                limit: triagePagination.value.limit,
+                skip: triagePagination.value.skip,
+                sort_by: triageSortKey.value,
+                sort_order: triageSortOrder.value
+            }),
             financeApi.getTraining({ limit: trainingPagination.value.limit, skip: trainingPagination.value.skip })
         ])
 
@@ -1004,7 +1073,7 @@ onMounted(() => {
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
-                            }}</span>
+                        }}</span>
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'heatmap' }" @click="switchTab('heatmap')">
                         Heatmap 🗺️
@@ -1108,10 +1177,23 @@ onMounted(() => {
                                 <input type="checkbox" :checked="allSelected" @change="toggleSelectAll"
                                     :disabled="transactions.length === 0">
                             </th>
-                            <th class="col-date">Date</th>
-                            <th class="col-recipient">Recipient / Source</th>
+                            <th class="col-date cursor-pointer hover:bg-gray-50" @click="toggleTxnSort('date')">
+                                Date
+                                <span v-if="txnSortKey === 'date'" class="text-indigo-600 ml-1">{{ txnSortOrder ===
+                                    'asc' ? '↑' : '↓' }}</span>
+                            </th>
+                            <th class="col-recipient cursor-pointer hover:bg-gray-50"
+                                @click="toggleTxnSort('description')">
+                                Recipient / Source
+                                <span v-if="txnSortKey === 'description'" class="text-indigo-600 ml-1">{{ txnSortOrder
+                                    === 'asc' ? '↑' : '↓' }}</span>
+                            </th>
                             <th class="col-description">Description</th>
-                            <th class="col-amount">Amount</th>
+                            <th class="col-amount cursor-pointer hover:bg-gray-50" @click="toggleTxnSort('amount')">
+                                Amount
+                                <span v-if="txnSortKey === 'amount'" class="text-indigo-600 ml-1">{{ txnSortOrder ===
+                                    'asc' ? '↑' : '↓' }}</span>
+                            </th>
                             <th class="col-actions"></th>
                         </tr>
                     </thead>
@@ -1163,7 +1245,7 @@ onMounted(() => {
                                             <span class="category-pill"
                                                 :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                                 <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                                    }}</span>
+                                                }}</span>
                                                 {{ getCategoryDisplay(txn.category).text }}
                                             </span>
                                         </div>
@@ -1268,6 +1350,17 @@ onMounted(() => {
                                 @click="triageSourceFilter = 'SMS'">SMS</button>
                             <button class="source-chip" :class="{ active: triageSourceFilter === 'EMAIL' }"
                                 @click="triageSourceFilter = 'EMAIL'">Email</button>
+                        </div>
+
+                        <!-- Sort Controls Pending -->
+                        <div class="flex items-center gap-2 ml-auto">
+                            <CustomSelect v-model="triageSortKey"
+                                :options="[{ label: 'Date', value: 'date' }, { label: 'Amount', value: 'amount' }, { label: 'Description', value: 'description' }]"
+                                class="w-32 text-xs" />
+                            <button @click="triageSortOrder = triageSortOrder === 'asc' ? 'desc' : 'asc'"
+                                class="btn-icon-circle-small bg-white border border-gray-200" title="Toggle Order">
+                                {{ triageSortOrder === 'asc' ? '↑' : '↓' }}
+                            </button>
                         </div>
                     </div>
 
@@ -1448,11 +1541,23 @@ onMounted(() => {
                                     🗑️ Dismiss {{ selectedTrainingIds.length }}
                                 </button>
                             </div>
-                            <button @click="fetchTriage(true)" class="btn-icon-circle-small amber-themed">🔄</button>
+                            <!-- Sort Controls Training -->
+                            <div class="flex items-center gap-2">
+                                <CustomSelect v-model="trainingSortKey"
+                                    :options="[{ label: 'Date', value: 'created_at' }, { label: 'Sender', value: 'sender' }]"
+                                    class="w-32 text-xs" />
+                                <button @click="trainingSortOrder = trainingSortOrder === 'asc' ? 'desc' : 'asc'"
+                                    class="btn-icon-circle-small bg-white border border-amber-200 text-amber-700"
+                                    title="Toggle Order">
+                                    {{ trainingSortOrder === 'asc' ? '↑' : '↓' }}
+                                </button>
+                                <button @click="fetchTriage(true)"
+                                    class="btn-icon-circle-small amber-themed">🔄</button>
+                            </div>
                         </div>
 
                         <div class="triage-grid">
-                            <div v-for="msg in unparsedMessages" :key="msg.id"
+                            <div v-for="msg in sortedTrainingMessages" :key="msg.id"
                                 class="glass-card triage-card training-theme"
                                 :class="{ 'selected': selectedTrainingIds.includes(msg.id) }">
                                 <div class="triage-card-header">
