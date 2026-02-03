@@ -129,7 +129,7 @@ class CategoryRuleBase(BaseModel):
     name: str
     category: str
     keywords: List[str]
-    only_uncategorized: bool = True
+    # only_uncategorized removed as it's not in DB model
     priority: int = 0
     is_transfer: bool = False
     to_account_id: Optional[str] = None
