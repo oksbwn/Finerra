@@ -45,8 +45,8 @@ class GeminiParser:
         ref_date_str = ref_date.strftime('%Y-%m-%d')
 
         # Standard Prompt
-        prompt = f"""
-        You are a precise financial parser. Extract transaction details from the following {source} message.
+        prompt = rf"""
+        You are a precise financial parser. Extract transaction details from this {source} message.
         Return ONLY valid JSON.
         
         Input: "{content}"
@@ -61,14 +61,26 @@ class GeminiParser:
             "bank_name": "HDFC" (or null),
             "merchant": "Amazon" (clean name),
             "description": "raw description",
-            "ref_id": "transaction reference/UTR number or null"
+            "ref_id": "transaction reference/UTR number or null",
+            "confidence": float (0.0 to 1.0, based on how certain you are of the extraction),
+            "suggested_regex": "a Python regex to match this EXACT message format",
+            "field_mapping": {{
+                "amount": index of group,
+                "date": index of group,
+                "merchant": index of group,
+                "account": index of group,
+                "type": "DEBIT" or "CREDIT"
+            }}
         }}
         
         Rules:
         1. If date is missing/relative (e.g. 'today', 'yesterday'), calculate it based on reference date: {ref_date_str}.
         2. ALWAYS return date in ISO format (YYYY-MM-DD). Convert '28-03-24' to '2024-03-28'.
         3. For 'merchant', extract the actual entity name (e.g. 'Uber', 'Zomato').
-        4. If unable to extract strictly, return null.
+        4. If amount, type or date is missing, set confidence to 0.5 or lower.
+        5. The `suggested_regex` should be generic enough to match similar messages (e.g. replace 123.45 with [\d,\.]+) but specific to this bank/type.
+        6. In `field_mapping`, use 1-based indexing for the capture groups in your `suggested_regex`.
+        7. If unable to extract strictly, return null.
         """
 
         try:
@@ -108,7 +120,7 @@ class GeminiParser:
                 currency=data.get("currency", "INR"),
                 ref_id=data.get("ref_id"),
                 account=AccountInfo(
-                    mask=data.get("account_mask"), 
+                    mask=get_digits(data.get("account_mask")), 
                     provider=data.get("bank_name")
                 ),
                 merchant=MerchantInfo(
@@ -117,9 +129,82 @@ class GeminiParser:
                 ),
                 description=data.get("description") or content,
                 recipient=data.get("merchant") or "Unknown",
-                raw_message=content
+                raw_message=content,
+                confidence=float(data.get("confidence", 0.9))
             )
 
         except Exception as e:
             print(f"AI Parse Error: {e}")
             return None
+
+    def parse_with_pattern(self, content: str, source: str, date_hint: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+        """Extended parse that returns both transaction and suggested pattern."""
+        if not self.config or not self.config.api_key_enc:
+            return None
+
+        client = genai.Client(api_key=self.config.api_key_enc)
+        config = types.GenerateContentConfig(
+            temperature=0.1,
+            response_mime_type="application/json",
+        )
+        model_id = self.config.model_name or "gemini-1.5-flash"
+
+        ref_date = datetime.now()
+        if date_hint and isinstance(date_hint, datetime):
+            ref_date = date_hint
+        elif date_hint and isinstance(date_hint, str):
+             try: ref_date = datetime.fromisoformat(date_hint)
+             except: pass
+        ref_date_str = ref_date.strftime('%Y-%m-%d')
+
+        prompt = rf"""
+        You are a precise financial parser. Extract transaction details AND generate a reusable regex for this {source} message.
+        Return ONLY valid JSON.
+        
+        Input: "{content}"
+        
+        Required JSON Structure:
+        {{
+            "transaction": {{
+                "amount": float,
+                "type": "DEBIT" or "CREDIT",
+                "date": "YYYY-MM-DD",
+                "account_mask": "1234" (last 4 digits or null),
+                "bank_name": "HDFC" (or null),
+                "merchant": "Amazon",
+                "description": "raw",
+                "ref_id": "utr",
+                "confidence": float
+            }},
+            "suggested_regex": "Python regex with capture groups",
+            "field_mapping": {{
+                "amount": group_idx,
+                "date": group_idx,
+                "merchant": group_idx,
+                "account": group_idx,
+                "type": "DEBIT" or "CREDIT"
+            }}
+        }}
+
+        Rules for Regex:
+        1. Use [\d,\.]+ for amounts.
+        2. Use (.*?) for merchants.
+        3. Use [\d\-\/]+ for dates.
+        4. Ensure it's robust enough for similar messages from this bank.
+        """
+
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt,
+                config=config
+            )
+            data = json.loads(response.text.strip().replace("```json", "").replace("```", ""))
+            return data
+        except Exception as e:
+            print(f"AI Pattern Gen Error: {e}")
+            return None
+
+def get_digits(s):
+    if not s: return None
+    return "".join(filter(str.isdigit, str(s)))[-4:]
