@@ -47,6 +47,8 @@ class PatternRule(Base):
     regex_pattern = Column(String, nullable=False)
     mapping_json = Column(JSON, nullable=False)
     is_active = Column(Boolean, default=True)
+    is_ai_generated = Column(Boolean, default=False)
+    confidence = Column(JSON, nullable=True) # AI's confidence in this pattern
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class MerchantAlias(Base):
