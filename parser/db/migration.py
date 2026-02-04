@@ -25,6 +25,10 @@ def run_auto_migrations(engine: Engine):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """))
+            
+            # 2. Update pattern_rules with AI fields
+            safe_add_column("pattern_rules", "is_ai_generated", "BOOLEAN DEFAULT FALSE")
+            safe_add_column("pattern_rules", "confidence", "JSON")
 
             # Explicitly commit if needed (DuckDB depends on connection mode)
             connection.commit()
