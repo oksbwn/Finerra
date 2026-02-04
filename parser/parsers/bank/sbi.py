@@ -1,36 +1,75 @@
 import re
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
-from parser.parsers.base_compat import BaseSmsParser, BaseEmailParser, ParsedTransaction
+from parser.parsers.base_compat import BaseSmsParser, BaseEmailParser, ParsedTransaction, TransactionPattern
 from parser.parsers.utils.recipient_parser import RecipientParser
 
 class SbiSmsParser(BaseSmsParser):
     """
     Parser for SBI Bank SMS Alerts.
     """
-    # Example: "Txn of Rs.100.00 on SBI A/c XX1234 at MERCHANT on 13Jan26. Ref: 123"
-    # Example: "Dear Customer, INR 500.00 debited from A/c XX123 on 13-01-26. Ref No: 123"
-    TXN_PATTERN = re.compile(
-        r"(?i)(?:Txn\s*of|INR|Rs\.?)\s*([\d,]+\.?\d*)\s*(?:on|debited\s*from)\s*.*?A/c\s*(?:.*?|x*|X*)(\d+)\s*at\s*(.*?)\s*on\s*(\d{2}[A-Z]{3,}\d{2,4}|\d{2}-\d{2}-\d{2,4})(?:.*?[Rr]ef[:\.\s-]+(\w+))?",
-        re.IGNORECASE
-    )
+    name = "SBI"
+
+    def get_patterns(self) -> List[TransactionPattern]:
+        return [
+            # Debit Pattern with Ref ID
+            TransactionPattern(
+                regex=re.compile(
+                    r"(?i)(?:Txn\s*of|INR|Rs\.?)\s*([\d,]+\.?\d*)\s*(?:on|debited\s*from)\s*.*?A/c\s*(?:.*?|x*|X*)(\d+)\s*at\s*(.*?)\s*on\s*(\d{2}[A-Z]{3,}\d{2,4}|\d{2}[-/]\d{2}[-/]\d{2,4}).*?[Rr]ef[:\.\s-]+(\w+)",
+                    re.IGNORECASE
+                ),
+                confidence=1.0,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "recipient": 3, "date": 4, "ref_id": 5}
+            ),
+            # Debit Pattern without Ref ID
+            TransactionPattern(
+                regex=re.compile(
+                    r"(?i)(?:Txn\s*of|INR|Rs\.?)\s*([\d,]+\.?\d*)\s*(?:on|debited\s*from)\s*.*?A/c\s*(?:.*?|x*|X*)(\d+)\s*at\s*(.*?)\s*on\s*(\d{2}[A-Z]{3,}\d{2,4}|\d{2}[-/]\d{2}[-/]\d{2,4})",
+                    re.IGNORECASE
+                ),
+                confidence=0.9,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "recipient": 3, "date": 4}
+            ),
+            # Credit Pattern (TD Closure etc)
+            TransactionPattern(
+                regex=re.compile(
+                    r"(?i)A/C\s*(?:.*?|x*|X*)(\d+)\s*Credited\.\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*on\s*(\d{2}/\d{2}/\d{2,4})\s*on\s*account\s*of\s*(.*?)\.-",
+                    re.IGNORECASE
+                ),
+                confidence=1.0,
+                txn_type="CREDIT",
+                field_map={"mask": 1, "amount": 2, "date": 3, "recipient": 4}
+            ),
+            # ATM Withdrawal
+            TransactionPattern(
+                regex=re.compile(r"(?i)(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*withdrawn\s*(?:from\s*ATM|at\s*ATM|Cash\s*withdrawal).*?(?:A/c|Card)\s*(?:.*?|x*|X*)(\d+)\s*on\s*(\d{2}[A-Z]{3,}\d{2,4}|\d{2}[-/]\d{2}[-/]\d{2,4})(?:.*?Ref[:\.\s-]+(\w+))?", re.IGNORECASE),
+                confidence=0.9,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "date": 3, "ref_id": 4}
+            ),
+            # IMPS/NEFT/RTGS
+            TransactionPattern(
+                regex=re.compile(r"(?i)(?:IMPS|NEFT|RTGS)\s*(?:of)?\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*(?:debited|from)\s*A/c\s*(?:.*?|x*|X*)(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}[A-Z]{3,}\d{2,4}|\d{2}[-/]\d{2}[-/]\d{2,4}).*?(?:Ref|UTR)[:\.\s-]+(\w+)", re.IGNORECASE),
+                confidence=1.0,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "recipient": 3, "date": 4, "ref_id": 5}
+            )
+        ]
 
     def can_handle(self, sender: str, message: str) -> bool:
         return "sbi" in sender.lower() or "sbi" in message.lower()
 
     def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
-        clean_content = " ".join(content.split())
-        
-        match = self.TXN_PATTERN.search(clean_content)
-        if match:
-            return self._create_txn(Decimal(match.group(1).replace(",", "")), match.group(3), match.group(2), match.group(4), "DEBIT", content, match.group(5), "SMS", date_hint)
-
-        return None
+        matches = self.parse_with_confidence(content, date_hint)
+        return matches[0] if matches else None
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, source, date_hint=None):
         try:
-            # Handle formats like 13Jan26 or 13-01-26
+            # Handle formats like 13Jan26 or 13-01-26 or 23/05/24
+            date_str = date_str.replace("/", "-")
             formats = ["%d%b%y", "%d%b%Y", "%d-%m-%y", "%d-%m-%Y"]
             txn_date = None
             for fmt in formats:

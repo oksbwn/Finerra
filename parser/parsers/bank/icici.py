@@ -1,53 +1,71 @@
 import re
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
-from parser.parsers.base_compat import BaseSmsParser, BaseEmailParser, ParsedTransaction
+from parser.parsers.base_compat import BaseSmsParser, BaseEmailParser, ParsedTransaction, TransactionPattern
 from parser.parsers.utils.recipient_parser import RecipientParser
 
 class IciciSmsParser(BaseSmsParser):
     """
     Parser for ICICI Bank SMS Alerts.
     """
-    # Example: "INR 869.00 spent using ICICI Bank Card XX0004 on 23-Sep-24 on IND*Amazon. Avl Limit: INR 2,39,131.00"
-    SPENT_PATTERN = re.compile(
-        r"(?i)(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*spent\s*using\s*ICICI\s*Bank\s*.*?(?:Card|A/c)\s*([xX]*\d+)\s*on\s*(\d{2}-[a-z]{3}-\d{2,4})\s*on\s*(.*?)\.\s*(?:Ref[:\.\s-]+(\w+))?",
-        re.IGNORECASE
-    )
-    
-    # Example: "Your A/c XX123 is debited for INR 500.00 on 23-Sep-24. Info: UPI-Zomato-123. Avl Bal: INR 1,000.00"
-    DEBIT_PATTERN = re.compile(
-        r"(?i)A/c\s*([xX]*\d+)\s*is\s*debited\s*for\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*on\s*(\d{2}-[a-z]{3}-\d{2,4})\.\s*Info:\s*(.*?)(?:\.\s*Ref[:\.\s-]+(\w+))?",
-        re.IGNORECASE
-    )
+    name = "ICICI"
+
+    def get_patterns(self) -> List[TransactionPattern]:
+        return [
+            # High specificity: Spent with Ref ID
+            # Example: "INR 869.00 spent using ICICI Bank Card XX0004 on 23-Sep-24 on IND*Amazon. Ref No 12345. Avl Limit: INR 2,39,131.00"
+            TransactionPattern(
+                regex=re.compile(
+                    r"(?i)(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*spent\s*(?:using|on)\s*ICICI\s*Bank\s*.*?(?:Card|A/c)\s*([xx*]*\d+)\s*on\s*(\d{2}-[a-z]{3}-\d{2,4})\s*(?:on|at)\s*(.*?)\.?\s*(?:Ref[:\.\s-]+|Ref\s*No\s+)(\w+)",
+                    re.IGNORECASE
+                ),
+                confidence=1.0,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "date": 3, "recipient": 4, "ref_id": 5}
+            ),
+            # Standard specificity: Spent (user-provided and legacy formats)
+            TransactionPattern(
+                regex=re.compile(
+                    r"(?i)(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*spent\s*(?:using|on)\s*ICICI\s*Bank\s*.*?(?:Card|A/c)\s*([xX]*\d+)\s*on\s*(\d{2}-[a-z]{3}-\d{2,4})\s*(?:on|at)\s*(.*?)\.\s*(?:Avl|Ref|$)",
+                    re.IGNORECASE
+                ),
+                confidence=0.9,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "date": 3, "recipient": 4}
+            ),
+            # Debit Format
+            TransactionPattern(
+                regex=re.compile(
+                    r"(?i)A/c\s*([xX]*\d+)\s*is\s*debited\s*for\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*on\s*(\d{2}-[a-z]{3}-\d{2,4})\.\s*Info:\s*(.*?)(?:\.\s*(?:Ref[:\.\s-]+|Ref\s*No\s+)(\w+))?",
+                    re.IGNORECASE
+                ),
+                confidence=0.9,
+                txn_type="DEBIT",
+                field_map={"mask": 1, "amount": 2, "date": 3, "recipient": 4, "ref_id": 5}
+            ),
+            # ATM Withdrawal
+            TransactionPattern(
+                regex=re.compile(r"(?i)(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*withdrawn\s*from\s*(?:ATM|Cash|ATM\s*withdrawal).*?(?:A/c|Card)\s*([xX]*\d+)\s*on\s*(\d{2}-[a-z]{3}-\d{2,4})(?:.*?Ref[:\.\s-]+(\w+))?", re.IGNORECASE),
+                confidence=0.9,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "date": 3, "ref_id": 4}
+            ),
+            # IMPS/NEFT
+            TransactionPattern(
+                regex=re.compile(r"(?i)(?:IMPS|NEFT|RTGS)\s*(?:of)?\s*(?:INR|Rs\.?)\s*([\d,]+\.?\d*)\s*(?:debited|from)\s*A/c\s*([xX]*\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-[a-z]{3}-\d{2,4}).*?(?:Ref|UTR)[:\.\s-]+(\w+)", re.IGNORECASE),
+                confidence=1.0,
+                txn_type="DEBIT",
+                field_map={"amount": 1, "mask": 2, "recipient": 3, "date": 4, "ref_id": 5}
+            )
+        ]
 
     def can_handle(self, sender: str, message: str) -> bool:
         return "icici" in sender.lower() or "icici" in message.lower()
 
     def parse(self, content: str, date_hint: Optional[datetime] = None) -> Optional[ParsedTransaction]:
-        clean_content = " ".join(content.split())
-        
-        # 1. Try Spent
-        match = self.SPENT_PATTERN.search(clean_content)
-        if match:
-            amount = Decimal(match.group(1).replace(",", ""))
-            account_mask = match.group(2)
-            date_str = match.group(3)
-            recipient = match.group(4).strip()
-            ref_id = match.group(5)
-            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, "SMS", date_hint)
-
-        # 2. Try Debit
-        match = self.DEBIT_PATTERN.search(clean_content)
-        if match:
-            account_mask = match.group(1)
-            amount = Decimal(match.group(2).replace(",", ""))
-            date_str = match.group(3)
-            recipient = match.group(4).strip()
-            ref_id = match.group(5)
-            return self._create_txn(amount, recipient, account_mask, date_str, "DEBIT", content, ref_id, "SMS", date_hint)
-
-        return None
+        matches = self.parse_with_confidence(content, date_hint)
+        return matches[0] if matches else None
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, source, date_hint=None):
         try:
