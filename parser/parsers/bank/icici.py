@@ -76,7 +76,7 @@ class IciciEmailParser(BaseEmailParser):
     """
     Parser for ICICI Bank Email Alerts.
     """
-    REF_PATTERN = re.compile(r"(?i)(?:Ref|UTR|TXN#|Ref No)[:\.\s-]+(\w{3,})")
+    REF_PATTERN = re.compile(r"(?i)\b(?:Ref|UTR|TXN#|Ref\s*No)(?:[\s:\.-]|\bis\b)+([a-zA-Z0-9]{3,})")
 
     def can_handle(self, subject: str, body: str) -> bool:
         combined = (subject + " " + body).lower()

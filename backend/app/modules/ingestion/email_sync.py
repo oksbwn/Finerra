@@ -145,7 +145,12 @@ class EmailSyncService:
                             sender_id = msg.get("From")
                             parser_response = ExternalParserService.parse_email(subject, body, sender_id)
                             
-                            if parser_response and parser_response.get("status") == "processed":
+                            status = parser_response.get("status") if parser_response else "offline"
+                            
+                            if parser_response and status in ["processed", "success", "duplicate_submission"]:
+                                if status == "duplicate_submission":
+                                    continue
+
                                 results = parser_response.get("results", [])
                                 if not results:
                                     stats["failed"] += 1

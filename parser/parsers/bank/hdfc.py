@@ -144,13 +144,13 @@ class HdfcEmailParser(BaseEmailParser):
     # Example: "Rs.40000.00 has been debited from account 5244 to VPA groww.iccl1.brk@validhdfc MUTUAL FUNDS ICCL on 13-01-26. Ref: 116929657356"
     # Example 2: "Dear Customer, Rs.35.00 has been debited from account 5244 to VPA ... on 28-01-26. Your UPI transaction reference number is 1178..."
     UPI_DEBIT_PATTERN = re.compile(
-        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*has\s*been\s*debited\s*from\s*account\s*(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?\b(?:Ref|Reference)\s*(?:No|ID|Number)?[\s:\.-]+([a-zA-Z0-9]+))?",
+        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*has\s*been\s*debited\s*from\s*account\s*(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?\b(?:Ref|Reference)\s*(?:No|ID|Number)?(?:[\s:\.-]|\bis\b)+([a-zA-Z0-9]+))?",
         re.IGNORECASE
     )
 
     # Example: "❗ You have done a UPI txn. Rs.10.00 debited from A/c XX1234 to MERCHANT on 13-01-26. Ref: 123"
     GENERIC_UPI_PATTERN = re.compile(
-        r"(?i)UPI\s*txn.*?([\d,]+\.?\d*)\s*debited\s*from\s*A/c\s*(?:.*?|x*|X*)(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?\b(?:Ref|Reference)\s*(?:No|ID|Number)?[\s:\.-]+([a-zA-Z0-9]+))?",
+        r"(?i)UPI\s*txn.*?([\d,]+\.?\d*)\s*debited\s*from\s*A/c\s*(?:.*?|x*|X*)(\d+)\s*to\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})(?:.*?\b(?:Ref|Reference)\s*(?:No|ID|Number)?(?:[\s:\.-]|\bis\b)+([a-zA-Z0-9]+))?",
         re.IGNORECASE
     )
 
@@ -179,11 +179,16 @@ class HdfcEmailParser(BaseEmailParser):
         
         def get_ref(match, group_idx):
             if group_idx < len(match.groups()) + 1 and match.group(group_idx): 
-                return match.group(group_idx)
+                val = match.group(group_idx)
+                if val.lower() not in ["is", "to", "on"]:
+                    return val
             
             # Fallback 1: Search for improved REF_PATTERN
             ref_match = self.REF_PATTERN.search(clean_content)
-            if ref_match: return ref_match.group(1).strip()
+            if ref_match: 
+                ref_id = ref_match.group(1).strip()
+                if ref_id.lower() != "is":
+                    return ref_id
             
             # Fallback 2: Look for 12-digit UPI Ref specifically if "reference" or "Ref" is present
             if any(k in clean_content.lower() for k in ["reference", "ref no", "utr"]):
