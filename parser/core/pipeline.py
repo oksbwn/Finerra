@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Any
 from parser.core.classifier import FinancialClassifier
 from parser.parsers.registry import ParserRegistry
-from parser.db.models import RequestLog
+from parser.db.models import RequestLog, PatternRule
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -69,7 +69,8 @@ class IngestionPipeline:
                     getattr(safe_pt_get("original_row"), "description", "Imported") if safe_pt_get("original_row") and not isinstance(safe_pt_get("original_row"), dict) 
                     else (safe_pt_get("original_row") or {}).get("description", "Imported") if isinstance(safe_pt_get("original_row"), dict) 
                     else "Imported"
-                )
+                ),
+                confidence=float(safe_pt_get("confidence") or 0.0)
             )
             
         # If it's a backend ParsedTransaction
@@ -84,8 +85,33 @@ class IngestionPipeline:
             balance=pt.balance,
             category=pt.category,
             recipient=pt.recipient,
-            raw_message=pt.raw_message
+            raw_message=pt.raw_message,
+            confidence=pt.confidence
         )
+
+    def _save_ai_pattern(self, source: str, regex: str, mapping: dict, confidence: float):
+        """Save high-confidence AI suggested patterns to the database."""
+        try:
+            # Check if this pattern already exists to avoid duplicates
+            existing = self.db.query(PatternRule).filter(
+                PatternRule.source == source,
+                PatternRule.regex_pattern == regex
+            ).first()
+            
+            if not existing:
+                new_rule = PatternRule(
+                    source=source,
+                    regex_pattern=regex,
+                    mapping_json=mapping,
+                    is_ai_generated=True,
+                    confidence=confidence,
+                    is_active=True
+                )
+                self.db.add(new_rule)
+                self.db.commit()
+        except Exception as e:
+            print(f"Error saving AI pattern: {e}")
+            self.db.rollback()
 
     def run(self, content: str, source: str, sender: Optional[str] = None, subject: Optional[str] = None, date_hint: Optional[str] = None) -> IngestionResult:
         # 1. Idempotency Check
@@ -115,10 +141,10 @@ class IngestionPipeline:
             return IngestionResult(status="ignored", results=[], logs=["Classified as non-financial"])
 
         # 3. Extraction Chain
+        potential_matches: List[Any] = [] # List of ParsedTransaction
         parsed_txn = None
-        parser_used = "Unknown"
         
-        # A. Static Parsers
+        # A. Static Bank Parsers
         parsers = ParserRegistry.get_sms_parsers() if source == "SMS" else ParserRegistry.get_email_parsers()
         for p in parsers:
             can_handle = False
@@ -132,44 +158,99 @@ class IngestionPipeline:
                 
             if can_handle:
                 try:
-                    # Pass date_hint check if supported
-                    if hasattr(p, 'parse') and 'date_hint' in p.parse.__code__.co_varnames:
-                         pt = p.parse(content, date_hint=date_hint)
-                    else:
-                         pt = p.parse(content)
-                         
-                    if pt:
-                        parsed_txn = self._convert_to_schema_txn(pt)
-                        parser_used = getattr(p, 'name', type(p).__name__)
-                        logs.append(f"Successfully parsed by {parser_used}")
-                        break
+                    # Try confidence-based parsing first
+                    if hasattr(p, 'parse_with_confidence'):
+                        matches = p.parse_with_confidence(content, date_hint=date_hint)
+                        if matches:
+                            potential_matches.extend(matches)
+                    
+                    # Fallback to legacy parse if no matches yet (for parsers not yet refactored)
+                    if not potential_matches:
+                        if hasattr(p, 'parse') and 'date_hint' in p.parse.__code__.co_varnames:
+                            pt = p.parse(content, date_hint=date_hint)
+                        else:
+                            pt = p.parse(content)
+                        if pt:
+                            # Assign a default confidence if missing
+                            if not hasattr(pt, 'confidence') or pt.confidence is None:
+                                pt.confidence = 0.8
+                            potential_matches.append(pt)
                 except Exception as e:
                     logs.append(f"Parser {type(p).__name__} failed: {str(e)}")
 
-        # B. User Patterns
-        if not parsed_txn:
-             try:
-                 # Load rules for this source
-                 p_parser = PatternParser(self.db, source)
-                 pt = p_parser.parse(content)
-                 if pt:
-                     parsed_txn = self._convert_to_schema_txn(pt)
-                     parser_used = "User Patterns"
-                     logs.append("Parsed via Patterns")
-             except Exception as e:
-                 logs.append(f"Pattern Parser failed: {str(e)}")
+        # B. User Patterns (as a fallback or secondary engine)
+        if not potential_matches or max(m.confidence for m in potential_matches) < 0.9:
+            try:
+                p_parser = PatternParser(self.db, source)
+                pt = p_parser.parse(content)
+                if pt:
+                    if not hasattr(pt, 'confidence') or pt.confidence is None:
+                        pt.confidence = 0.7 # User patterns usually slightly lower confidence than bank-specific regex
+                    potential_matches.append(pt)
+            except Exception as e:
+                logs.append(f"Pattern Parser failed: {str(e)}")
 
-        # C. AI Fallback
-        if not parsed_txn:
-             try:
-                 ai_parser = GeminiParser(self.db)
-                 pt = ai_parser.parse(content, source, date_hint=date_hint)
-                 if pt:
-                     parsed_txn = self._convert_to_schema_txn(pt)
-                     parser_used = "Gemini AI"
-                     logs.append("Extracted via AI")
-             except Exception as e:
-                 logs.append(f"AI Parser failed: {str(e)}")
+        # C. AI Fallback (Trigger if no high-confidence match)
+        best_regex_match = None
+        if potential_matches:
+            potential_matches.sort(key=lambda x: x.confidence, reverse=True)
+            best_regex_match = potential_matches[0]
+
+        if not best_regex_match or best_regex_match.confidence < 0.9:
+            try:
+                logs.append(f"Low confidence ({best_regex_match.confidence if best_regex_match else 0}) - Triggering AI Fallback")
+                ai_parser = GeminiParser(self.db)
+                # Use extended parse to get suggested patterns
+                ai_data = ai_parser.parse_with_pattern(content, source, date_hint=date_hint)
+                
+                if ai_data and ai_data.get("transaction"):
+                    tx_data = ai_data["transaction"]
+                    
+                    # Create Transaction object
+                    pt = Transaction(
+                        amount=Decimal(str(tx_data.get("amount", 0))),
+                        type=TransactionType(tx_data.get("type", "DEBIT")),
+                        date=datetime.fromisoformat(tx_data["date"]) if tx_data.get("date") else datetime.now(),
+                        account=AccountInfo(mask=tx_data.get("account_mask"), provider=source),
+                        merchant=MerchantInfo(raw=tx_data.get("merchant"), cleaned=tx_data.get("merchant")),
+                        description=tx_data.get("description", content[:50]),
+                        recipient=tx_data.get("merchant"),
+                        raw_message=content,
+                        confidence=float(tx_data.get("confidence", 0.9))
+                    )
+
+                    ai_confidence = pt.confidence
+                    
+                    # Logic to save the new pattern if it's very high confidence
+                    suggested_regex = ai_data.get("suggested_regex")
+                    field_mapping = ai_data.get("field_mapping")
+                    
+                    if suggested_regex and field_mapping and ai_confidence >= 0.95:
+                        self._save_ai_pattern(source, suggested_regex, field_mapping, ai_confidence)
+                        logs.append(f"AI suggested new pattern for {source} - Saved for future use")
+
+                    # Compare AI results with best regex match
+                    if not best_regex_match or ai_confidence >= best_regex_match.confidence:
+                        parsed_txn = self._convert_to_schema_txn(pt)
+                        parser_used = "Gemini AI"
+                        logs.append("Extracted via AI (High Confidence)")
+                    else:
+                        parsed_txn = self._convert_to_schema_txn(best_regex_match)
+                        parser_used = "Best Regex"
+                else:
+                    if best_regex_match:
+                        parsed_txn = self._convert_to_schema_txn(best_regex_match)
+                        parser_used = "Best Regex (AI Failed)"
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                logs.append(f"AI Parser failed: {str(e)}")
+                if best_regex_match:
+                    parsed_txn = self._convert_to_schema_txn(best_regex_match)
+                    parser_used = "Best Regex (AI Error)"
+        else:
+            parsed_txn = self._convert_to_schema_txn(best_regex_match)
+            parser_used = f"{best_regex_match.source if hasattr(best_regex_match, 'source') else 'Regex'} ({best_regex_match.confidence})"
 
 
         # 4. Normalization & Validation
