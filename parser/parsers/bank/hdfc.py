@@ -10,24 +10,24 @@ class HdfcSmsParser(BaseSmsParser):
     Parser for HDFC Bank SMS Alerts.
     """
     DEBIT_PATTERN = re.compile(
-        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*debited\s*from\s*a/c\s*([xX]*\d+)\s*on\s*(\d{2}-\d{2}-\d{2})\s*to\s*(.*?)\.\s*(?:Ref[:\.\s]+(\w+))?",
+        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*debited\s*from\s*a/c\s*([xX]*\d+)\s*on\s*(\d{4}-\d{2}-\d{2}(?::\d{2}:\d{2}:\d{2})?|\d{2}-\d{2}-\d{2,4}|\d{2}/\d{2}/\d{2,4})\s*to\s*(.*?)\.\s*(?:Ref[:\.\s]+(\w+))?",
         re.IGNORECASE
     )
     
     SPENT_PATTERN = re.compile(
-        r"(?i)Spent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*.*?card\s*([xX]*\d+)\s*at\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2})(?:.*?Ref:?\s*(\w+))?",
+        r"(?i)Spent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*.*?(?:card|A/c)\s*([xX]*\d+)\s*at\s*(.*?)\s*on\s*(\d{4}-\d{2}-\d{2}(?::\d{2}:\d{2}:\d{2})?|\d{2}-\d{2}-\d{2,4}|\d{2}/\d{2}/\d{2,4})(?:.*?Ref[:\.\s]*(\w+))?",
         re.IGNORECASE
     )
 
     # Example: "Sent Rs.75.00 From HDFC Bank A/C *5244 To Shree Krishna Sweets On 06/01/26 Ref 116777306188"
     SENT_PATTERN = re.compile(
-        r"(?i)Sent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*From\s*HDFC\s*Bank\s*A/C\s*(?:.*?|x*|\*|X*)(\d+)\s*To\s*(.*?)\s*On\s*(\d{2}/\d{2}/\d{2,4})(?:.*?Ref[:\.\s]+(\w+))?",
+        r"(?i)Sent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*From\s*HDFC\s*Bank\s*A/C\s*(?:.*?|x*|\*|X*)(\d+)\s*To\s*(.*?)\s*On\s*(\d{4}-\d{2}-\d{2}(?::\d{2}:\d{2}:\d{2})?|\d{2}-\d{2}-\d{2,4}|\d{2}/\d{2}/\d{2,4})(?:.*?Ref[:\.\s]+(\w+))?",
         re.IGNORECASE
     )
 
     # Example: "Rs.500.00 credited to HDFC Bank A/c XX5244 on 29-01-26 from VPA tiki08676-2@okaxis (UPI 639501711301)"
     CREDIT_PATTERN = re.compile(
-        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*credited\s*to\s*HDFC\s*Bank\s*A/c\s*(?:.*?|x*|\*|X*)(\d+)\s*on\s*(\d{2}-\d{2}-\d{2,4})\s*from\s*(.*?)(?:\s*\((?:UPI|Ref)[:\.\s]*(\w+)\))?",
+        r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*credited\s*to\s*HDFC\s*Bank\s*A/c\s*(?:.*?|x*|\*|X*)(\d+)\s*on\s*(\d{4}-\d{2}-\d{2}(?::\d{2}:\d{2}:\d{2})?|\d{2}-\d{2}-\d{2,4}|\d{2}/\d{2}/\d{2,4})\s*from\s*(.*?)(?:\s*\((?:UPI|Ref)[:\.\s]*(\w+)\))?",
         re.IGNORECASE
     )
 
@@ -84,7 +84,7 @@ class HdfcSmsParser(BaseSmsParser):
 
     def _create_txn(self, amount, recipient, account_mask, date_str, type_str, raw, ref_id, date_hint=None):
         try:
-            formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y"]
+            formats = ["%d-%m-%y", "%d-%m-%Y", "%d/%m/%y", "%d/%m/%Y", "%Y-%m-%d:%H:%M:%S", "%Y-%m-%d"]
             txn_date = None
             for fmt in formats:
                 try:
