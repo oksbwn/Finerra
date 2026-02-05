@@ -1,0 +1,63 @@
+"""
+Parser Service Background Scheduler
+Handles periodic cleanup tasks and maintenance operations.
+"""
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from parser.db.database import get_db
+from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
+
+scheduler = AsyncIOScheduler()
+
+def cleanup_old_logs():
+    """Delete request logs older than 24 hours to save disk space and improve performance."""
+    try:
+        db = get_db()
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        
+        result = db.execute(
+            "DELETE FROM request_logs WHERE created_at < ?",
+            [cutoff.isoformat()]
+        )
+        db.commit()
+        
+        deleted_count = result.rowcount
+        logger.info(f"🧹 Cleaned up {deleted_count} old logs (>24 hours)")
+        print(f"🧹 Cleaned up {deleted_count} old logs (>24 hours)")
+        
+    except Exception as e:
+        logger.error(f"❌ Log cleanup failed: {e}")
+        print(f"❌ Log cleanup failed: {e}")
+
+def start_cleanup_job():
+    """Start the background cleanup scheduler. Runs every hour."""
+    try:
+        # Add cleanup job - runs every 1 hour
+        scheduler.add_job(
+            cleanup_old_logs,
+            'interval',
+            hours=1,
+            id='cleanup_logs',
+            replace_existing=True
+        )
+        
+        scheduler.start()
+        logger.info("✅ Cleanup scheduler started (runs every 1 hour)")
+        print("✅ Cleanup scheduler started (runs every 1 hour)")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to start cleanup scheduler: {e}")
+        print(f"❌ Failed to start cleanup scheduler: {e}")
+
+def stop_cleanup_job():
+    """Stop the cleanup scheduler gracefully."""
+    try:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+            logger.info("🛑 Cleanup scheduler stopped")
+            print("🛑 Cleanup scheduler stopped")
+    except Exception as e:
+        logger.error(f"❌ Failed to stop cleanup scheduler: {e}")
+        print(f"❌ Failed to stop cleanup scheduler: {e}")
