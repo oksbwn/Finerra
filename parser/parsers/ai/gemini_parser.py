@@ -14,10 +14,16 @@ class GeminiParser:
         self.config = self._get_config()
 
     def _get_config(self) -> Optional[AIConfig]:
-        return self.db.query(AIConfig).filter(AIConfig.is_enabled == True).first()
+        return self.db.query(AIConfig).first()
 
     def parse(self, content: str, source: str, date_hint: Optional[Any] = None) -> Optional[Transaction]:
-        if not self.config or not self.config.api_key_enc:
+        if not self.config:
+            return None
+            
+        if not self.config.is_enabled:
+            return None
+            
+        if not self.config.api_key_enc:
             return None
 
         # New google-genai client
@@ -139,8 +145,14 @@ class GeminiParser:
 
     def parse_with_pattern(self, content: str, source: str, date_hint: Optional[Any] = None) -> Optional[Dict[str, Any]]:
         """Extended parse that returns both transaction and suggested pattern."""
-        if not self.config or not self.config.api_key_enc:
-            return None
+        if not self.config:
+            return {"error": "AI Config not found"}
+            
+        if not self.config.is_enabled:
+            return {"error": "AI is disabled in settings"}
+            
+        if not self.config.api_key_enc:
+             return {"error": "API Key missing"}
 
         client = genai.Client(api_key=self.config.api_key_enc)
         config = types.GenerateContentConfig(
@@ -203,7 +215,9 @@ class GeminiParser:
             return data
         except Exception as e:
             print(f"AI Pattern Gen Error: {e}")
-            return None
+            import traceback
+            traceback.print_exc()
+            return {"error": str(e)}
 
 def get_digits(s):
     if not s: return None

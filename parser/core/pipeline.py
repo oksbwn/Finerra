@@ -238,6 +238,9 @@ class IngestionPipeline:
                         parsed_txn = self._convert_to_schema_txn(best_regex_match)
                         parser_used = "Best Regex"
                 else:
+                    if ai_data and ai_data.get("error"):
+                        logs.append(f"AI Error: {ai_data['error']}")
+
                     if best_regex_match:
                         parsed_txn = self._convert_to_schema_txn(best_regex_match)
                         parser_used = "Best Regex (AI Failed)"
