@@ -3,7 +3,8 @@ Parser Service Background Scheduler
 Handles periodic cleanup tasks and maintenance operations.
 """
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from parser.db.database import get_db
+from parser.db.database import SessionLocal
+from sqlalchemy import text
 from datetime import datetime, timedelta
 import logging
 
@@ -14,18 +15,19 @@ scheduler = AsyncIOScheduler()
 def cleanup_old_logs():
     """Delete request logs older than 24 hours to save disk space and improve performance."""
     try:
-        db = get_db()
-        cutoff = datetime.utcnow() - timedelta(hours=24)
-        
-        result = db.execute(
-            "DELETE FROM request_logs WHERE created_at < ?",
-            [cutoff.isoformat()]
-        )
-        db.commit()
-        
-        deleted_count = result.rowcount
-        logger.info(f"🧹 Cleaned up {deleted_count} old logs (>24 hours)")
-        print(f"🧹 Cleaned up {deleted_count} old logs (>24 hours)")
+        with SessionLocal() as db:
+            cutoff = datetime.utcnow() - timedelta(hours=24)
+            
+            # Use distinct parameters for safety
+            result = db.execute(
+                text("DELETE FROM request_logs WHERE created_at < :cutoff"),
+                {"cutoff": cutoff.isoformat()}
+            )
+            db.commit()
+            
+            deleted_count = result.rowcount
+            logger.info(f"🧹 Cleaned up {deleted_count} old logs (>24 hours)")
+            print(f"🧹 Cleaned up {deleted_count} old logs (>24 hours)")
         
     except Exception as e:
         logger.error(f"❌ Log cleanup failed: {e}")
