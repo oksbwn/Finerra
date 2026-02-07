@@ -355,11 +355,35 @@ class TransactionService:
 
     # --- Triage Functions ---
     @staticmethod
-    def get_pending_transactions(db: Session, tenant_id: str, skip: int = 0, limit: int = 50, sort_by: str = "date", sort_order: str = "desc"):
+    def get_pending_transactions(
+        db: Session, 
+        tenant_id: str, 
+        skip: int = 0, 
+        limit: int = 50, 
+        sort_by: str = "date", 
+        sort_order: str = "desc",
+        search: Optional[str] = None,
+        source: Optional[str] = None
+    ):
         query = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.tenant_id == tenant_id
         )
-        total = query.count()
+        
+        # Filter by source (SMS, EMAIL, etc.)
+        if source:
+            query = query.filter(ingestion_models.PendingTransaction.source == source)
+        
+        # Filter by search query (description, recipient, amount, ID)
+        if search:
+            from sqlalchemy import or_, cast, String
+            search_pattern = f"%{search}%"
+            query = query.filter(or_(
+                ingestion_models.PendingTransaction.description.ilike(search_pattern),
+                ingestion_models.PendingTransaction.recipient.ilike(search_pattern),
+                ingestion_models.PendingTransaction.id.ilike(search_pattern),
+                cast(ingestion_models.PendingTransaction.amount, String).like(search_pattern)
+            ))
+        
         total = query.count()
         
         sort_column = ingestion_models.PendingTransaction.created_at
@@ -367,6 +391,8 @@ class TransactionService:
             sort_column = ingestion_models.PendingTransaction.amount
         elif sort_by == "description":
             sort_column = ingestion_models.PendingTransaction.description
+        elif sort_by == "date":
+            sort_column = ingestion_models.PendingTransaction.date
         
         if sort_order == "asc":
             query = query.order_by(sort_column.asc())
