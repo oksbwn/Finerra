@@ -6,7 +6,11 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCurrency } from '@/composables/useCurrency'
 import Sparkline from '@/components/Sparkline.vue'
-import { ChevronDown, ChevronUp, Users, Wallet, PieChart, Sparkles, CalendarDays, Landmark, Activity, CreditCard, Building2, ShieldCheck, Globe, Gem, Zap, Layers, Landmark as LandmarkIcon } from 'lucide-vue-next'
+import {
+    ChevronDown, Users, Wallet, PieChart,
+    CreditCard, Layers, Landmark as LandmarkIcon,
+    Building2, ShieldCheck, Globe, Gem, Zap
+} from 'lucide-vue-next'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -25,7 +29,6 @@ const selectedMemberName = computed(() => {
     return member ? (member.full_name || member.email) : 'All Members'
 })
 
-function toggleMemberDropdown() { showMemberDropdown.value = !showMemberDropdown.value }
 function selectMember(id: string | null) {
     selectedMember.value = id
     showMemberDropdown.value = false
@@ -396,7 +399,7 @@ watch(selectedMember, () => {
                                     </template>
                                     <v-list-item-title class="font-weight-bold">{{ user.full_name ||
                                         user.email.split('@')[0]
-                                        }}</v-list-item-title>
+                                    }}</v-list-item-title>
                                 </v-list-item>
                             </v-list>
                         </v-card>
@@ -559,7 +562,7 @@ watch(selectedMember, () => {
                                 </template>
                                 <v-list-item-title class="font-weight-bold text-subtitle-1">{{ txn.description ||
                                     'Transaction'
-                                    }}</v-list-item-title>
+                                }}</v-list-item-title>
                                 <v-list-item-subtitle class="text-caption font-weight-bold text-slate-400 mt-1">
                                     {{ formatDate(txn.date) }} • {{ txn.account_owner_name || 'Personal' }}
                                 </v-list-item-subtitle>
@@ -592,7 +595,7 @@ watch(selectedMember, () => {
                                         </div>
                                     </template>
                                     <v-list-item-title class="font-weight-bold">{{ bill.description
-                                        }}</v-list-item-title>
+                                    }}</v-list-item-title>
                                     <v-list-item-subtitle class="text-caption font-weight-bold text-rose-500">Due {{
                                         formatDate(bill.next_date) }}</v-list-item-subtitle>
                                     <template v-slot:append>
@@ -695,7 +698,7 @@ watch(selectedMember, () => {
                                                 <div class="text-caption text-slate-400 font-weight-black">BALANCE</div>
                                                 <div class="text-subtitle-1 font-weight-black">{{
                                                     formatAmount(card.balance)
-                                                }}</div>
+                                                    }}</div>
                                             </div>
                                             <div class="text-right">
                                                 <div class="text-caption text-slate-400 font-weight-black">AVAILABLE
