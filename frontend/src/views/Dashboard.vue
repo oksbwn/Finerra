@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCurrency } from '@/composables/useCurrency'
 import Sparkline from '@/components/Sparkline.vue'
-import { ChevronDown, ChevronUp, Users } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Users, Wallet, PieChart, Sparkles, CalendarDays, Landmark, Activity, CreditCard, Building2, ShieldCheck, Globe, Gem, Zap, Layers, Landmark as LandmarkIcon } from 'lucide-vue-next'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -39,7 +39,6 @@ function handleDropdownOutside(event: MouseEvent) {
 onMounted(() => {
     document.addEventListener('click', handleDropdownOutside)
 })
-import { onUnmounted } from 'vue'
 onUnmounted(() => {
     document.removeEventListener('click', handleDropdownOutside)
 })
@@ -100,6 +99,21 @@ const netWorth = computed(() => {
     return liquid + totalInvestments - totalDebt
 })
 
+const sortedCredit = computed(() => {
+    return [...metrics.value.credit_intelligence].sort((a, b) => {
+        if (a.days_until_due === null) return 1
+        if (b.days_until_due === null) return -1
+        return a.days_until_due - b.days_until_due
+    })
+})
+
+const creditSummary = computed(() => {
+    const totalLimit = metrics.value.breakdown.total_credit_limit || 0
+    const totalDebt = metrics.value.breakdown.credit_debt || 0
+    const utilization = totalLimit > 0 ? (totalDebt / totalLimit) * 100 : 0
+    return { totalLimit, totalDebt, utilization }
+})
+
 const upcomingBills = computed(() => {
     return recurringTransactions.value
         .filter(t => t.status === 'ACTIVE')
@@ -116,6 +130,91 @@ const getGreeting = () => {
 function formatDate(dateStr: string) {
     const d = new Date(dateStr)
     return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
+// Helper to get bank branding with rich visuals & icons
+function getBankBrand(name: string) {
+    const n = name.toLowerCase()
+
+    // HDFC: Classic Blue/Red split or Deep Blue
+    if (n.includes('hdfc')) return {
+        gradient: 'linear-gradient(135deg, #004a9e 0%, #002e63 100%)',
+        logoColor: '#fff',
+        logo: 'HDFC',
+        textColor: 'rgba(255,255,255,0.9)',
+        icon: Building2,
+        color: '#004a9e'
+    }
+
+    // SBI: Teal/Blue signature
+    if (n.includes('sbi')) return {
+        gradient: 'linear-gradient(135deg, #2ea6dc 0%, #1e5c91 100%)',
+        logoColor: '#fff',
+        logo: 'SBI',
+        textColor: 'rgba(255,255,255,0.95)',
+        icon: LandmarkIcon,
+        color: '#2ea6dc'
+    }
+
+    // ICICI: Orange branding
+    if (n.includes('icici')) return {
+        gradient: 'linear-gradient(135deg, #f58220 0%, #a84600 100%)',
+        logoColor: '#fff',
+        logo: 'ICICI',
+        textColor: 'rgba(255,255,255,0.95)',
+        icon: ShieldCheck,
+        color: '#f58220'
+    }
+
+    // AMEX: Centurion/Royal styles
+    if (n.includes('amex') || n.includes('american express')) return {
+        gradient: 'linear-gradient(135deg, #006fcf 0%, #00264d 100%)',
+        logoColor: '#fff',
+        logo: 'AMEX',
+        textColor: 'rgba(255,255,255,0.9)',
+        icon: Globe,
+        color: '#006fcf'
+    }
+
+    // AXIS: Burgundy
+    if (n.includes('axis')) return {
+        gradient: 'linear-gradient(135deg, #ae285d 0%, #5e0b2e 100%)',
+        logoColor: '#fff',
+        logo: 'AXIS',
+        textColor: 'rgba(255,255,255,0.9)',
+        icon: Layers,
+        color: '#ae285d'
+    }
+
+    // KOTAK: Red
+    if (n.includes('kotak')) return {
+        gradient: 'linear-gradient(135deg, #ed1c24 0%, #990005 100%)',
+        logoColor: '#fff',
+        logo: 'KOTAK',
+        textColor: 'rgba(255,255,255,0.95)',
+        icon: Gem,
+        color: '#ed1c24'
+    }
+
+    // ONECARD: Metal Black
+    if (n.includes('onecard')) return {
+        gradient: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+        logoColor: '#fff',
+        logo: 'One',
+        textColor: 'rgba(255,255,255,0.9)',
+        icon: Zap,
+        color: '#1a1a1a'
+    }
+
+    // Default: Sleek Grey
+    return {
+        gradient: 'linear-gradient(135deg, #475569 0%, #1e293b 100%)',
+        logoColor: '#fff',
+        logo: 'CARD',
+        textColor: 'rgba(255,255,255,0.8)',
+        icon: CreditCard,
+        color: '#64748b'
+    }
 }
 
 // Helper to get category details including color
@@ -240,407 +339,476 @@ watch(selectedMember, () => {
 
 <template>
     <MainLayout>
-        <div class="dashboard-container">
+        <v-container fluid class="dashboard-page pa-6 pa-md-10">
             <!-- Header -->
-            <div class="dashboard-header">
-                <div class="header-left">
-                    <span class="greeting-pre">{{ getGreeting() }},</span>
-                    <h1 class="user-name">Welcome Back</h1>
+            <div
+                class="d-flex flex-column flex-md-row justify-space-between align-start align-md-center mb-10 gap-6 reveal-anim">
+                <div>
+                    <h1 class="text-h4 font-weight-black mb-1 d-flex align-center">
+                        <span class="mr-3">{{ getGreeting().includes('Morning') ? '🌅' :
+                            getGreeting().includes('Afternoon') ? '☀️' : '🌙' }}</span>
+                        {{ getGreeting() }}, {{ (auth.user?.full_name || auth.user?.email || 'User').split(' ')[0] }}
+                    </h1>
+                    <p class="text-subtitle-1 text-slate-500 font-weight-bold">
+                        Your family's financial state at a glance.
+                    </p>
                 </div>
 
-                <div class="header-right-actions">
-                    <!-- Custom Member Filter -->
-                    <div class="member-selector-container" v-if="auth.user?.role !== 'CHILD'" ref="memberDropdownRef">
-                        <button class="member-selector-trigger" @click.stop="toggleMemberDropdown">
-                            <Users :size="16" class="mr-2" />
-                            <span class="selected-label">{{ selectedMemberName }}</span>
-                            <component :is="showMemberDropdown ? ChevronUp : ChevronDown" :size="16" class="ml-2" />
-                        </button>
-
-                        <transition name="fade-slide">
-                            <div v-if="showMemberDropdown" class="premium-dropdown">
-                                <div class="dropdown-item" :class="{ 'active': selectedMember === null }"
-                                    @click="selectMember(null)">
-                                    <Users :size="14" class="mr-2" /> All Members
+                <div class="d-flex align-center gap-4">
+                    <v-menu offset="12" transition="scale-transition" v-if="auth.user?.role !== 'CHILD'">
+                        <template v-slot:activator="{ props }">
+                            <v-btn v-bind="props" variant="flat" class="member-selector-btn pa-2 pr-4" height="48"
+                                rounded="pill">
+                                <div class="d-flex align-center">
+                                    <template v-if="selectedMember">
+                                        <v-avatar size="32" class="bg-primary-light mr-3 premium-avatar-ring">
+                                            <span class="text-caption font-weight-black">{{
+                                                selectedMemberName.charAt(0).toUpperCase() }}</span>
+                                        </v-avatar>
+                                    </template>
+                                    <template v-else>
+                                        <div class="bg-indigo-lighten-5 rounded-circle pa-2 mr-3">
+                                            <Users :size="18" class="text-primary" />
+                                        </div>
+                                    </template>
+                                    <span class="font-weight-bold">{{ selectedMemberName }}</span>
+                                    <ChevronDown :size="16" class="ml-2 opacity-50" />
                                 </div>
-                                <div class="dropdown-divider"></div>
-                                <div v-for="user in familyMembers" :key="user.id" class="dropdown-item"
-                                    :class="{ 'active': selectedMember === user.id }" @click="selectMember(user.id)">
-                                    <span class="avatar-mini">{{ user.full_name?.charAt(0) || user.email.charAt(0)
-                                        }}</span>
-                                    <div class="member-info">
-                                        <div class="name">{{ user.full_name || user.email.split('@')[0] }}</div>
-                                        <div class="role">{{ user.role }}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </transition>
-                    </div>
+                            </v-btn>
+                        </template>
+                        <v-card width="260" class="premium-glass-card pa-2 mt-2" rounded="xl" elevation="10" border>
+                            <v-list density="compact" nav bg-color="transparent">
+                                <v-list-item @click="selectMember(null)" :active="selectedMember === null" rounded="xl"
+                                    color="primary">
+                                    <template v-slot:prepend>
+                                        <Users :size="18" class="mr-3" />
+                                    </template>
+                                    <v-list-item-title class="font-weight-bold">All Members</v-list-item-title>
+                                </v-list-item>
+                                <v-divider class="my-2 opacity-10"></v-divider>
+                                <v-list-item v-for="user in familyMembers" :key="user.id" @click="selectMember(user.id)"
+                                    :active="selectedMember === user.id" rounded="xl" color="primary">
+                                    <template v-slot:prepend>
+                                        <v-avatar size="28" class="bg-primary-light mr-3 premium-avatar-ring">
+                                            <span class="text-caption font-weight-black">{{ (user.full_name ||
+                                                user.email).charAt(0).toUpperCase() }}</span>
+                                        </v-avatar>
+                                    </template>
+                                    <v-list-item-title class="font-weight-bold">{{ user.full_name ||
+                                        user.email.split('@')[0]
+                                        }}</v-list-item-title>
+                                </v-list-item>
+                            </v-list>
+                        </v-card>
+                    </v-menu>
 
-                    <div class="date-badge">
-                        {{ new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
-                        }}
-                    </div>
                 </div>
             </div>
 
+            <!-- Loading State -->
+            <v-row v-if="loading">
+                <v-col v-for="i in 4" :key="`skel-${i}`" cols="12" sm="6" lg="3">
+                    <v-skeleton-loader type="card" class="premium-glass-card" height="170"></v-skeleton-loader>
+                </v-col>
+                <v-col cols="12" md="6" v-for="i in 2" :key="`skel-list-${i}`">
+                    <v-skeleton-loader type="article" class="premium-glass-card" height="400"></v-skeleton-loader>
+                </v-col>
+            </v-row>
 
-            <div v-if="loading" class="dashboard-grid skeleton-grid">
-                <!-- Skeleton Metric Cards -->
-                <div class="skeleton-card" v-for="i in 4" :key="`metric-${i}`">
-                    <div class="skeleton-header">
-                        <div class="skeleton-circle"></div>
-                        <div class="skeleton-text skeleton-text-sm"></div>
-                    </div>
-                    <div class="skeleton-text skeleton-text-lg"></div>
-                    <div class="skeleton-text skeleton-text-xs"></div>
-                </div>
-
-                <!-- Skeleton Chart Cards -->
-                <div class="skeleton-card skeleton-card-wide" v-for="i in 2" :key="`chart-${i}`">
-                    <div class="skeleton-text skeleton-text-md"></div>
-                    <div class="skeleton-chart"></div>
-                </div>
-
-                <!-- Skeleton Budget Cards -->
-                <div class="skeleton-card" v-for="i in 3" :key="`budget-${i}`">
-                    <div class="skeleton-text skeleton-text-sm"></div>
-                    <div class="skeleton-bar"></div>
-                    <div class="skeleton-text skeleton-text-xs"></div>
-                </div>
-            </div>
-
-            <div v-else class="dashboard-grid animate-in">
-                <!-- ROW 1: Key Metrics (Net Worth, Spending, Budget, Credit) -->
-                <div class="metric-card net-worth-card h-glow-primary">
-                    <div class="card-icon-bg purple">🏦</div>
-                    <div class="card-data">
-                        <span class="label">Balance Sheet Net Worth</span>
-                        <span class="value">{{ formatAmount(netWorth) }}</span>
-                        <!-- Sparkline -->
-                        <div v-if="netWorthTrend.length > 1" class="card-sparkline" style="margin-top: 8px;">
-                            <Sparkline :data="netWorthTrend" color="#8b5cf6" :height="20" />
-                        </div>
-                    </div>
-                </div>
-
-                <div class="metric-card spending-card h-glow-danger">
-                    <div class="card-icon-bg red">💸</div>
-                    <div class="card-data">
-                        <span class="label">Monthly Spending</span>
-                        <span class="value">{{ formatAmount(metrics.monthly_spending, metrics.currency) }}</span>
-
-                        <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 4px;">
-                            <div v-if="metrics.top_spending_category" class="sub-text"
-                                style="font-size: 0.7rem; color: var(--color-text-muted);">
-                                Top: <span style="font-weight: 600; color: var(--color-text-main);">{{
-                                    metrics.top_spending_category.name }}</span>
+            <v-row v-else class="reveal-anim">
+                <!-- ROW 1: Standardized Metric Cards -->
+                <v-col cols="12" sm="6" lg="3">
+                    <v-card class="premium-glass-card metric-card-v2" @click="router.push('/')">
+                        <div class="d-flex justify-space-between align-start">
+                            <div class="metric-icon-box bg-indigo-soft">
+                                <Landmark :size="24" />
                             </div>
-                            <div v-if="metrics.total_excluded > 0 || metrics.excluded_income > 0" class="sub-text"
-                                style="font-size: 0.65rem; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
-                                <div v-if="metrics.total_excluded > 0"
-                                    style="display: flex; align-items: center; gap: 4px;">
-                                    <span style="font-size: 0.8rem;">🚫</span>
-                                    <span>{{ formatAmount(metrics.total_excluded, metrics.currency) }} excluded
-                                        exp</span>
-                                </div>
-                                <div v-if="metrics.excluded_income > 0"
-                                    style="display: flex; align-items: center; gap: 4px; color: #10b981;">
-                                    <span style="font-size: 0.8rem;">➕</span>
-                                    <span>{{ formatAmount(metrics.excluded_income, metrics.currency) }} excluded
-                                        inc</span>
-                                </div>
+                            <Sparkline v-if="netWorthTrend.length > 1" :data="netWorthTrend" color="#6366f1"
+                                :height="32" width="70" />
+                        </div>
+                        <div>
+                            <div class="text-caption text-slate-500 font-weight-bold text-uppercase mb-1"
+                                style="letter-spacing: 1px;">Total Net Worth</div>
+                            <div class="metric-value text-indigo-darken-2 text-h5 font-weight-black">{{
+                                formatAmount(netWorth) }}
                             </div>
                         </div>
+                    </v-card>
+                </v-col>
 
-                        <!-- Sparkline -->
-                        <div v-if="spendingTrend.length > 1" class="card-sparkline" style="margin-top: 8px;">
-                            <Sparkline :data="spendingTrend" color="#ef4444" :height="20" />
+                <v-col cols="12" sm="6" lg="3">
+                    <v-card class="premium-glass-card metric-card-v2" @click="router.push('/transactions')">
+                        <div class="d-flex justify-space-between align-start">
+                            <div class="metric-icon-box bg-rose-soft">
+                                <Wallet :size="24" />
+                            </div>
+                            <Sparkline v-if="spendingTrend.length > 1" :data="spendingTrend" color="#e11d48"
+                                :height="32" width="70" />
                         </div>
-                    </div>
-                </div>
-
-                <div class="metric-card budget-card h-glow-warning"
-                    :class="{ 'pulse-critical': metrics.budget_health.percentage > 100 }"
-                    @click="router.push('/budgets')">
-                    <div class="card-top-row">
-                        <div class="card-icon-bg orange">📊</div>
-                        <span class="mini-percent" :class="{ 'danger': metrics.budget_health.percentage > 100 }">
-                            {{ metrics.budget_health.percentage.toFixed(0) }}%
-                        </span>
-                    </div>
-                    <div class="card-data">
-                        <span class="label">Budget Target</span>
-                        <div class="progress-bar-xs">
-                            <div class="fill" :style="{ width: Math.min(metrics.budget_health.percentage, 100) + '%' }"
-                                :class="{ 'danger': metrics.budget_health.percentage > 90 }"></div>
-                        </div>
-                        <span class="sub-text">
-                            {{ metrics.budget_health.spent > metrics.budget_health.limit ? 'Overspent by ' : '' }}
-                            {{ formatAmount(Math.abs(metrics.budget_health.limit - metrics.budget_health.spent),
-                                metrics.currency) }}
-                            {{ metrics.budget_health.spent > metrics.budget_health.limit ? '' : 'left' }}
-                        </span>
-                    </div>
-                </div>
-
-                <!-- Investment Pulse Card (New) -->
-                <div class="metric-card investment-card h-glow-green" @click="router.push('/mutual-funds')"
-                    style="grid-column: span 1;">
-                    <div class="card-top-row">
-                        <div class="card-icon-bg green">🚀</div>
-                        <span v-if="!mfPortfolio.loading && mfPortfolio.invested > 0" class="mini-percent"
-                            :class="mfPortfolio.xirr >= 0 ? 'success' : 'danger'">
-                            {{ mfPortfolio.xirr.toFixed(1) }}% XIRR
-                        </span>
-                    </div>
-                    <div class="card-data">
-                        <span class="label">Investments</span>
-                        <div v-if="mfPortfolio.loading">
-                            <div style="height: 24px; background: #f3f4f6; border-radius: 4px; width: 60%; margin-bottom: 4px;"
-                                class="pulse"></div>
-                        </div>
-                        <div v-else>
-                            <span class="value">{{ formatAmount(mfPortfolio.current) }}</span>
-                            <div style="font-size: 0.75rem; font-weight: 600; margin-top: 0.25rem;"
-                                :class="mfPortfolio.pl >= 0 ? 'text-emerald-600' : 'text-rose-600'">
-                                {{ mfPortfolio.pl >= 0 ? '+' : '' }}{{ formatAmount(mfPortfolio.pl) }} ({{
-                                    mfPortfolio.plPercent.toFixed(1) }}%)
-                            </div>
-
-                            <!-- Asset Allocation Mini Bar -->
-                            <div v-if="mfPortfolio.current > 0" class="mini-allocation-bar">
-                                <div v-if="mfPortfolio.allocation.equity > 0" class="allocation-segment equity"
-                                    :style="{ width: mfPortfolio.allocation.equity + '%' }" title="Equity"></div>
-                                <div v-if="mfPortfolio.allocation.debt > 0" class="allocation-segment debt"
-                                    :style="{ width: mfPortfolio.allocation.debt + '%' }" title="Debt"></div>
-                                <div v-if="mfPortfolio.allocation.hybrid > 0" class="allocation-segment hybrid"
-                                    :style="{ width: mfPortfolio.allocation.hybrid + '%' }" title="Hybrid"></div>
-                                <div v-if="!(mfPortfolio.allocation.equity || mfPortfolio.allocation.debt || mfPortfolio.allocation.hybrid)"
-                                    class="allocation-segment"
-                                    style="width: 100%; background: #e2e8f0; border-radius: 3px;"
-                                    title="No allocation data"></div>
-                            </div>
-
-                            <!-- Trend -->
-                            <div v-if="mfPortfolio.trend.length > 1" class="card-sparkline">
-                                <Sparkline :data="mfPortfolio.trend"
-                                    :color="mfPortfolio.pl >= 0 ? '#10b981' : '#ef4444'" :height="24" />
-                            </div>
-                            <div v-else class="sub-text" style="font-size: 0.6rem; opacity: 0.5; margin: 4px 0;">
-                                Trend: {{ mfPortfolio.trend.length > 0 ? 'Insufficient data' : 'No data' }}
-                            </div>
-
-                            <!-- Top Performer Info -->
-                            <div v-if="mfPortfolio.topPerformer" class="tp-info animate-in">
-                                <span class="tp-label">Top: {{ mfPortfolio.topPerformer.schemeName }}</span>
-                                <span class="tp-val success">+{{ mfPortfolio.topPerformer.plPercent }}%</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ROW 2: Budget Pulse (Surfacing category limits) -->
-                <div v-if="budgetPulse.length > 0" class="dashboard-section pulse-section glass-panel">
-                    <div class="section-header">
-                        <div class="header-with-badge">
-                            <h3>Budget Pulse</h3>
-                            <span class="pulse-status-badge">Live Monitor</span>
-                        </div>
-                        <button class="btn-text" @click="router.push('/budgets')">Manage Limits</button>
-                    </div>
-                    <div class="pulse-grid">
-                        <div v-for="b in budgetPulse" :key="b.id" class="pulse-card" @click="router.push('/budgets')">
-                            <div class="pulse-card-top">
-                                <span class="pulse-cat">{{ getCategoryDetails(b.category).icon }} {{ b.category
-                                    }}</span>
-                                <span class="pulse-percent" :class="{ 'danger': b.percentage > 100 }">{{
-                                    b.percentage.toFixed(0) }}%</span>
-                            </div>
-                            <div class="pulse-bar-bg">
-                                <div class="pulse-bar-fill"
-                                    :style="{ width: Math.min(b.percentage, 100) + '%', backgroundColor: b.percentage > 100 ? '#ef4444' : (b.percentage > 85 ? '#f59e0b' : '#6366f1') }">
-                                </div>
-                            </div>
-                            <div class="pulse-footer">
-                                {{ formatAmount(b.spent, metrics.currency) }} of {{ formatAmount(b.amount_limit,
+                        <div>
+                            <div class="text-caption text-slate-500 font-weight-bold text-uppercase mb-1"
+                                style="letter-spacing: 1px;">Monthly Spending</div>
+                            <div class="metric-value text-error text-h5 font-weight-black">{{
+                                formatAmount(metrics.monthly_spending,
                                     metrics.currency) }}
                             </div>
                         </div>
-                    </div>
-                </div>
+                    </v-card>
+                </v-col>
 
-                <!-- ROW 3: Account Snapshot & Recent Activity -->
+                <v-col cols="12" sm="6" lg="3">
+                    <v-card class="premium-glass-card metric-card-v2" @click="router.push('/budgets')">
+                        <div class="d-flex justify-space-between align-start">
+                            <div class="metric-icon-box bg-amber-soft">
+                                <PieChart :size="24" />
+                            </div>
+                            <div class="text-h6 font-weight-black"
+                                :class="metrics.budget_health.percentage > 90 ? 'text-error' : 'text-amber-darken-2'">
+                                {{ metrics.budget_health.percentage.toFixed(0) }}%
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-caption text-slate-500 font-weight-bold text-uppercase mb-1"
+                                style="letter-spacing: 1px;">Budget Health</div>
+                            <v-progress-linear :model-value="Math.min(metrics.budget_health.percentage, 100)" height="8"
+                                rounded="pill" color="amber" class="mt-2"></v-progress-linear>
+                        </div>
+                    </v-card>
+                </v-col>
 
-                <!-- Snapshot -->
-                <div class="dashboard-section snapshot-section glass-panel">
-                    <div class="section-header">
-                        <h3>Liquidity Snapshot</h3>
-                    </div>
-                    <div class="snapshot-grid">
-                        <div class="snapshot-item">
-                            <span class="snap-icon">🏛️</span>
-                            <div class="snap-info">
-                                <span class="snap-label">Bank Accounts</span>
-                                <span class="snap-val">{{ formatAmount(metrics.breakdown.bank_balance, metrics.currency)
-                                    }}</span>
+                <v-col cols="12" sm="6" lg="3">
+                    <v-card class="premium-glass-card metric-card-v2" @click="router.push('/mutual-funds')">
+                        <div class="d-flex justify-space-between align-start">
+                            <div class="metric-icon-box bg-emerald-soft">
+                                <Sparkles :size="24" />
+                            </div>
+                            <div v-if="!mfPortfolio.loading && mfPortfolio.invested > 0">
+                                <v-chip size="small" color="success" variant="flat" class="font-weight-black">
+                                    <Sparkles :size="12" class="mr-1" /> {{ mfPortfolio.xirr.toFixed(1) }}% XIRR
+                                </v-chip>
                             </div>
                         </div>
-                        <div class="snapshot-item">
-                            <span class="snap-icon">👛</span>
-                            <div class="snap-info">
-                                <span class="snap-label">Cash / Wallet</span>
-                                <span class="snap-val">{{ formatAmount(metrics.breakdown.cash_balance, metrics.currency)
-                                    }}</span>
+                        <div>
+                            <div class="text-caption text-slate-500 font-weight-bold text-uppercase mb-1"
+                                style="letter-spacing: 1px;">Investments</div>
+                            <div class="metric-value text-success text-h5 font-weight-black">{{
+                                formatAmount(mfPortfolio.current) }}
                             </div>
                         </div>
-                        <div class="snapshot-item" @click="router.push('/mutual-funds')" style="cursor: pointer;">
-                            <span class="snap-icon">📈</span>
-                            <div class="snap-info">
-                                <span class="snap-label">Investments</span>
-                                <span class="snap-val" :class="{ 'text-emerald-600': mfPortfolio.current > 0 }">
-                                    {{ formatAmount(mfPortfolio.current) }}
-                                </span>
-                            </div>
-                        </div>
-                        <div class="snapshot-item" @click="router.push('/settings')" style="cursor: pointer;">
-                            <span class="snap-icon">💳</span>
-                            <div class="snap-info">
-                                <span class="snap-label">Avail. Credit</span>
-                                <span class="snap-val">{{ formatAmount(metrics.breakdown.available_credit,
-                                    metrics.currency) }}</span>
-                                <span v-if="metrics.breakdown.overall_credit_utilization > 0" class="snap-util" :class="{
-                                    'util-low': metrics.breakdown.overall_credit_utilization < 30,
-                                    'util-medium': metrics.breakdown.overall_credit_utilization >= 30 && metrics.breakdown.overall_credit_utilization < 70,
-                                    'util-high': metrics.breakdown.overall_credit_utilization >= 70
-                                }">
-                                    {{ metrics.breakdown.overall_credit_utilization.toFixed(1) }}% used
-                                </span>
-                            </div>
-                        </div>
+                    </v-card>
+                </v-col>
+
+                <!-- ROW 2: Budget Pulse -->
+                <v-col cols="12" v-if="budgetPulse.length > 0">
+                    <div class="d-flex justify-space-between align-center mb-6">
+                        <h2 class="premium-section-title">
+                            <PieChart :size="22" stroke-width="3" /> Budget Pulse
+                        </h2>
+                        <v-btn variant="text" size="small" color="primary" @click="router.push('/budgets')"
+                            class="font-weight-black">Manage</v-btn>
                     </div>
 
-                    <!-- Upcoming Bills Subsection -->
-                    <div class="upcoming-bills-section">
-                        <div class="sub-section-header">
-                            <h4>Upcoming Bills</h4>
+                    <v-row>
+                        <v-col v-for="b in budgetPulse" :key="b.id" cols="12" sm="6" md="4" lg="3">
+                            <v-card class="premium-glass-card pa-5" @click="router.push('/budgets')">
+                                <div class="d-flex justify-space-between align-center mb-3">
+                                    <span
+                                        class="text-subtitle-2 font-weight-black text-slate-600 d-flex align-center gap-2">
+                                        {{ getCategoryDetails(b.category).icon }} {{ b.category }}
+                                        <v-chip size="x-small"
+                                            :color="b.percentage > 100 ? 'error' : (b.percentage > 85 ? 'warning' : 'success')"
+                                            variant="tonal" class="font-weight-bold">
+                                            {{ b.percentage > 100 ? 'Crit' : (b.percentage > 85 ? 'Warn' : 'Good') }}
+                                        </v-chip>
+                                    </span>
+                                    <span class="text-caption font-weight-black"
+                                        :class="b.percentage > 100 ? 'text-error' : 'text-primary'">
+                                        {{ b.percentage.toFixed(0) }}%
+                                    </span>
+                                </div>
+                                <v-progress-linear :model-value="Math.min(b.percentage, 100)" height="4" rounded="pill"
+                                    :color="b.percentage > 100 ? 'error' : (b.percentage > 85 ? 'warning' : 'primary')"
+                                    class="mb-3"></v-progress-linear>
+                                <div class="text-caption text-slate-400 d-flex justify-space-between font-weight-bold">
+                                    <span>{{ formatAmount(b.spent, metrics.currency) }}</span>
+                                    <span>of {{ formatAmount(b.amount_limit, metrics.currency) }}</span>
+                                </div>
+                            </v-card>
+                        </v-col>
+                    </v-row>
+                </v-col>
+
+                <!-- ROW 3: Side-by-Side Activity and Bills -->
+                <v-col cols="12" lg="7">
+                    <v-card class="premium-glass-card pa-8 h-100">
+                        <div class="d-flex justify-space-between align-center mb-8">
+                            <h2 class="premium-section-title">
+                                <Activity :size="22" stroke-width="3" /> Recent Activity
+                            </h2>
+                            <v-btn variant="tonal" rounded="xl" size="small" color="primary"
+                                @click="router.push('/transactions')" class="font-weight-black px-6">View All</v-btn>
                         </div>
-                        <div v-if="upcomingBills.length > 0" class="upcoming-list">
-                            <div v-for="bill in upcomingBills" :key="bill.id" class="bill-row">
-                                <div class="bill-left">
-                                    <span class="bill-icon">{{ getCategoryDetails(bill.category).icon }}</span>
-                                    <div class="bill-info">
-                                        <span class="bill-name">{{ bill.description }}</span>
-                                        <span class="bill-date">Due on {{ formatDate(bill.next_date) }}</span>
+                        <v-list bg-color="transparent" class="pa-0">
+                            <v-list-item v-for="txn in metrics.recent_transactions.slice(0, 5)" :key="txn.id"
+                                class="premium-list-item px-4 py-3 interactive-list-item">
+                                <template v-slot:prepend>
+                                    <v-avatar size="48" :color="getCategoryDetails(txn.category).color + '15'"
+                                        class="mr-4 premium-avatar-ring">
+                                        <span class="text-h6">{{ getCategoryDetails(txn.category).icon }}</span>
+                                    </v-avatar>
+                                </template>
+                                <v-list-item-title class="font-weight-bold text-subtitle-1">{{ txn.description ||
+                                    'Transaction'
+                                    }}</v-list-item-title>
+                                <v-list-item-subtitle class="text-caption font-weight-bold text-slate-400 mt-1">
+                                    {{ formatDate(txn.date) }} • {{ txn.account_owner_name || 'Personal' }}
+                                </v-list-item-subtitle>
+                                <template v-slot:append>
+                                    <div class="text-subtitle-1 font-weight-black"
+                                        :class="txn.amount > 0 ? 'text-success' : 'text-slate-700'">
+                                        {{ txn.amount > 0 ? '+' : '' }}{{ formatAmount(Math.abs(txn.amount),
+                                            metrics.currency) }}
+                                    </div>
+                                </template>
+                            </v-list-item>
+                        </v-list>
+                    </v-card>
+                </v-col>
+
+                <v-col cols="12" lg="5">
+                    <v-card class="premium-glass-card pa-8 h-100">
+                        <div class="d-flex justify-space-between align-center mb-8">
+                            <h2 class="premium-section-title">
+                                <CalendarDays :size="22" stroke-width="3" /> Upcoming Bills
+                            </h2>
+                        </div>
+                        <div v-if="upcomingBills.length > 0">
+                            <v-list bg-color="transparent" class="pa-0">
+                                <v-list-item v-for="bill in upcomingBills" :key="bill.id"
+                                    class="premium-list-item px-4 py-3 interactive-list-item">
+                                    <template v-slot:prepend>
+                                        <div class="metric-icon-box bg-slate-50 mr-4">
+                                            {{ getCategoryDetails(bill.category).icon }}
+                                        </div>
+                                    </template>
+                                    <v-list-item-title class="font-weight-bold">{{ bill.description
+                                        }}</v-list-item-title>
+                                    <v-list-item-subtitle class="text-caption font-weight-bold text-rose-500">Due {{
+                                        formatDate(bill.next_date) }}</v-list-item-subtitle>
+                                    <template v-slot:append>
+                                        <div class="text-subtitle-1 font-weight-black">{{ formatAmount(bill.amount) }}
+                                        </div>
+                                    </template>
+                                </v-list-item>
+                            </v-list>
+                        </div>
+                        <div v-else class="text-center py-10">
+                            <div class="text-h2 mb-4 opacity-10">📅</div>
+                            <p class="text-slate-400 font-weight-bold">Relax, no bills due soon.</p>
+                        </div>
+                    </v-card>
+                </v-col>
+
+                <!-- ROW 4: Credit Intelligence -->
+                <v-col cols="12">
+                    <v-card class="premium-glass-card pa-8 overflow-visible">
+                        <div
+                            class="d-flex flex-column flex-md-row justify-space-between align-start align-md-center mb-8 gap-4">
+                            <h2 class="premium-section-title">
+                                <CreditCard :size="22" stroke-width="3" /> Credit Intelligence
+                            </h2>
+
+                            <div class="credit-outlook-container reveal-anim"
+                                v-if="metrics.credit_intelligence.length > 0">
+                                <div class="d-flex justify-space-between mb-2">
+                                    <span class="text-caption font-weight-black text-slate-500">TOTAL CREDIT
+                                        OUTLOOK</span>
+                                    <span class="text-caption font-weight-black text-primary">{{
+                                        formatAmount(creditSummary.totalDebt) }} utilized of {{
+                                            formatAmount(creditSummary.totalLimit) }}</span>
+                                </div>
+                                <div class="credit-outlook-bar">
+                                    <div class="outlook-fill bg-primary"
+                                        :style="{ width: Math.min(creditSummary.utilization, 100) + '%' }"></div>
+                                    <div class="outlook-marker" style="left: 30%" title="Ideal Utilization (30%)"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="sortedCredit.length > 0" class="px-2">
+                            <div v-for="(card, index) in sortedCredit" :key="card.id">
+                                <div class="credit-info-bar-v3 reveal-anim"
+                                    :style="{ borderColor: getBankBrand(card.name).color + '40' }">
+                                    <!-- Brand & Name (Digital Wallet Style) -->
+                                    <div class="credit-brand-col">
+                                        <div class="mini-credit-card flex-shrink-0"
+                                            :style="{ background: getBankBrand(card.name).gradient }">
+                                            <div class="card-chip"></div>
+                                            <component :is="getBankBrand(card.name).icon" :size="20"
+                                                class="card-icon-overlay" :color="getBankBrand(card.name).logoColor" />
+                                            <div class="card-logo"
+                                                :style="{ color: getBankBrand(card.name).logoColor }">{{
+                                                    getBankBrand(card.name).logo }}</div>
+                                            <div class="card-number"
+                                                :style="{ color: getBankBrand(card.name).textColor }">•••• {{
+                                                    card.last_digits || '0000' }}</div>
+                                        </div>
+                                        <div class="ml-5 overflow-hidden">
+                                            <div class="text-subtitle-1 font-weight-black text-truncate">{{ card.name }}
+                                            </div>
+                                            <div class="text-caption font-weight-bold text-slate-400">....{{
+                                                card.last_digits || '0000' }}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Utilization & Health -->
+                                    <div class="credit-progress-col">
+                                        <div class="d-flex justify-space-between mb-1">
+                                            <div class="d-flex align-center">
+                                                <span
+                                                    class="text-caption font-weight-black text-slate-500 uppercase mr-2">Utilization</span>
+                                                <v-chip size="x-small"
+                                                    :color="card.utilization > 30 ? (card.utilization > 70 ? 'error' : 'warning') : 'success'"
+                                                    variant="flat" class="font-weight-black">
+                                                    {{ card.utilization > 30 ? (card.utilization > 70 ? 'Critical' :
+                                                        'Caution') :
+                                                        'Healthy' }}
+                                                </v-chip>
+                                            </div>
+                                            <span class="text-caption font-weight-black"
+                                                :class="card.utilization > 70 ? 'text-error' : 'text-primary'">{{
+                                                    card.utilization.toFixed(0) }}%</span>
+                                        </div>
+                                        <div class="v3-progress-container">
+                                            <v-progress-linear :model-value="Math.min(card.utilization, 100)"
+                                                height="12" rounded="pill"
+                                                :color="card.utilization > 70 ? 'error' : 'primary'"></v-progress-linear>
+                                            <div class="v3-safe-zone" title="30% Threshold"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Financial Snapshot -->
+                                    <div class="credit-data-col">
+                                        <div class="d-flex gap-8">
+                                            <div class="text-right">
+                                                <div class="text-caption text-slate-400 font-weight-black">BALANCE</div>
+                                                <div class="text-subtitle-1 font-weight-black">{{
+                                                    formatAmount(card.balance)
+                                                }}</div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="text-caption text-slate-400 font-weight-black">AVAILABLE
+                                                </div>
+                                                <div class="text-subtitle-1 font-weight-black text-primary">{{
+                                                    formatAmount((card.limit
+                                                        || 0) - (card.balance || 0)) }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="text-caption text-right font-weight-black mt-1"
+                                            :class="card.days_until_due < 7 && card.days_until_due !== null ? 'text-error animate-pulse' : 'text-slate-500'">
+                                            <span v-if="card.days_until_due !== null">Due in {{ card.days_until_due }}
+                                                days</span>
+                                            <span v-else>No Cycle Data</span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="bill-amount">{{ formatAmount(bill.amount) }}</div>
+                                <!-- Visible Separator -->
+                                <v-divider v-if="index < sortedCredit.length - 1" class="my-4 opacity-20"
+                                    color="black"></v-divider>
                             </div>
                         </div>
-                        <div v-else class="empty-state-diag">
-                            No active recurring bills found.
+                        <div v-else class="text-center py-12">
+                            <p class="text-slate-400 font-weight-bold italic">No credit lines detected in your accounts.
+                            </p>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Recent Activity -->
-                <div class="dashboard-section activity-section glass-panel">
-                    <div class="section-header">
-                        <h3>Recent Activity</h3>
-                        <button class="btn-text" @click="router.push('/transactions')">View All</button>
-                    </div>
-                    <div v-if="metrics.recent_transactions.length === 0" class="empty-state-sm">
-                        No recent transactions
-                    </div>
-                    <div v-else class="recent-list">
-                        <div v-for="txn in metrics.recent_transactions" :key="txn.id" class="recent-item">
-                            <div class="recent-left">
-                                <div class="cat-circle"
-                                    :style="{ backgroundColor: getCategoryDetails(txn.category).color + '20', color: getCategoryDetails(txn.category).color }">
-                                    {{ getCategoryDetails(txn.category).icon }}
-                                </div>
-                                <div class="recent-meta">
-                                    <span class="recent-desc">{{ txn.description || 'Unknown' }}</span>
-                                    <div class="recent-date-row">
-                                        <span class="recent-date">{{ formatDate(txn.date) }}</span>
-                                        <span v-if="txn.account_owner_name" class="owner-badge">
-                                            {{ txn.account_owner_name }}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                            <span class="recent-amount" :class="{ 'credit': txn.amount > 0 }">
-                                {{ txn.amount > 0 ? '+' : '' }}{{ formatAmount(Math.abs(txn.amount), metrics.currency)
-                                }}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Credit Intelligence -->
-                <div class="dashboard-section credit-intel-section glass-panel">
-                    <div class="section-header">
-                        <div class="header-with-badge">
-                            <h3>Credit Intelligence</h3>
-                            <span class="pulse-status-badge" style="background: #eef2ff; color: #4f46e5;">Cycles</span>
-                        </div>
-                    </div>
-                    <div v-if="metrics.credit_intelligence.length > 0" class="credit-list">
-                        <div v-for="card in metrics.credit_intelligence" :key="card.id" class="card-intel-item">
-                            <div class="card-intel-top">
-                                <span class="card-intel-name">💳 {{ card.name }}</span>
-                                <span v-if="card.days_until_due !== null" class="card-intel-status"
-                                    :class="{ 'danger': card.days_until_due < 5, 'warning': card.days_until_due < 10 }">
-                                    {{ card.days_until_due }} days left
-                                </span>
-                                <span v-else class="card-intel-status muted">No due date</span>
-                            </div>
-                            <div class="card-intel-util">
-                                <div class="util-bar-bg">
-                                    <div class="util-bar-fill"
-                                        :style="{ width: Math.min(card.utilization, 100) + '%', backgroundColor: card.utilization > 50 ? '#f59e0b' : '#6366f1' }">
-                                    </div>
-                                </div>
-                                <span class="util-text">{{ card.utilization.toFixed(0) }}% Limit Used</span>
-                            </div>
-                            <div class="card-intel-footer">
-                                <div class="intel-stat">
-                                    <span class="stat-label">Billing Day</span>
-                                    <span class="stat-value">{{ card.billing_day || '—' }}</span>
-                                </div>
-                                <div class="intel-stat">
-                                    <span class="stat-label">Due Day</span>
-                                    <span class="stat-value">{{ card.due_day || '—' }}</span>
-                                </div>
-                                <div class="intel-stat" style="text-align: right;">
-                                    <span class="stat-label">Balance</span>
-                                    <span class="stat-value">{{ formatAmount(card.balance) }}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div v-else class="empty-state-diag">
-                        No credit accounts with limits configured.
-                    </div>
-                </div>
-
-            </div>
-        </div>
+                    </v-card>
+                </v-col>
+            </v-row>
+        </v-container>
     </MainLayout>
 </template>
 
 <style scoped>
-.dashboard-container {
-    width: 100%;
-    margin: 0 auto;
-    padding-bottom: 3rem;
+/* Mesh Gradient Animation */
+@keyframes meshGradient {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
 }
 
-.dashboard-header {
+.dashboard-page {
+    background: linear-gradient(-45deg, #f8fafc, #f1f5f9, #eff6ff, #fdf4ff);
+    background-size: 400% 400%;
+    animation: meshGradient 15s ease infinite;
+    min-height: 100vh;
+    position: relative;
+}
+
+/* Design Tokens & Premium Components */
+.v-card.premium-glass-card {
+    background: rgba(255, 255, 255, 0.7) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.6) !important;
+    box-shadow: 0 8px 32px rgba(31, 38, 135, 0.05) !important;
+    border-radius: 24px !important;
+    transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    overflow: hidden;
+}
+
+.v-card.premium-glass-card:hover {
+    transform: translateY(-6px);
+    background: rgba(255, 255, 255, 0.85) !important;
+    box-shadow: 0 12px 40px rgba(31, 38, 135, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Metric Specific Styles */
+.metric-card-v2 {
+    height: 170px;
     display: flex;
+    flex-direction: column;
     justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 2rem;
+    padding: 1.5rem !important;
+}
+
+.metric-icon-box {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.metric-value {
+    font-size: 1.85rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+
+/* Section Headers */
+.premium-section-title {
+    font-size: 1.35rem;
+    font-weight: 900;
+    letter-spacing: -0.01em;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
 }
 
 .header-right-actions {
@@ -1716,5 +1884,171 @@ watch(selectedMember, () => {
     .activity-section {
         grid-column: span 1;
     }
+}
+
+/* Credit Intelligence V3 */
+.credit-outlook-container {
+    flex: 1;
+    max-width: 400px;
+    background: rgba(255, 255, 255, 0.4);
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.credit-outlook-bar {
+    height: 8px;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+}
+
+.outlook-fill {
+    height: 100%;
+    transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.outlook-marker {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: #10b981;
+    /* Green safe mark */
+    z-index: 2;
+}
+
+.credit-info-bar-v3 {
+    display: grid;
+    grid-template-columns: 280px 1fr 280px;
+    align-items: center;
+    gap: 2.3rem;
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.4);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    margin-bottom: 1.25rem;
+    transition: all 0.3s ease;
+}
+
+.credit-info-bar-v3:hover {
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.credit-brand-col {
+    display: flex;
+    align-items: center;
+}
+
+/* Mini Credit Card (Digital Wallet Style) */
+.mini-credit-card {
+    width: 80px;
+    height: 50px;
+    border-radius: 8px;
+    position: relative;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.mini-credit-card:hover {
+    transform: scale(1.1) rotate(-2deg);
+    z-index: 10;
+}
+
+.mini-credit-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0) 50%);
+    pointer-events: none;
+}
+
+.card-chip {
+    width: 12px;
+    height: 9px;
+    background: linear-gradient(135deg, #e2c074 0%, #aa8b45 100%);
+    border-radius: 2px;
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    opacity: 0.9;
+}
+
+.card-logo {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 0.5rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.card-number {
+    position: absolute;
+    bottom: 6px;
+    left: 8px;
+    font-size: 0.55rem;
+    font-family: monospace;
+    letter-spacing: 1px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.v3-progress-container {
+    position: relative;
+    width: 100%;
+}
+
+.v3-safe-zone {
+    position: absolute;
+    top: 0;
+    left: 30%;
+    width: 2px;
+    height: 100%;
+    background: rgba(16, 185, 129, 0.3);
+    z-index: 10;
+}
+
+.credit-data-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+@media (max-width: 1264px) {
+    .credit-info-bar-v3 {
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+    }
+
+    .credit-data-col {
+        align-items: flex-start;
+    }
+}
+
+.card-icon-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0.15;
+    pointer-events: none;
+}
+
+.interactive-list-item {
+    transition: all 0.2s ease;
+    border-radius: 12px;
+}
+
+.interactive-list-item:hover {
+    background: rgba(255, 255, 255, 0.6) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
 }
 </style>
