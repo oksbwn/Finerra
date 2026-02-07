@@ -3,13 +3,13 @@ import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import { useRouter } from 'vue-router'
+import { useTransactionHelpers } from '@/composables/useTransactionHelpers'
+import { useDashboardHelpers } from '@/composables/useDashboardHelpers'
 import { useAuthStore } from '@/stores/auth'
 import { useCurrency } from '@/composables/useCurrency'
 import Sparkline from '@/components/Sparkline.vue'
 import {
-    ChevronDown, Users, Wallet, PieChart,
-    CreditCard, Layers, Landmark as LandmarkIcon,
-    Building2, ShieldCheck, Globe, Gem, Zap
+    ChevronDown, Users, Wallet, PieChart, CreditCard
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -123,108 +123,16 @@ const upcomingBills = computed(() => {
         .slice(0, 3)
 })
 
-const getGreeting = () => {
-    const hour = new Date().getHours()
-    if (hour < 12) return 'Good morning'
-    if (hour < 18) return 'Good afternoon'
-    return 'Good evening'
-}
+// Initialize composables
+const accounts = ref<any[]>([])
+const expenseGroups = ref<any[]>([])
+const { formatDate, getCategoryDisplay } = useTransactionHelpers(accounts, categories, expenseGroups)
+const { getGreeting, getBankBrand } = useDashboardHelpers()
 
-function formatDate(dateStr: string) {
-    const d = new Date(dateStr)
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-}
-
-// Helper to get bank branding with rich visuals & icons
-function getBankBrand(name: string) {
-    const n = name.toLowerCase()
-
-    // HDFC: Classic Blue/Red split or Deep Blue
-    if (n.includes('hdfc')) return {
-        gradient: 'linear-gradient(135deg, #004a9e 0%, #002e63 100%)',
-        logoColor: '#fff',
-        logo: 'HDFC',
-        textColor: 'rgba(255,255,255,0.9)',
-        icon: Building2,
-        color: '#004a9e'
-    }
-
-    // SBI: Teal/Blue signature
-    if (n.includes('sbi')) return {
-        gradient: 'linear-gradient(135deg, #2ea6dc 0%, #1e5c91 100%)',
-        logoColor: '#fff',
-        logo: 'SBI',
-        textColor: 'rgba(255,255,255,0.95)',
-        icon: LandmarkIcon,
-        color: '#2ea6dc'
-    }
-
-    // ICICI: Orange branding
-    if (n.includes('icici')) return {
-        gradient: 'linear-gradient(135deg, #f58220 0%, #a84600 100%)',
-        logoColor: '#fff',
-        logo: 'ICICI',
-        textColor: 'rgba(255,255,255,0.95)',
-        icon: ShieldCheck,
-        color: '#f58220'
-    }
-
-    // AMEX: Centurion/Royal styles
-    if (n.includes('amex') || n.includes('american express')) return {
-        gradient: 'linear-gradient(135deg, #006fcf 0%, #00264d 100%)',
-        logoColor: '#fff',
-        logo: 'AMEX',
-        textColor: 'rgba(255,255,255,0.9)',
-        icon: Globe,
-        color: '#006fcf'
-    }
-
-    // AXIS: Burgundy
-    if (n.includes('axis')) return {
-        gradient: 'linear-gradient(135deg, #ae285d 0%, #5e0b2e 100%)',
-        logoColor: '#fff',
-        logo: 'AXIS',
-        textColor: 'rgba(255,255,255,0.9)',
-        icon: Layers,
-        color: '#ae285d'
-    }
-
-    // KOTAK: Red
-    if (n.includes('kotak')) return {
-        gradient: 'linear-gradient(135deg, #ed1c24 0%, #990005 100%)',
-        logoColor: '#fff',
-        logo: 'KOTAK',
-        textColor: 'rgba(255,255,255,0.95)',
-        icon: Gem,
-        color: '#ed1c24'
-    }
-
-    // ONECARD: Metal Black
-    if (n.includes('onecard')) return {
-        gradient: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
-        logoColor: '#fff',
-        logo: 'One',
-        textColor: 'rgba(255,255,255,0.9)',
-        icon: Zap,
-        color: '#1a1a1a'
-    }
-
-    // Default: Sleek Grey
-    return {
-        gradient: 'linear-gradient(135deg, #475569 0%, #1e293b 100%)',
-        logoColor: '#fff',
-        logo: 'CARD',
-        textColor: 'rgba(255,255,255,0.8)',
-        icon: CreditCard,
-        color: '#64748b'
-    }
-}
-
-// Helper to get category details including color
+// Adapter for getCategoryDetails to use getCategoryDisplay
 function getCategoryDetails(name: string) {
-    if (!name || name === 'Uncategorized') return { icon: '🏷️', color: '#f3f4f6' }
-    const cat = categories.value.find(c => c.name === name)
-    return cat ? { icon: cat.icon || '🏷️', color: cat.color || '#3B82F6' } : { icon: '🏷️', color: '#f3f4f6' }
+    const display = getCategoryDisplay(name)
+    return { icon: display.icon, color: display.color }
 }
 
 async function fetchAllData() {

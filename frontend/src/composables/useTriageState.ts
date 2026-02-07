@@ -83,7 +83,9 @@ export function useTriageState(
                     limit: triagePagination.value.limit,
                     skip: triagePagination.value.skip,
                     sort_by: triageSortKey.value,
-                    sort_order: triageSortOrder.value
+                    sort_order: triageSortOrder.value,
+                    search: triageSearchQuery.value || undefined,
+                    source: triageSourceFilter.value !== 'ALL' ? triageSourceFilter.value : undefined
                 }),
                 financeApi.getTraining({
                     limit: trainingPagination.value.limit,
@@ -360,6 +362,12 @@ export function useTriageState(
 
     // Watchers
     watch([triageSortKey, triageSortOrder], () => {
+        triagePagination.value.skip = 0
+        fetchTriage()
+    })
+
+    // Watch search and source filter changes
+    watch([triageSearchQuery, triageSourceFilter], () => {
         triagePagination.value.skip = 0
         fetchTriage()
     })
