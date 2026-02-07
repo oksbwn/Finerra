@@ -42,6 +42,20 @@ export default createVuetify({
                     surface: '#ffffff',
                 },
             },
+            wealthFamDark: {
+                dark: true,
+                colors: {
+                    primary: '#6366f1',
+                    secondary: '#a78bfa',
+                    accent: '#38bdf8',
+                    error: '#f87171',
+                    info: '#60a5fa',
+                    success: '#34d399',
+                    warning: '#fbbf24',
+                    background: '#0f172a',
+                    surface: '#1e293b',
+                },
+            },
         },
     },
 })
