@@ -1,192 +1,44 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
-import { financeApi } from '@/api/client'
 import { useRoute } from 'vue-router'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useNotificationStore } from '@/stores/notification'
 import ImportModal from '@/components/ImportModal.vue'
 import { useCurrency } from '@/composables/useCurrency'
-
-// ... existing code ...
-
 import SpendingHeatmap from '@/components/SpendingHeatmap.vue'
+import TransactionList from '@/views/transactions/TransactionList.vue'
+import TransactionTriage from '@/views/transactions/TransactionTriage.vue'
+import TransactionHeatmap from '@/views/transactions/TransactionHeatmap.vue'
 
-const showImportModal = ref(false)
-const { formatAmount } = useCurrency()
+// Composables
+import { useTransactionHelpers } from '@/composables/useTransactionHelpers'
+import { useTransactionState } from '@/composables/useTransactionState'
+import { useTriageState } from '@/composables/useTriageState'
+import { useTransactionModals } from '@/composables/useTransactionModals'
 
+// Global State
 const route = useRoute()
 const notify = useNotificationStore()
+const { formatAmount } = useCurrency()
 
-const transactions = ref<any[]>([])
+// Master Data (shared across composables)
 const accounts = ref<any[]>([])
 const categories = ref<any[]>([])
-const expenseGroups = ref<any[]>([])
-const triageTransactions = ref<any[]>([])
 const budgets = ref<any[]>([])
 const loans = ref<any[]>([])
-const loading = ref(true)
-const selectedAccount = ref<string>('')
+const expenseGroups = ref<any[]>([])
+
+// UI State
+const showImportModal = ref(false)
 const activeTab = ref<'list' | 'analytics' | 'triage' | 'heatmap'>('list')
 const activeTriageSubTab = ref<'pending' | 'training'>('pending')
 
+// Heatmap State
 const heatmapData = ref<any[]>([])
 const loadingHeatmap = ref(false)
 
-async function fetchHeatmapData() {
-    loadingHeatmap.value = true
-    try {
-        const res = await financeApi.getHeatmapData(
-            startDate.value || undefined,
-            endDate.value || undefined,
-            undefined // user_id
-        )
-        heatmapData.value = res.data
-    } catch (e) {
-        console.error("Failed to fetch heatmap data", e)
-        notify.error("Failed to load heatmap")
-    } finally {
-        loadingHeatmap.value = false
-    }
-}
-
-// Training State
-const unparsedMessages = ref<any[]>([])
-const expandedTrainingIds = ref<Set<string>>(new Set()) // Added
-const selectedMessage = ref<any | null>(null)
-const showLabelForm = ref(false)
-const labelForm = ref({
-    amount: 0,
-    date: new Date().toISOString().slice(0, 16),
-    account_mask: '',
-    recipient: '',
-    ref_id: '',
-    category: 'Uncategorized',
-    type: 'DEBIT',
-    exclude_from_reports: false,
-    generate_pattern: true
-})
-
-// Triage & Training Pagination/Selection
-const triagePagination = ref({ total: 0, limit: 10, skip: 0 })
-const triageSearchQuery = ref('')
-const triageSourceFilter = ref<'ALL' | 'SMS' | 'EMAIL'>('ALL')
-
-// Main List Filters
-const searchQuery = ref('')
-const categoryFilter = ref('')
-
-const trainingPagination = ref({ total: 0, limit: 10, skip: 0 })
-const filteredTriageTransactions = computed(() => {
-    let items = triageTransactions.value
-
-    if (triageSourceFilter.value !== 'ALL') {
-        items = items.filter(t => t.source === triageSourceFilter.value)
-    }
-
-    if (triageSearchQuery.value) {
-        const q = triageSearchQuery.value.toLowerCase()
-        items = items.filter(t =>
-            (t.description?.toLowerCase().includes(q)) ||
-            (t.recipient?.toLowerCase().includes(q)) ||
-            (t.external_id?.toLowerCase().includes(q))
-        )
-    }
-
-    return items
-})
-
-const selectedTriageIds = ref<string[]>([])
-const selectedTrainingIds = ref<string[]>([])
-const isProcessingBulk = ref(false)
-
-// --- Sorting State ---
-const txnSortKey = ref('date')
-const txnSortOrder = ref<'asc' | 'desc'>('desc')
-
-const triageSortKey = ref('date')
-const triageSortOrder = ref<'asc' | 'desc'>('desc')
-
-const trainingSortKey = ref('created_at')
-const trainingSortOrder = ref<'asc' | 'desc'>('desc')
-
-function sortArray<T>(items: T[], key: string, order: 'asc' | 'desc') {
-    return [...items].sort((a: any, b: any) => {
-        // Handle nested keys safely
-        const valA = key.split('.').reduce((o, i) => o?.[i], a)
-        const valB = key.split('.').reduce((o, i) => o?.[i], b)
-
-        let cmpA = valA
-        let cmpB = valB
-
-        // Special handling for dates strings
-        if (key === 'date' || key === 'created_at') {
-            cmpA = new Date(valA || 0).getTime()
-            cmpB = new Date(valB || 0).getTime()
-        } else if (key === 'amount' || key === 'balance') {
-            cmpA = Number(valA || 0)
-            cmpB = Number(valB || 0)
-        } else if (typeof valA === 'string') {
-            cmpA = valA.toLowerCase()
-            cmpB = (valB || '').toLowerCase()
-        }
-
-        if (cmpA < cmpB) return order === 'asc' ? -1 : 1
-        if (cmpA > cmpB) return order === 'asc' ? 1 : -1
-        return 0
-    })
-}
-
-const sortedTrainingMessages = computed(() => {
-    return sortArray(unparsedMessages.value, trainingSortKey.value, trainingSortOrder.value)
-})
-
-function toggleTxnSort(key: string) {
-    if (txnSortKey.value === key) {
-        txnSortOrder.value = txnSortOrder.value === 'asc' ? 'desc' : 'asc'
-    } else {
-        txnSortKey.value = key
-        txnSortOrder.value = 'desc'
-    }
-    // API call triggered by watcher
-}
-
-// Watchers for Backend Sorting
-watch([txnSortKey, txnSortOrder], () => {
-    page.value = 1 // Reset to first page on sort change
-    fetchData()
-})
-
-watch([triageSortKey, triageSortOrder], () => {
-    triagePagination.value.skip = 0
-    fetchTriage()
-})
-
-// Date Filter State
-const startDate = ref<string>('')
-const endDate = ref<string>('')
-const selectedTimeRange = ref<string>('all')
-
-const timeRangeOptions = [
-    { label: 'All Time', value: 'all' },
-    { label: 'Today', value: 'today' },
-    { label: 'This Week', value: 'this-week' },
-    { label: 'This Month', value: 'this-month' },
-    { label: 'Last Month', value: 'last-month' },
-    { label: 'Custom Range', value: 'custom' }
-]
-
-// Modal State
-const showModal = ref(false)
-const isEditing = ref(false)
-const editingTxnId = ref<string | null>(null)
-const originalCategory = ref<string | null>(null)
-const originalExclude = ref(false)
-const potentialMatches = ref<any[]>([])
-const isSearchingMatches = ref(false)
-const matchesSearched = ref(false)
-
-// Smart Categorization Modal
+// Smart Categorization Modal (shared between composables)
 const showSmartPrompt = ref(false)
 const smartPromptData = ref({
     txnId: '',
@@ -198,780 +50,133 @@ const smartPromptData = ref({
     excludeFromReports: false
 })
 
-const originalDescription = ref('')
-const showRenamePrompt = ref(false)
-const renamePromptData = ref({
-    oldName: '',
-    newName: '',
-    count: 0,
-    syncToParser: true
-})
+// Initialize Helpers Composable
+const {
+    formatDate,
+    getAccountName,
+    getCategoryDisplay,
+    getExpenseGroupName,
+    sortArray,
+    accountOptions,
+    categoryOptions,
+    expenseGroupOptions
+} = useTransactionHelpers(accounts, categories, expenseGroups)
 
-// Pagination State
-const page = ref(1)
-const pageSize = ref(50)
-const total = ref(0)
-const totalPages = computed(() => Math.ceil(total.value / pageSize.value))
+// Initialize Transaction State Composable
+const {
+    transactions,
+    loading,
+    total,
+    selectedAccount,
+    searchQuery,
+    categoryFilter,
+    startDate,
+    endDate,
+    selectedTimeRange,
+    timeRangeOptions,
+    page,
+    pageSize,
+    totalPages,
+    txnSortKey,
+    txnSortOrder,
+    selectedIds,
+    allSelected,
+    showDeleteConfirm,
+    fetchData,
+    handleTimeRangeChange,
+    toggleTxnSort,
+    changePage,
+    toggleSelectAll,
+    toggleSelection,
+    confirmDelete
+} = useTransactionState(route, accounts, categories, budgets, loans, expenseGroups)
 
-// Selection State
-const selectedIds = ref<Set<string>>(new Set())
-const allSelected = computed(() => {
-    return transactions.value.length > 0 && transactions.value.every(t => selectedIds.value.has(t.id))
-})
+// Initialize Triage State Composable
+const {
+    triageTransactions,
+    triagePagination,
+    triageSearchQuery,
+    triageSourceFilter,
+    triageSortKey,
+    triageSortOrder,
+    selectedTriageIds,
+    unparsedMessages,
+    trainingPagination,
+    trainingSortKey,
+    trainingSortOrder,
+    selectedTrainingIds,
+    expandedTrainingIds,
+    showDiscardConfirm,
+    showTrainingDiscardConfirm,
+    createIgnoreRule,
+    triageIdToDiscard,
+    trainingIdToDiscard,
+    selectedMessage,
+    showLabelForm,
+    labelForm,
+    isProcessingBulk,
+    fetchTriage,
+    approveTriage,
+    rejectTriage,
+    confirmDiscard,
+    handleBulkRejectTriage,
+    startLabeling,
+    handleLabelSubmit,
+    dismissTraining,
+    confirmTrainingDiscard,
+    handleBulkDismissTraining,
+    handleConfirmGlobalTrainingDismiss,
+    toggleSelectAllTriage,
+    toggleSelectAllTraining,
+    toggleTrainingExpand
+} = useTriageState(accounts, categories, showSmartPrompt, smartPromptData, fetchData)
 
-// Form State
-const defaultForm = {
-    description: '',
-    category: '',
-    amount: null,
-    date: new Date().toISOString().slice(0, 16), // YYYY-MM-DDTHH:mm
-    account_id: '',
-    is_transfer: false,
-    to_account_id: '',
-    linked_transaction_id: '',
-    exclude_from_reports: false,
-    is_emi: false,
-    loan_id: '',
-    expense_group_id: ''
-}
-const form = ref({ ...defaultForm })
+// Initialize Modals Composable
+const {
+    showModal,
+    isEditing,
+    editingTxnId,
+    originalCategory,
+    originalExclude,
+    originalDescription,
+    potentialMatches,
+    isSearchingMatches,
+    matchesSearched,
+    showRenamePrompt,
+    renamePromptData,
+    form,
+    defaultForm,
+    currentCategoryBudget,
+    openAddModal,
+    openEditModal,
+    handleSubmit,
+    handleBulkRename,
+    handleSmartCategorize,
+    findMatches,
+    selectMatch
+} = useTransactionModals(selectedAccount, accounts, budgets, transactions, fetchData, showSmartPrompt, smartPromptData)
 
-// Computed for Select Options
-const accountOptions = computed(() => {
-    return accounts.value.map(a => ({ label: a.name, value: a.id }))
-})
-
-const loanOptions = computed(() => {
+// Loan options computed
+const loanOptions = () => {
     return loans.value.map(l => ({ label: l.name, value: l.id }))
-})
-
-const expenseGroupOptions = computed(() => {
-    return expenseGroups.value.map(g => ({ label: g.name, value: g.id }))
-})
-
-const categoryOptions = computed(() => {
-    const list: any[] = []
-
-    // Helper to flatten recursive categories
-    const flatten = (cats: any[], depth = 0) => {
-        cats.forEach(c => {
-            const prefix = depth > 0 ? '　'.repeat(depth) + '└ ' : ''
-            list.push({
-                label: `${prefix}${c.icon || '🏷️'} ${c.name}`,
-                value: c.name
-            })
-            if (c.subcategories && c.subcategories.length > 0) {
-                flatten(c.subcategories, depth + 1)
-            }
-        })
-    }
-
-    flatten(categories.value)
-
-    // Ensure Uncategorized is an option if not present
-    if (!list.find(o => o.value === 'Uncategorized')) {
-        list.push({ label: '🏷️ Uncategorized', value: 'Uncategorized' })
-    }
-
-    return list
-})
-
-const currentCategoryBudget = computed(() => {
-    if (!form.value.category || form.value.is_transfer) return null
-    return budgets.value.find(b => b.category === form.value.category) || null
-})
-
-async function fetchData() {
-    loading.value = true
-    try {
-        if (accounts.value.length === 0) {
-            const [accRes, catRes, budgetRes, loanRes, groupRes] = await Promise.all([
-                financeApi.getAccounts(),
-                financeApi.getCategories(true),
-                financeApi.getBudgets(),
-                financeApi.getLoans(),
-                financeApi.getExpenseGroups()
-            ])
-            accounts.value = accRes.data
-            categories.value = catRes.data
-            budgets.value = budgetRes.data
-            loans.value = loanRes.data
-            expenseGroups.value = groupRes.data
-        }
-        if (!selectedAccount.value && route.query.account_id) {
-            selectedAccount.value = route.query.account_id as string
-        }
-
-        let start = startDate.value
-        let end = endDate.value
-
-        // Helper to format date for API (YYYY-MM-DD or ISO)
-        // If they are coming from the date inputs, they are already YYYY-MM-DD
-
-        const res = await financeApi.getTransactions(
-            selectedAccount.value || undefined,
-            page.value,
-            pageSize.value,
-            start || undefined,
-            end || undefined,
-            searchQuery.value || undefined,
-            categoryFilter.value || undefined,
-            txnSortKey.value,
-            txnSortOrder.value
-        )
-
-        transactions.value = res.data.items
-        total.value = res.data.total
-
-        if (page.value > Math.ceil(total.value / pageSize.value) && page.value > 1) {
-            page.value = 1
-            fetchData()
-        }
-    } catch (e) {
-        console.error("[Transactions] Failed to fetch data", e)
-        notify.error("Failed to load data")
-    } finally {
-        loading.value = false
-        selectedIds.value.clear()
-    }
 }
 
-async function fetchTriage(resetSkip = false) {
-    loading.value = true
-    try {
-        if (resetSkip) {
-            triagePagination.value.skip = 0
-            trainingPagination.value.skip = 0
-        }
+// fetchData is now provided by useTransactionState composable
 
-        // Ensure we have accounts and categories for rendering triage items
-        if (accounts.value.length === 0 || categories.value.length === 0) {
-            const [accRes, catRes] = await Promise.all([
-                financeApi.getAccounts(),
-                financeApi.getCategories(true)
-            ])
-            accounts.value = accRes.data
-            categories.value = catRes.data
-        }
+// All triage/training functions are now provided by useTriageState composable
+// All time range and filtering functions are now provided by useTransactionState composable
 
-        const [res, trainingRes] = await Promise.all([
-            financeApi.getTriage({
-                limit: triagePagination.value.limit,
-                skip: triagePagination.value.skip,
-                sort_by: triageSortKey.value,
-                sort_order: triageSortOrder.value
-            }),
-            financeApi.getTraining({ limit: trainingPagination.value.limit, skip: trainingPagination.value.skip })
-        ])
 
-        triageTransactions.value = res.data.items.map((t: any) => ({
-            ...t,
-            category: t.category || 'Uncategorized',
-            is_transfer: !!t.is_transfer,
-            create_rule: false
-        }))
-        triagePagination.value.total = res.data.total
-        selectedTriageIds.value = []
 
-        unparsedMessages.value = trainingRes.data.items
-        trainingPagination.value.total = trainingRes.data.total
-        selectedTrainingIds.value = []
+// All selection and deletion functions are now provided by useTransactionState composable
 
-    } catch (e) {
-        console.error("Failed to fetch triage", e)
-    } finally {
-        loading.value = false
-    }
-}
+// All helper functions (formatDate, getAccountName, getCategoryDisplay, getExpenseGroupName) 
+// are now provided by useTransactionHelpers composable
 
-async function handleBulkRejectTriage() {
-    if (selectedTriageIds.value.length === 0) return
-    isProcessingBulk.value = true
-    try {
-        await financeApi.bulkRejectTriage(selectedTriageIds.value, createIgnoreRule.value)
-        if (createIgnoreRule.value) {
-            notify.success(`Ignored ${selectedTriageIds.value.length} patterns for the future`)
-        } else {
-            notify.success(`Discarded ${selectedTriageIds.value.length} items`)
-        }
-        createIgnoreRule.value = false
-        fetchTriage()
-    } catch (e) {
-        notify.error("Bulk reject failed")
-    } finally {
-        isProcessingBulk.value = false
-    }
-}
 
-async function handleBulkDismissTraining() {
-    if (selectedTrainingIds.value.length === 0) return
-    // For simplicity, we can reuse the same modal if we clear the single ID
-    trainingIdToDiscard.value = null
-    showTrainingDiscardConfirm.value = true
-}
+// All modal handler functions (openAddModal, openEditModal, etc.) are now provided by useTransactionModals composable
 
-async function handleConfirmGlobalTrainingDismiss() {
-    if (trainingIdToDiscard.value) {
-        await confirmTrainingDiscard()
-    } else {
-        await handleBulkDismissTrainingConfirm()
-        showTrainingDiscardConfirm.value = false
-    }
-}
-// The finally block for handleBulkDismissTraining was misplaced in the instruction snippet.
-// It should be part of the handleBulkDismissTraining function itself.
-// The original handleBulkDismissTraining already had a finally block.
-// I will ensure the finally block is correctly associated with handleBulkDismissTraining.
-// The instruction snippet implies a change to handleBulkDismissTraining, but the finally block
-// was already there. I'll keep the existing finally block for handleBulkDismissTraining.
-
-
-function toggleSelectAllTriage() {
-    if (selectedTriageIds.value.length === triageTransactions.value.length) {
-        selectedTriageIds.value = []
-    } else {
-        selectedTriageIds.value = triageTransactions.value.map(t => t.id)
-    }
-}
-
-function toggleSelectAllTraining() {
-    if (selectedTrainingIds.value.length === unparsedMessages.value.length) {
-        selectedTrainingIds.value = []
-    } else {
-        selectedTrainingIds.value = unparsedMessages.value.map(m => m.id)
-    }
-}
-
-async function approveTriage(txn: any) {
-    try {
-        const res = await financeApi.approveTriage(txn.id, {
-            category: txn.category,
-            is_transfer: txn.is_transfer,
-            to_account_id: txn.to_account_id,
-            exclude_from_reports: txn.exclude_from_reports,
-            create_rule: false // Rule creation now handled by prompt
-        })
-        notify.success("Transaction approved")
-
-        // --- Smart Categorization Prompt Logic ---
-        if (!txn.is_transfer && txn.category && txn.category !== 'Uncategorized') {
-            const pattern = txn.recipient || txn.description
-            // Use the ACTUAL newly created transaction ID from the backend response
-            const newTxnId = res.data.transaction_id
-
-            smartPromptData.value = {
-                txnId: newTxnId,
-                category: txn.category,
-                pattern: pattern,
-                count: 0,
-                createRule: true,
-                applyToSimilar: false,
-                excludeFromReports: false
-            }
-            showSmartPrompt.value = true
-        }
-
-        fetchTriage()
-        fetchData() // Refresh list in case they switch back
-    } catch (e) {
-        notify.error("Approval failed")
-    }
-}
-
-const showDiscardConfirm = ref(false)
-const showTrainingDiscardConfirm = ref(false) // Added
-const createIgnoreRule = ref(false)
-const triageIdToDiscard = ref<string | null>(null)
-const trainingIdToDiscard = ref<string | null>(null) // Added
-
-async function rejectTriage(id: string) {
-    triageIdToDiscard.value = id
-    showDiscardConfirm.value = true
-}
-
-async function confirmDiscard() {
-    if (!triageIdToDiscard.value) return
-    try {
-        await financeApi.rejectTriage(triageIdToDiscard.value, createIgnoreRule.value)
-        if (createIgnoreRule.value) {
-            notify.success("Pattern will be ignored in future")
-        } else {
-            notify.success("Transaction discarded")
-        }
-        fetchTriage()
-        showDiscardConfirm.value = false
-        triageIdToDiscard.value = null
-        createIgnoreRule.value = false
-    } catch (e) {
-        notify.error("Failed to discard")
-    }
-}
-
-// --- Interactive Training Methods ---
-
-function startLabeling(msg: any) {
-    selectedMessage.value = msg
-    const content = msg.raw_content || ''
-
-    // 1. Smart Extraction Heuristics
-    // Amount: Look for numbers after currency keywords
-    const amtMatch = content.match(/(?:Rs\.?|INR|₹|Amt)\s*([\d,]+(?:\.\d{1,2})?)/i)
-    let suggestedAmt = 0
-    if (amtMatch) {
-        suggestedAmt = parseFloat(amtMatch[1].replace(/,/g, ''))
-    }
-
-    // Account Mask: Look for 3-4 digits after account keywords
-    const accMatch = content.match(/(?:A\/c|Acct|ending|XX|card)\s*(\d{3,4})/i)
-    const suggestedMask = accMatch ? accMatch[1] : ''
-
-    // Ref ID: Look for long alphanumeric strings
-    const refMatch = content.match(/(?:Ref|UTR|TXN|ID)\s*:?\s*([A-Z0-9]{8,})/i)
-    const suggestedRef = refMatch ? refMatch[1] : ''
-
-    // Type: Detect Credit keywords
-    const isCredit = /credit|received|deposit|incoming|refund/i.test(content)
-    const suggestedType = isCredit ? 'CREDIT' : 'DEBIT'
-
-    // 2. Pre-fill the form
-    const dateStr = msg.created_at ? new Date(msg.created_at).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16)
-
-    labelForm.value = {
-        amount: suggestedAmt,
-        date: dateStr,
-        account_mask: suggestedMask,
-        recipient: '', // Still hard to guess reliably
-        ref_id: suggestedRef,
-        category: 'Uncategorized',
-        type: suggestedType,
-        exclude_from_reports: false,
-        generate_pattern: true
-    }
-    showLabelForm.value = true
-}
-
-async function handleLabelSubmit() {
-    if (!selectedMessage.value) return
-    try {
-        await financeApi.labelMessage(selectedMessage.value.id, labelForm.value)
-        notify.success("Message labeled and moved to triage")
-        showLabelForm.value = false
-        selectedMessage.value = null
-        fetchTriage()
-    } catch (e) {
-        notify.error("Failed to label message")
-    }
-}
-
-async function dismissTraining(id: string) {
-    trainingIdToDiscard.value = id
-    showTrainingDiscardConfirm.value = true
-}
-
-async function confirmTrainingDiscard() {
-    if (!trainingIdToDiscard.value) return
-    try {
-        await financeApi.dismissTrainingMessage(trainingIdToDiscard.value, createIgnoreRule.value)
-        if (createIgnoreRule.value) {
-            notify.success("Pattern will be ignored in future")
-        } else {
-            notify.success("Message dismissed")
-        }
-        fetchTriage()
-        showTrainingDiscardConfirm.value = false
-        trainingIdToDiscard.value = null
-        createIgnoreRule.value = false
-    } catch (e) {
-        notify.error("Failed to dismiss")
-    }
-}
-
-async function handleBulkDismissTrainingConfirm() {
-    if (selectedTrainingIds.value.length === 0) return
-    try {
-        await financeApi.bulkDismissTraining(selectedTrainingIds.value, createIgnoreRule.value)
-        if (createIgnoreRule.value) {
-            notify.success(`Ignored ${selectedTrainingIds.value.length} patterns for future`)
-        } else {
-            notify.success("Messages dismissed")
-        }
-        fetchTriage()
-        createIgnoreRule.value = false
-        selectedTrainingIds.value = [] // Clear selection after bulk dismiss
-    } catch (e) {
-        notify.error("Bulk dismiss failed")
-    }
-}
-
-function handleTimeRangeChange(val: string) {
-    const now = new Date()
-    const start = new Date()
-    const end = new Date()
-
-    // Reset to All Time by default
-    startDate.value = ''
-    endDate.value = ''
-
-    if (val === 'today') {
-        start.setHours(0, 0, 0, 0)
-        end.setHours(23, 59, 59, 999)
-        startDate.value = start.toISOString()
-        endDate.value = end.toISOString()
-    } else if (val === 'this-week') {
-        const day = now.getDay()
-        const diff = now.getDate() - day + (day === 0 ? -6 : 1) // adjust when day is sunday
-        start.setDate(diff)
-        start.setHours(0, 0, 0, 0)
-        startDate.value = start.toISOString()
-    } else if (val === 'this-month') {
-        start.setDate(1)
-        start.setHours(0, 0, 0, 0)
-        startDate.value = start.toISOString()
-    } else if (val === 'last-month') {
-        start.setMonth(start.getMonth() - 1)
-        start.setDate(1)
-        start.setHours(0, 0, 0, 0)
-
-        end.setMonth(end.getMonth())
-        end.setDate(0) // Last day of previous month
-        end.setHours(23, 59, 59, 999)
-
-        startDate.value = start.toISOString()
-        endDate.value = end.toISOString()
-    } else if (val === 'custom') {
-        // Keep existing or empty
-        return
-    }
-
-    page.value = 1
-    fetchData()
-}
-
-
-
-function changePage(newPage: number) {
-    if (newPage < 1 || newPage > totalPages.value) return
-    page.value = newPage
-    fetchData()
-}
-
-// Selection Logic
-function toggleSelectAll() {
-    if (allSelected.value) {
-        selectedIds.value.clear()
-    } else {
-        transactions.value.forEach(t => selectedIds.value.add(t.id))
-    }
-}
-
-function toggleSelection(id: string) {
-    if (selectedIds.value.has(id)) {
-        selectedIds.value.delete(id)
-    } else {
-        selectedIds.value.add(id)
-    }
-}
-
-
-function toggleTrainingExpand(id: string) {
-    if (expandedTrainingIds.value.has(id)) {
-        expandedTrainingIds.value.delete(id)
-    } else {
-        expandedTrainingIds.value.add(id)
-    }
-}
-
-const showDeleteConfirm = ref(false)
-
-function deleteSelected() {
-    showDeleteConfirm.value = true
-}
-
-async function confirmDelete() {
-    loading.value = true // fast visual feedback
-    try {
-        await financeApi.bulkDeleteTransactions(Array.from(selectedIds.value))
-        notify.success(`Deleted ${selectedIds.value.size} transactions`)
-        fetchData()
-        showDeleteConfirm.value = false
-        selectedIds.value.clear()
-    } catch (e) {
-        notify.error("Failed to delete transactions")
-        loading.value = false
-    }
-}
-
-function formatDate(dateStr: string) {
-    if (!dateStr) return { day: 'N/A', meta: '' }
-
-    const d = new Date(dateStr)
-    if (isNaN(d.getTime())) {
-        // Try fallback parsing if it's a known non-ISO format
-        return { day: '?', meta: dateStr.split('T')[0] || dateStr }
-    }
-
-    const today = new Date()
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
-
-    const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-
-    // Check if today or yesterday
-    if (d.toDateString() === today.toDateString()) {
-        return { day: 'Today', meta: time }
-    }
-    if (d.toDateString() === yesterday.toDateString()) {
-        return { day: 'Yesterday', meta: time }
-    }
-
-    // Regular date - show day number with time and YEAR
-    const currentYear = today.getFullYear()
-    const txnYear = d.getFullYear()
-
-    let formatOptions: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
-    if (txnYear !== currentYear) {
-        formatOptions.year = 'numeric'
-    }
-
-    const monthDay = d.toLocaleDateString('en-US', formatOptions)
-    return {
-        day: monthDay,
-        meta: time
-    }
-}
-
-function getAccountName(id: string) {
-    const acc = accounts.value.find(a => a.id === id)
-    return acc ? acc.name : 'Unknown Account'
-}
-
-
-
-
-function getCategoryDisplay(name: string) {
-    if (!name || name === 'Uncategorized') return { icon: '🏷️', text: 'Uncategorized', color: '#9ca3af' }
-
-    // Find category in the flat list
-    const cat = categories.value.find(c => c.name === name)
-    if (cat) {
-        let text = cat.name
-        // If it has a parent, show a bit of hierarchy in the list
-        if (cat.parent_name) {
-            text = `${cat.parent_name} › ${cat.name}`
-        }
-        return { icon: cat.icon || '🏷️', text: text, color: cat.color || '#3B82F6' }
-    }
-
-    // Fallback for categories without matched object
-    return { icon: '🏷️', text: name, color: '#9ca3af' }
-}
-
-function getExpenseGroupName(id: string) {
-    if (!id) return null
-    const group = expenseGroups.value.find(g => g.id === id)
-    return group ? group.name : null
-}
-
-
-function openAddModal() {
-    isEditing.value = false
-    editingTxnId.value = null
-    form.value = {
-        ...defaultForm,
-        account_id: selectedAccount.value || (accounts.value[0]?.id || ''),
-        date: new Date().toISOString().slice(0, 16),
-        is_transfer: false,
-        to_account_id: '',
-        linked_transaction_id: '',
-        is_emi: false,
-        loan_id: '',
-        expense_group_id: ''
-    }
-    potentialMatches.value = []
-    matchesSearched.value = false
-    showModal.value = true
-}
-
-// Watch for transfer toggle to auto-set category
-watch(() => form.value.is_transfer, (isTransfer) => {
-    if (isTransfer) {
-        form.value.category = 'Transfer'
-        form.value.exclude_from_reports = true
-    } else if (form.value.category === 'Transfer') {
-        form.value.category = '' // Reset if it was transfer
-        form.value.exclude_from_reports = false
-    }
-})
-
-function openEditModal(txn: any) {
-    isEditing.value = true
-    editingTxnId.value = txn.id
-    originalCategory.value = txn.category
-    originalDescription.value = txn.description || ''
-    originalExclude.value = txn.exclude_from_reports || false
-    form.value = {
-        description: txn.description,
-        category: txn.category,
-        amount: txn.amount,
-        date: txn.date ? txn.date.slice(0, 16) : new Date().toISOString().slice(0, 16),
-        account_id: txn.account_id,
-        is_transfer: txn.is_transfer || false,
-        to_account_id: txn.transfer_account_id || '',
-        linked_transaction_id: txn.linked_transaction_id || '',
-        exclude_from_reports: txn.exclude_from_reports || false,
-        is_emi: txn.is_emi || false,
-        loan_id: txn.loan_id || '',
-        expense_group_id: txn.expense_group_id || ''
-    }
-    potentialMatches.value = []
-    matchesSearched.value = false
-    showModal.value = true
-}
-
-async function handleSubmit() {
-    try {
-        const payload = {
-            description: form.value.description,
-            category: form.value.category,
-            amount: Number(form.value.amount),
-            date: new Date(form.value.date).toISOString(),
-            account_id: form.value.account_id,
-            is_transfer: form.value.is_transfer,
-            to_account_id: form.value.to_account_id,
-            linked_transaction_id: form.value.linked_transaction_id,
-            exclude_from_reports: form.value.exclude_from_reports,
-            is_emi: form.value.is_emi,
-            loan_id: form.value.loan_id,
-            expense_group_id: form.value.expense_group_id
-        }
-
-        if (isEditing.value && editingTxnId.value) {
-            await financeApi.updateTransaction(editingTxnId.value, payload)
-            notify.success("Transaction updated")
-
-            // --- Smart Categorization Detection ---
-            if (form.value.category !== originalCategory.value && form.value.category) {
-                const txn = transactions.value.find(t => t.id === editingTxnId.value)
-                if (txn) {
-                    const pattern = txn.recipient || txn.description
-                    try {
-                        const res = await financeApi.getMatchCount([pattern])
-                        const totalSimilar = res.data.count
-
-                        if (totalSimilar > 0 || txn.recipient) {
-                            smartPromptData.value = {
-                                txnId: editingTxnId.value,
-                                category: form.value.category,
-                                pattern: pattern,
-                                count: totalSimilar,
-                                createRule: true,
-                                applyToSimilar: totalSimilar > 0,
-                                excludeFromReports: false
-                            }
-                            showSmartPrompt.value = true
-                        }
-                    } catch (e) {
-                        console.error("Match count failed", e)
-                    }
-                }
-            }
-
-            if (form.value.exclude_from_reports && !originalExclude.value) {
-                const txn = transactions.value.find(t => t.id === editingTxnId.value)
-                if (txn) {
-                    const pattern = txn.recipient || txn.description
-                    try {
-                        const res = await financeApi.getMatchCount([pattern])
-                        smartPromptData.value = {
-                            txnId: editingTxnId.value,
-                            category: form.value.category || 'Uncategorized',
-                            pattern: pattern,
-                            count: res.data.count,
-                            createRule: true,
-                            applyToSimilar: res.data.count > 0,
-                            excludeFromReports: true
-                        }
-                        showSmartPrompt.value = true
-                    } catch (e) {
-                        console.error("Match count failed", e)
-                    }
-                }
-            }
-
-            // --- Rename Detection ---
-            if (form.value.description !== originalDescription.value) {
-                try {
-                    // We use originalDescription to find matches to rename
-                    const res = await financeApi.getMatchCount([originalDescription.value], false)
-                    if (res.data.count > 0) {
-                        renamePromptData.value = {
-                            oldName: originalDescription.value,
-                            newName: form.value.description,
-                            count: res.data.count,
-                            syncToParser: true
-                        }
-                        showRenamePrompt.value = true
-                    }
-                } catch (e) {
-                    console.error("Rename check failed", e)
-                }
-            }
-        } else {
-            await financeApi.createTransaction(payload)
-            notify.success("Transaction added")
-        }
-        showModal.value = false
-        fetchData()
-    } catch (e) {
-        console.error(e)
-        notify.error("Failed to save transaction")
-    }
-}
-
-async function handleBulkRename() {
-    try {
-        loading.value = true
-        await financeApi.bulkRename(
-            renamePromptData.value.oldName,
-            renamePromptData.value.newName,
-            renamePromptData.value.syncToParser
-        )
-        notify.success(`Renamed ${renamePromptData.value.count} transactions`)
-        showRenamePrompt.value = false
-        fetchData()
-    } catch (e) {
-        console.error(e)
-        notify.error("Bulk rename failed")
-    } finally {
-        loading.value = false
-    }
-}
-
-async function handleSmartCategorize() {
-    try {
-        loading.value = true
-        const res = await financeApi.smartCategorize({
-            transaction_id: smartPromptData.value.txnId,
-            category: smartPromptData.value.category,
-            create_rule: smartPromptData.value.createRule,
-            apply_to_similar: smartPromptData.value.applyToSimilar,
-            exclude_from_reports: smartPromptData.value.excludeFromReports
-        })
-
-        if (res.data.success) {
-            notify.success(`Success! Updated ${res.data.affected} transactions.`)
-            if (res.data.rule_created) {
-                notify.success(`Rule saved for "${res.data.pattern}"`)
-            }
-        }
-        showSmartPrompt.value = false
-        fetchData()
-    } catch (e) {
-        notify.error("Smart categorization failed")
-    } finally {
-        loading.value = false
-    }
-}
+// handleBulkRename and handleSmartCategorize are now provided by useTransactionModals composable
 
 
 function switchTab(tab: 'list' | 'analytics' | 'triage' | 'heatmap') {
@@ -979,7 +184,7 @@ function switchTab(tab: 'list' | 'analytics' | 'triage' | 'heatmap') {
     if (tab === 'triage') {
         fetchTriage()
     } else if (tab === 'heatmap') {
-        fetchHeatmapData()
+        // Heatmap data is fetched by the child component
     } else {
         fetchData()
     }
@@ -995,56 +200,7 @@ watch(searchQuery, () => {
     }, 400)
 })
 
-// Match Finding Logic
-async function findMatches() {
-    if (!form.value.to_account_id || !form.value.amount || !form.value.date) return
-
-    isSearchingMatches.value = true
-    matchesSearched.value = false
-    try {
-        const txnDate = new Date(form.value.date)
-        const startDate = new Date(txnDate)
-        startDate.setDate(startDate.getDate() - 3)
-        const endDate = new Date(txnDate)
-        endDate.setDate(endDate.getDate() + 3)
-
-        const res = await financeApi.getTransactions(
-            form.value.to_account_id,
-            1,
-            50, // limit
-            startDate.toISOString().slice(0, 10),
-            endDate.toISOString().slice(0, 10)
-        )
-
-        // Filter for opposite amount (with tolerance)
-        // If current txn is -100 (sending), look for +100 (receiving)
-        // If current txn is +100 (receiving), look for -100 (sending)
-        const targetAmount = -Number(form.value.amount)
-
-        potentialMatches.value = res.data.items.filter((t: any) => {
-            // Basic tolerance check for float issues or fees
-            return Math.abs(t.amount - targetAmount) < 1.0 &&
-                // Don't link to self if something weird happens
-                t.id !== editingTxnId.value &&
-                // Don't link if already matched to someone else
-                (!t.linked_transaction_id || t.linked_transaction_id === editingTxnId.value)
-        })
-
-        matchesSearched.value = true
-    } catch (e) {
-        console.error("Match search failed", e)
-    } finally {
-        isSearchingMatches.value = false
-    }
-}
-
-function selectMatch(match: any) {
-    if (form.value.linked_transaction_id === match.id) {
-        form.value.linked_transaction_id = '' // Deselect
-    } else {
-        form.value.linked_transaction_id = match.id
-    }
-}
+// findMatches and selectMatch are now provided by useTransactionModals composable
 
 onMounted(() => {
     fetchData()
@@ -1064,7 +220,7 @@ onMounted(() => {
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'triage' }" @click="switchTab('triage')">
                         Triage <span v-if="triageTransactions.length > 0" class="tab-badge">{{ triageTransactions.length
-                            }}</span>
+                        }}</span>
                     </button>
                     <button class="tab-btn" :class="{ active: activeTab === 'heatmap' }" @click="switchTab('heatmap')">
                         Heatmap 🗺️
@@ -1078,7 +234,8 @@ onMounted(() => {
                     :options="[{ label: 'All Accounts', value: '' }, ...accountOptions]" placeholder="All Accounts"
                     @update:modelValue="page = 1; fetchData()" class="account-select" />
 
-                <button @click="deleteSelected" :disabled="selectedIds.size === 0" class="btn-compact btn-danger">
+                <button @click="showDeleteConfirm = true" :disabled="selectedIds.size === 0"
+                    class="btn-compact btn-danger">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                     </svg>
@@ -1236,7 +393,7 @@ onMounted(() => {
                                             <span class="category-pill"
                                                 :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
                                                 <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                                    }}</span>
+                                                }}</span>
                                                 {{ getCategoryDisplay(txn.category).text }}
                                             </span>
                                         </div>
@@ -1359,7 +516,7 @@ onMounted(() => {
                         <div class="flex items-center gap-4">
                             <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-muted">
                                 <input type="checkbox" @change="toggleSelectAllTriage"
-                                    :checked="selectedTriageIds.length === filteredTriageTransactions.length && filteredTriageTransactions.length > 0"
+                                    :checked="selectedTriageIds.length === triageTransactions.length && triageTransactions.length > 0"
                                     class="rounded border-gray-300 text-indigo-600" />
                                 Select All Filtered
                             </label>
@@ -1372,7 +529,7 @@ onMounted(() => {
                     </div>
 
                     <div class="triage-grid">
-                        <div v-for="txn in filteredTriageTransactions" :key="txn.id" class="glass-card triage-card"
+                        <div v-for="txn in triageTransactions" :key="txn.id" class="glass-card triage-card"
                             :class="[txn.amount < 0 ? 'debit-theme' : 'credit-theme', { 'is-transfer-active': txn.is_transfer, 'selected': selectedTriageIds.includes(txn.id) }]">
                             <div class="triage-card-header">
                                 <div class="header-left">
@@ -1548,7 +705,7 @@ onMounted(() => {
                         </div>
 
                         <div class="triage-grid">
-                            <div v-for="msg in sortedTrainingMessages" :key="msg.id"
+                            <div v-for="msg in unparsedMessages" :key="msg.id"
                                 class="glass-card triage-card training-theme"
                                 :class="{ 'selected': selectedTrainingIds.includes(msg.id) }">
                                 <div class="triage-card-header">
@@ -1556,7 +713,7 @@ onMounted(() => {
                                         <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
                                             class="mr-2" />
                                         <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
-                                            }}</span>
+                                        }}</span>
                                         <span class="ai-badge-mini"
                                             style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
                                             Training</span>
