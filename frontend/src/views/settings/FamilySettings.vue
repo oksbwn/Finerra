@@ -162,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { financeApi } from '@/api/client'
 import { useNotificationStore } from '@/stores/notification'
 import CustomSelect from '@/components/CustomSelect.vue'
@@ -194,15 +194,7 @@ const showTenantModal = ref(false)
 const tenantForm = ref({ id: '', name: '' })
 
 // --- Computed ---
-const currentTenant = computed(() => tenants.value[0] || { name: 'My Family', created_at: new Date().toISOString() })
 
-const sortedMembers = computed(() => {
-    return [...familyMembers.value].sort((a, b) => {
-        if (a.role === 'ADMIN' && b.role !== 'ADMIN') return -1
-        if (a.role !== 'ADMIN' && b.role === 'ADMIN') return 1
-        return 0
-    })
-})
 
 const getMemberAccountCount = (memberId: string) => {
     return accounts.value.filter(a => a.owner_id === memberId).length

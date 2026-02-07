@@ -125,7 +125,7 @@ import CustomSelect from '@/components/CustomSelect.vue'
 import { useAiStore } from '@/stores/ai'
 
 const aiStore = useAiStore()
-const { aiForm, aiModels, isTestingAi, aiTestResult } = aiStore // Note: Destructuring refs requires toRefs? No, Pinia returns refs directly if using setup syntax, but here I should use store.aiForm to keep reactivity or use store directly in template.
+
 
 // Use store directly in template for simplicity
 const testMessage = ref("Spent Rs 500.50 at Amazon using card ending in 1234 on 14/01/2026")

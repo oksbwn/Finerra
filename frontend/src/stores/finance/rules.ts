@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { financeApi } from '@/api/client'
 import { useNotificationStore } from '@/stores/notification'
-import { useCategoriesStore } from '@/stores/finance/categories'
+
 
 export const useRulesStore = defineStore('rules', () => {
     // State
@@ -13,7 +13,6 @@ export const useRulesStore = defineStore('rules', () => {
     const searchQuery = ref('')
 
     const notify = useNotificationStore()
-    const categoriesStore = useCategoriesStore()
 
     // Getters
     const filteredRules = computed(() => {

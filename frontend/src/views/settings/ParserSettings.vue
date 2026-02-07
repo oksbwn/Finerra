@@ -301,7 +301,7 @@
                                     <span v-if="pattern.is_ai_generated" class="source-badge ai">🤖 AI</span>
                                     <span v-else class="source-badge manual">✏️ Manual</span>
                                     <span class="text-[10px] text-gray-400 font-mono">{{ pattern.id.substring(0, 8)
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </td>
                             <td class="text-right">
@@ -496,7 +496,7 @@ onMounted(() => {
 import axios from 'axios'
 const PARSER_API = 'http://localhost:8001'
 
-const patterns = ref([])
+const patterns = ref<any[]>([])
 const patternsLoading = ref(false)
 const patternSaving = ref(false)
 const patternError = ref<string | null>(null)

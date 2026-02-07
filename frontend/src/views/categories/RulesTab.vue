@@ -259,7 +259,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Plus, Search, Zap, Edit2, Trash2 } from 'lucide-vue-next'
+import { Search, Zap, Edit2, Trash2 } from 'lucide-vue-next'
 import CustomSelect from '@/components/CustomSelect.vue'
 import { useRulesStore } from '@/stores/finance/rules'
 import { useCategoriesStore } from '@/stores/finance/categories'

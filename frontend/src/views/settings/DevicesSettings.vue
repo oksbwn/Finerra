@@ -334,7 +334,7 @@ const notify = useNotificationStore()
 const devices = ref<any[]>([])
 const familyMembers = ref<any[]>([])
 const searchQuery = ref('')
-const loading = ref(false)
+
 
 // Modal State
 const showDeviceAssignModal = ref(false)
