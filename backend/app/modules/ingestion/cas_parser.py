@@ -4,6 +4,9 @@ import tempfile
 import imaplib
 import email
 from email.header import decode_header
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CASParser:
     """
@@ -53,7 +56,7 @@ class CASParser:
             return transactions
 
         except Exception as e:
-            print(f"Error parsing CAS via microservice: {e}")
+            logger.error(f"Error parsing CAS via microservice: {e}")
             raise e
 
     @staticmethod

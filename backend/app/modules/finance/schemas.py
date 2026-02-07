@@ -129,6 +129,7 @@ class CategoryRuleBase(BaseModel):
     name: str
     category: str
     keywords: List[str]
+    # only_uncategorized removed as it's not in DB model
     priority: int = 0
     is_transfer: bool = False
     to_account_id: Optional[str] = None
@@ -158,6 +159,7 @@ class RuleSuggestion(BaseModel):
     name: str
     category: str
     keywords: List[str]
+    only_uncategorized: bool = True
     confidence: int
 
 class IgnoredSuggestionCreate(BaseModel):
@@ -427,3 +429,11 @@ class InvestmentGoalProgress(InvestmentGoalRead):
     remaining_amount: Decimal = Decimal('0.0')
     progress_percentage: float = 0.0
     holdings_count: int = 0
+
+class MatchCountRequest(BaseModel):
+    keywords: List[str]
+    only_uncategorized: bool = True
+class BulkRenameRequest(BaseModel):
+    old_name: str
+    new_name: str
+    sync_to_parser: bool = False

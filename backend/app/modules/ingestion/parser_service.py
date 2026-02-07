@@ -1,10 +1,14 @@
 import requests
 from typing import Optional, Dict, Any, List
+from datetime import datetime
+import logging
 from backend.app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 class ExternalParserService:
     @staticmethod
-    def parse_sms(sender: str, body: str) -> Optional[Dict[str, Any]]:
+    def parse_sms(sender: str, body: str, received_at: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         """
         Call the external parser microservice for SMS ingestion.
         """
@@ -12,17 +16,20 @@ class ExternalParserService:
             url = f"{settings.PARSER_SERVICE_URL}/ingest/sms"
             # Parser expects 'sender' and 'body'
             payload = {"sender": sender, "body": body}
+            if received_at:
+                payload["received_at"] = received_at.isoformat()
+                
             response = requests.post(url, json=payload, timeout=10)
             
             if response.status_code == 200:
                 return response.json()
             return None
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return None
 
     @staticmethod
-    def parse_email(subject: str, body_text: str, sender: str = "Unknown") -> Optional[Dict[str, Any]]:
+    def parse_email(subject: str, body_text: str, sender: str = "Unknown", received_at: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         """
         Call the external parser microservice for Email ingestion.
         """
@@ -34,13 +41,16 @@ class ExternalParserService:
                 "body_text": body_text,
                 "sender": sender
             }
+            if received_at:
+                payload["received_at"] = received_at.isoformat()
+                
             response = requests.post(url, json=payload, timeout=10)
             
             if response.status_code == 200:
                 return response.json()
             return None
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return None
 
     @staticmethod
@@ -58,7 +68,7 @@ class ExternalParserService:
             response = requests.post(url, json=payload, timeout=10)
             return response.status_code == 200
         except Exception as e:
-            print(f"Error syncing AI config: {e}")
+            logger.error(f"Error syncing AI config: {e}")
             return False
 
     @staticmethod
@@ -85,7 +95,7 @@ class ExternalParserService:
                 return response.json()
             return {"status": "error", "message": f"Parser returned {response.status_code}", "logs": [response.text]}
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return {"status": "error", "message": str(e)}
 
     @staticmethod
@@ -105,7 +115,7 @@ class ExternalParserService:
                 return response.json() 
             return None
         except Exception as e:
-            print(f"Error calling external parser: {e}")
+            logger.error(f"Error calling external parser: {e}")
             return None
 
     @staticmethod
@@ -123,6 +133,48 @@ class ExternalParserService:
             response = requests.post(url, json=payload, timeout=10)
             return response.status_code == 200
         except Exception as e:
-            print(f"Error creating pattern in external parser: {e}")
+            logger.error(f"Error creating pattern in external parser: {e}")
+            return False
+
+    @staticmethod
+    def create_alias(pattern: str, alias: str) -> bool:
+        """
+        Push a new merchant alias to the microservice.
+        """
+        try:
+            url = f"{settings.PARSER_SERVICE_URL}/config/aliases"
+            payload = {"pattern": pattern, "alias": alias}
+            response = requests.post(url, json=payload, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Error creating alias in external parser: {e}")
+            return False
+
+    @staticmethod
+    def get_aliases() -> List[Dict[str, Any]]:
+        """
+        Get all merchant aliases from the microservice.
+        """
+        try:
+            url = f"{settings.PARSER_SERVICE_URL}/config/aliases"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching aliases: {e}")
+            return []
+
+    @staticmethod
+    def delete_alias(alias_id: str) -> bool:
+        """
+        Delete a merchant alias.
+        """
+        try:
+            url = f"{settings.PARSER_SERVICE_URL}/config/aliases/{alias_id}"
+            response = requests.delete(url, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Error deleting alias: {e}")
             return False
 

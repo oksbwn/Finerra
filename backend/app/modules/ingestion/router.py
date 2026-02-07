@@ -28,11 +28,13 @@ class SmsPayload(BaseModel):
     device_id: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    received_at: Optional[datetime] = None
 
 class EmailPayload(BaseModel):
     subject: str
     body: str
     sender: Optional[str] = "Manual Input"
+    received_at: Optional[datetime] = None
 
 class EmailSyncPayload(BaseModel):
     imap_server: str = "imap.gmail.com"
@@ -126,7 +128,7 @@ def ingest_sms(
     from backend.app.modules.ingestion.parser_service import ExternalParserService
     from backend.app.modules.ingestion.base import ParsedTransaction
 
-    parser_response = ExternalParserService.parse_sms(payload.sender, payload.message)
+    parser_response = ExternalParserService.parse_sms(payload.sender, payload.message, received_at=payload.received_at)
     
     # Accept "processed", "success", and "duplicate_submission"
     status = parser_response.get("status") if parser_response else "offline"
@@ -225,7 +227,7 @@ def ingest_email(
     from backend.app.modules.ingestion.parser_service import ExternalParserService
     from backend.app.modules.ingestion.base import ParsedTransaction
 
-    parser_response = ExternalParserService.parse_email(payload.subject, payload.body, payload.sender or "Manual Input")
+    parser_response = ExternalParserService.parse_email(payload.subject, payload.body, payload.sender or "Manual Input", received_at=payload.received_at)
     
     status = parser_response.get("status") if parser_response else "offline"
     
@@ -637,10 +639,14 @@ class PendingTransactionRead(BaseModel):
 def list_triage(
     limit: int = 50,
     skip: int = 0,
+    sort_by: str = "date",
+    sort_order: str = "desc",
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    items, total = TransactionService.get_pending_transactions(db, str(current_user.tenant_id), skip=skip, limit=limit)
+    items, total = TransactionService.get_pending_transactions(
+        db, str(current_user.tenant_id), skip=skip, limit=limit, sort_by=sort_by, sort_order=sort_order
+    )
     return {
         "total": total,
         "items": items,
@@ -822,7 +828,7 @@ def label_message(
             )
             # Legacy local save removed to enforce single source of truth
         except Exception as e:
-            print(f"Error creating pattern: {e}")
+            logger.error(f"Error creating pattern: {e}")
             pass
         
     db.delete(msg)

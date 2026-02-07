@@ -3,7 +3,10 @@ from datetime import datetime
 import json
 import uuid
 from sqlalchemy.orm import Session
+import logging
 from backend.app.modules.finance import models, schemas
+
+logger = logging.getLogger(__name__)
 from backend.app.modules.finance.models import TransactionType
 from backend.app.modules.finance.services.category_service import CategoryService
 from backend.app.modules.finance.services.transfer_service import TransferService
@@ -119,7 +122,9 @@ class TransactionService:
         user_role: str = "ADULT",
         user_id: Optional[str] = None,
         exclude_from_reports: bool = False,
-        exclude_transfers: bool = False
+        exclude_transfers: bool = False,
+        sort_by: str = "date",
+        sort_order: str = "desc"
     ) -> List[models.Transaction]:
         query = db.query(models.Transaction).filter(models.Transaction.tenant_id == tenant_id)
         
@@ -156,7 +161,22 @@ class TransactionService:
             query = query.join(models.Account, models.Transaction.account_id == models.Account.id)\
                          .filter(or_(models.Account.owner_id == user_id, models.Account.owner_id == None))
             
-        return query.order_by(models.Transaction.date.desc()).offset(skip).limit(limit).all()
+        sort_column = models.Transaction.date
+        if sort_by == "amount":
+            sort_column = models.Transaction.amount
+        elif sort_by == "description":
+            sort_column = models.Transaction.description
+        elif sort_by == "recipient":
+            sort_column = models.Transaction.recipient
+        elif sort_by == "category":
+            sort_column = models.Transaction.category
+
+        if sort_order == "asc":
+            query = query.order_by(sort_column.asc())
+        else:
+            query = query.order_by(sort_column.desc())
+
+        return query.offset(skip).limit(limit).all()
 
     @staticmethod
     def count_transactions(
@@ -305,6 +325,8 @@ class TransactionService:
             if key in ['is_transfer', 'to_account_id']: continue
             if key == 'tags' and value is not None:
                 setattr(db_txn, key, json.dumps(value))
+            elif key in ['linked_transaction_id', 'expense_group_id', 'loan_id'] and value == "":
+                setattr(db_txn, key, None)
             else:
                 setattr(db_txn, key, value)
                 
@@ -333,13 +355,25 @@ class TransactionService:
 
     # --- Triage Functions ---
     @staticmethod
-    def get_pending_transactions(db: Session, tenant_id: str, skip: int = 0, limit: int = 50):
+    def get_pending_transactions(db: Session, tenant_id: str, skip: int = 0, limit: int = 50, sort_by: str = "date", sort_order: str = "desc"):
         query = db.query(ingestion_models.PendingTransaction).filter(
             ingestion_models.PendingTransaction.tenant_id == tenant_id
         )
         total = query.count()
-        items = query.order_by(ingestion_models.PendingTransaction.created_at.desc()).offset(skip).limit(limit).all()
-        return items, total
+        total = query.count()
+        
+        sort_column = ingestion_models.PendingTransaction.created_at
+        if sort_by == "amount":
+            sort_column = ingestion_models.PendingTransaction.amount
+        elif sort_by == "description":
+            sort_column = ingestion_models.PendingTransaction.description
+        
+        if sort_order == "asc":
+            query = query.order_by(sort_column.asc())
+        else:
+            query = query.order_by(sort_column.desc())
+            
+        return query.offset(skip).limit(limit).all(), total
 
     @staticmethod
     def approve_pending_transaction(
@@ -529,16 +563,18 @@ class TransactionService:
                 rule_created = True
 
         if apply_to_similar:
+            from sqlalchemy import or_
             query = db.query(models.Transaction).filter(
                 models.Transaction.tenant_id == tenant_id,
                 models.Transaction.id != txn_id,
                 (models.Transaction.category == "Uncategorized") | (models.Transaction.category == None)
             )
             
-            if db_txn.recipient:
-                query = query.filter(models.Transaction.recipient == db_txn.recipient)
-            else:
-                query = query.filter(models.Transaction.description == db_txn.description)
+            search_pattern = f"%{pattern}%"
+            query = query.filter(or_(
+                models.Transaction.description.ilike(search_pattern),
+                models.Transaction.recipient.ilike(search_pattern)
+            ))
                 
             similar_txns = query.all()
             for st in similar_txns:
@@ -555,3 +591,98 @@ class TransactionService:
             "rule_created": rule_created,
             "pattern": pattern
         }
+
+    @staticmethod
+    def apply_rule_retrospectively(db: Session, rule_id: str, tenant_id: str) -> dict:
+        rule = db.query(models.CategoryRule).filter(
+            models.CategoryRule.id == rule_id,
+            models.CategoryRule.tenant_id == tenant_id
+        ).first()
+        
+        if not rule:
+            return {"success": False, "message": "Rule not found"}
+        
+        keywords = json.loads(rule.keywords)
+        if not keywords:
+            return {"success": True, "affected": 0}
+            
+        # Find transactions that match keywords AND are uncategorized
+        from sqlalchemy import or_
+        query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            (models.Transaction.category == "Uncategorized") | (models.Transaction.category == None)
+        )
+        
+        # Build OR clause for keywords
+        filters = []
+        for k in keywords:
+            pattern = f"%{k}%"
+            filters.append(models.Transaction.description.ilike(pattern))
+            filters.append(models.Transaction.recipient.ilike(pattern))
+            
+        query = query.filter(or_(*filters))
+        
+        target_txns = query.all()
+        affected_count = 0
+        for txn in target_txns:
+            txn.category = rule.category
+            if rule.exclude_from_reports:
+                txn.exclude_from_reports = True
+            if rule.is_transfer and rule.to_account_id:
+                txn.is_transfer = True
+                # Note: We don't auto-create the other leg here to avoid mess, 
+                # but we could if needed. For retrospective, usually just the category/hidden flag is enough.
+            db.add(txn)
+            affected_count += 1
+            
+        db.commit()
+        return {"success": True, "affected": affected_count, "category": rule.category}
+
+    @staticmethod
+    def get_matching_count(db: Session, keywords: List[str], tenant_id: str, only_uncategorized: bool = True) -> int:
+        if not keywords: return 0
+        from sqlalchemy import or_
+        query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id
+        )
+        if only_uncategorized:
+            query = query.filter((models.Transaction.category == "Uncategorized") | (models.Transaction.category == None))
+            
+        filters = []
+        for k in keywords:
+            pattern = f"%{k}%"
+            filters.append(models.Transaction.description.ilike(pattern))
+            filters.append(models.Transaction.recipient.ilike(pattern))
+        query = query.filter(or_(*filters))
+        return query.count()
+
+    @staticmethod
+    def bulk_rename(db: Session, old_name: str, new_name: str, tenant_id: str, sync_to_parser: bool = False) -> int:
+        from sqlalchemy import or_
+        pattern = f"%{old_name}%"
+        query = db.query(models.Transaction).filter(
+            models.Transaction.tenant_id == tenant_id,
+            or_(
+                models.Transaction.recipient.ilike(pattern),
+                models.Transaction.description.ilike(pattern)
+            )
+        )
+        
+        txns = query.all()
+        for t in txns:
+            if t.recipient == old_name:
+                t.recipient = new_name
+            if t.description == old_name:
+                t.description = new_name
+            db.add(t)
+        
+        db.commit()
+        
+        if sync_to_parser and old_name != new_name:
+             try:
+                 from backend.app.modules.ingestion.parser_service import ExternalParserService
+                 ExternalParserService.create_alias(old_name, new_name)
+             except Exception as e:
+                 logger.error(f"Failed to sync alias to parser: {e}")
+                 
+        return len(txns)

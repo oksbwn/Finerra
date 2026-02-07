@@ -1,4 +1,7 @@
+import logging
 from backend.app.modules.auth.security import get_password_hash
+
+logger = logging.getLogger(__name__)
 from backend.app.core.database import SessionLocal
 from backend.app.modules.auth.models import User, Tenant, UserRole
 from backend.app.modules.finance.models import (
@@ -16,7 +19,7 @@ def seed_data():
         user = db.query(User).filter(User.email == demo_email).first()
         
         if not user:
-            print(f"Creating demo user: {demo_email}")
+            logger.info(f"Creating demo user: {demo_email}")
             
             # 1. Create Tenant
             tenant = Tenant(name="Demo Family")
@@ -36,7 +39,7 @@ def seed_data():
             db.commit()
             db.refresh(user)
         else:
-            print("Demo user already exists.")
+            logger.info("Demo user already exists.")
             tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
 
         tenant_id = tenant.id
@@ -45,7 +48,7 @@ def seed_data():
         # 3. Create Accounts
         accounts = db.query(Account).filter(Account.owner_id == user_id).all()
         if not accounts:
-            print("Seeding accounts...")
+            logger.info("Seeding accounts...")
             
             # Bank
             acc_bank = Account(id=str(uuid.uuid4()), tenant_id=tenant_id, owner_id=user_id, name="HDFC Salary", type=AccountType.BANK, balance=50000)
@@ -77,7 +80,7 @@ def seed_data():
         if accounts_dict["LOAN"]:
             existing_loan = db.query(Loan).filter(Loan.account_id == accounts_dict["LOAN"].id).first()
             if not existing_loan:
-                print("Seeding Home Loan...")
+                logger.info("Seeding Home Loan...")
                 loan = Loan(
                     tenant_id=tenant_id,
                     account_id=accounts_dict["LOAN"].id,
@@ -97,7 +100,7 @@ def seed_data():
         mf_scheme = "123456"
         existing_meta = db.query(MutualFundsMeta).filter(MutualFundsMeta.scheme_code == mf_scheme).first()
         if not existing_meta:
-            print("Seeding Mutual Funds...")
+            logger.info("Seeding Mutual Funds...")
             meta = MutualFundsMeta(
                 scheme_code=mf_scheme,
                 scheme_name="Nifty 50 Index Fund",
@@ -141,7 +144,7 @@ def seed_data():
         # 6. Categories
         categories = db.query(Category).filter(Category.tenant_id == tenant_id).all()
         if not categories:
-            print("Seeding categories...")
+            logger.info("Seeding categories...")
             cat_map = {}
             for name in ["Food", "Transport", "Shopping", "Salary", "Investments", "Transfers"]:
                 ctype = "income" if name == "Salary" else "expense"
@@ -161,7 +164,7 @@ def seed_data():
         # Check if transactions exist for any of the user's accounts
         acc_ids = [a.id for a in accounts_dict.values() if a]
         if db.query(Transaction).filter(Transaction.account_id.in_(acc_ids)).count() == 0:
-            print("Seeding transactions...")
+            logger.info("Seeding transactions...")
             
             # A. Linked Transfer (Credit Card Bill Payment)
             t1_id = str(uuid.uuid4())
@@ -224,12 +227,12 @@ def seed_data():
                 ))
 
             db.commit()
-            print("Seeding complete!")
+            logger.info("Seeding complete!")
 
     except Exception as e:
-        print(f"Error seeding data: {e}")
+        logger.info(f"Error seeding data: {e}")
         import traceback
-        traceback.print_exc()
+        logger.exception("Traceback:")
         db.rollback()
     finally:
         db.close()

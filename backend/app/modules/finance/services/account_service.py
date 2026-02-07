@@ -1,6 +1,9 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
+import logging
 from backend.app.modules.finance import models, schemas
+
+logger = logging.getLogger(__name__)
 
 class AccountService:
     @staticmethod
@@ -58,7 +61,7 @@ class AccountService:
             return account_dicts
             
         except Exception as e:
-            print(f"Error fetching linked goals: {e}")
+            logger.error(f"Error fetching linked goals: {e}")
             return accounts
 
     @staticmethod

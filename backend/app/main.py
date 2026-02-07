@@ -4,6 +4,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import text
 import asyncio
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 from backend.app.core.config import settings
 from backend.app.core.exceptions import http_exception_handler, generic_exception_handler
@@ -67,18 +70,17 @@ def create_application() -> FastAPI:
         
         # Seed Demo Data (Only if DEMO_MODE is true)
         demo_mode = str(os.getenv("DEMO_MODE", "false")).lower()
-        print(f"Startup Config: DEMO_MODE={demo_mode}")
+        logger.info(f"Startup Config: DEMO_MODE={demo_mode}")
         
         if demo_mode == "true":
             try:
-                print("Starting demo data seeding...")
+                logger.info("Starting demo data seeding...")
                 from backend.app.core.seeder import seed_data
                 seed_data()
-                print("Demo data seeding completed.")
+                logger.info("Demo data seeding completed.")
             except Exception as e:
-                print(f"Startup seeding failed: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"Startup seeding failed: {e}")
+                logger.exception(e)
 
     @application.on_event("shutdown")
     async def stop_scheduler_event():

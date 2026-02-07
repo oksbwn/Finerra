@@ -31,6 +31,7 @@ class Transaction(BaseModel):
     category: Optional[str] = None
     raw_message: Optional[str] = None
     recipient: Optional[str] = None
+    confidence: float = 0.0
     
 class TransactionMeta(BaseModel):
     confidence: float

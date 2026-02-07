@@ -22,7 +22,7 @@ class MerchantNormalizer:
     }
 
     @staticmethod
-    def normalize(raw_merchant: str) -> str:
+    def normalize(raw_merchant: str, db: Optional['Session'] = None) -> str:
         if not raw_merchant: 
             return "Unknown"
         
@@ -37,15 +37,30 @@ class MerchantNormalizer:
         if not clean: 
             return raw_merchant.title()
 
-        # 2. Regex Alias Lookup (High Precision)
+        # 2. Database Lookup (Priority)
+        if db:
+            from parser.db.models import MerchantAlias
+            # Check for exact matches on raw or cleaned name in aliases
+            alias_match = db.query(MerchantAlias).filter(
+                (MerchantAlias.pattern.ilike(clean)) | (MerchantAlias.pattern.ilike(raw_merchant))
+            ).first()
+            if alias_match:
+                return alias_match.alias
+
+        # 3. Regex Alias Lookup (High Precision)
         for clean_name, patterns in MerchantNormalizer.ALIASES.items():
             for pattern in patterns:
                 if re.search(pattern, clean, re.IGNORECASE):
                     return clean_name
         
-        # 3. Fuzzy Matching (Recall Helper)
+        # 4. Fuzzy Matching (Recall Helper)
         # Match against keys of ALIASES
         choices = list(MerchantNormalizer.ALIASES.keys())
+        if db:
+            from parser.db.models import MerchantAlias
+            db_aliases = db.query(MerchantAlias.alias).distinct().all()
+            choices.extend([r[0] for r in db_aliases])
+
         result = process.extractOne(clean, choices, scorer=fuzz.WRatio)
         
         if result and result[1] > 85: # Threshold of 85%

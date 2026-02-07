@@ -52,6 +52,7 @@ async function fetchHeatmapData() {
 
 // Training State
 const unparsedMessages = ref<any[]>([])
+const expandedTrainingIds = ref<Set<string>>(new Set()) // Added
 const selectedMessage = ref<any | null>(null)
 const showLabelForm = ref(false)
 const labelForm = ref({
@@ -99,6 +100,68 @@ const selectedTriageIds = ref<string[]>([])
 const selectedTrainingIds = ref<string[]>([])
 const isProcessingBulk = ref(false)
 
+// --- Sorting State ---
+const txnSortKey = ref('date')
+const txnSortOrder = ref<'asc' | 'desc'>('desc')
+
+const triageSortKey = ref('date')
+const triageSortOrder = ref<'asc' | 'desc'>('desc')
+
+const trainingSortKey = ref('created_at')
+const trainingSortOrder = ref<'asc' | 'desc'>('desc')
+
+function sortArray<T>(items: T[], key: string, order: 'asc' | 'desc') {
+    return [...items].sort((a: any, b: any) => {
+        // Handle nested keys safely
+        const valA = key.split('.').reduce((o, i) => o?.[i], a)
+        const valB = key.split('.').reduce((o, i) => o?.[i], b)
+
+        let cmpA = valA
+        let cmpB = valB
+
+        // Special handling for dates strings
+        if (key === 'date' || key === 'created_at') {
+            cmpA = new Date(valA || 0).getTime()
+            cmpB = new Date(valB || 0).getTime()
+        } else if (key === 'amount' || key === 'balance') {
+            cmpA = Number(valA || 0)
+            cmpB = Number(valB || 0)
+        } else if (typeof valA === 'string') {
+            cmpA = valA.toLowerCase()
+            cmpB = (valB || '').toLowerCase()
+        }
+
+        if (cmpA < cmpB) return order === 'asc' ? -1 : 1
+        if (cmpA > cmpB) return order === 'asc' ? 1 : -1
+        return 0
+    })
+}
+
+const sortedTrainingMessages = computed(() => {
+    return sortArray(unparsedMessages.value, trainingSortKey.value, trainingSortOrder.value)
+})
+
+function toggleTxnSort(key: string) {
+    if (txnSortKey.value === key) {
+        txnSortOrder.value = txnSortOrder.value === 'asc' ? 'desc' : 'asc'
+    } else {
+        txnSortKey.value = key
+        txnSortOrder.value = 'desc'
+    }
+    // API call triggered by watcher
+}
+
+// Watchers for Backend Sorting
+watch([txnSortKey, txnSortOrder], () => {
+    page.value = 1 // Reset to first page on sort change
+    fetchData()
+})
+
+watch([triageSortKey, triageSortOrder], () => {
+    triagePagination.value.skip = 0
+    fetchTriage()
+})
+
 // Date Filter State
 const startDate = ref<string>('')
 const endDate = ref<string>('')
@@ -133,6 +196,15 @@ const smartPromptData = ref({
     createRule: true,
     applyToSimilar: true,
     excludeFromReports: false
+})
+
+const originalDescription = ref('')
+const showRenamePrompt = ref(false)
+const renamePromptData = ref({
+    oldName: '',
+    newName: '',
+    count: 0,
+    syncToParser: true
 })
 
 // Pagination State
@@ -210,7 +282,6 @@ const currentCategoryBudget = computed(() => {
 })
 
 async function fetchData() {
-    console.log('[Transactions] fetchData called, loading=true')
     loading.value = true
     try {
         if (accounts.value.length === 0) {
@@ -237,13 +308,6 @@ async function fetchData() {
         // Helper to format date for API (YYYY-MM-DD or ISO)
         // If they are coming from the date inputs, they are already YYYY-MM-DD
 
-        console.log('[Transactions] Fetching transactions', {
-            page: page.value,
-            account: selectedAccount.value || 'all',
-            start,
-            end
-        })
-
         const res = await financeApi.getTransactions(
             selectedAccount.value || undefined,
             page.value,
@@ -251,10 +315,11 @@ async function fetchData() {
             start || undefined,
             end || undefined,
             searchQuery.value || undefined,
-            categoryFilter.value || undefined
+            categoryFilter.value || undefined,
+            txnSortKey.value,
+            txnSortOrder.value
         )
 
-        console.log('[Transactions] API response:', res.data)
         transactions.value = res.data.items
         total.value = res.data.total
 
@@ -290,7 +355,12 @@ async function fetchTriage(resetSkip = false) {
         }
 
         const [res, trainingRes] = await Promise.all([
-            financeApi.getTriage({ limit: triagePagination.value.limit, skip: triagePagination.value.skip }),
+            financeApi.getTriage({
+                limit: triagePagination.value.limit,
+                skip: triagePagination.value.skip,
+                sort_by: triageSortKey.value,
+                sort_order: triageSortOrder.value
+            }),
             financeApi.getTraining({ limit: trainingPagination.value.limit, skip: trainingPagination.value.skip })
         ])
 
@@ -602,6 +672,15 @@ function toggleSelection(id: string) {
     }
 }
 
+
+function toggleTrainingExpand(id: string) {
+    if (expandedTrainingIds.value.has(id)) {
+        expandedTrainingIds.value.delete(id)
+    } else {
+        expandedTrainingIds.value.add(id)
+    }
+}
+
 const showDeleteConfirm = ref(false)
 
 function deleteSelected() {
@@ -645,8 +724,16 @@ function formatDate(dateStr: string) {
         return { day: 'Yesterday', meta: time }
     }
 
-    // Regular date - show day number with time
-    const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    // Regular date - show day number with time and YEAR
+    const currentYear = today.getFullYear()
+    const txnYear = d.getFullYear()
+
+    let formatOptions: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+    if (txnYear !== currentYear) {
+        formatOptions.year = 'numeric'
+    }
+
+    const monthDay = d.toLocaleDateString('en-US', formatOptions)
     return {
         day: monthDay,
         meta: time
@@ -720,6 +807,7 @@ function openEditModal(txn: any) {
     isEditing.value = true
     editingTxnId.value = txn.id
     originalCategory.value = txn.category
+    originalDescription.value = txn.description || ''
     originalExclude.value = txn.exclude_from_reports || false
     form.value = {
         description: txn.description,
@@ -763,27 +851,27 @@ async function handleSubmit() {
 
             // --- Smart Categorization Detection ---
             if (form.value.category !== originalCategory.value && form.value.category) {
-                // Find similar transactions to see if we should prompt
                 const txn = transactions.value.find(t => t.id === editingTxnId.value)
                 if (txn) {
                     const pattern = txn.recipient || txn.description
-                    const similarCount = transactions.value.filter(t =>
-                        t.id !== txn.id &&
-                        (t.category === 'Uncategorized' || !t.category) &&
-                        (txn.recipient ? t.recipient === txn.recipient : t.description === txn.description)
-                    ).length
+                    try {
+                        const res = await financeApi.getMatchCount([pattern])
+                        const totalSimilar = res.data.count
 
-                    if (similarCount > 0 || txn.recipient) {
-                        smartPromptData.value = {
-                            txnId: editingTxnId.value,
-                            category: form.value.category,
-                            pattern: pattern,
-                            count: similarCount,
-                            createRule: true,
-                            applyToSimilar: similarCount > 0,
-                            excludeFromReports: false
+                        if (totalSimilar > 0 || txn.recipient) {
+                            smartPromptData.value = {
+                                txnId: editingTxnId.value,
+                                category: form.value.category,
+                                pattern: pattern,
+                                count: totalSimilar,
+                                createRule: true,
+                                applyToSimilar: totalSimilar > 0,
+                                excludeFromReports: false
+                            }
+                            showSmartPrompt.value = true
                         }
-                        showSmartPrompt.value = true
+                    } catch (e) {
+                        console.error("Match count failed", e)
                     }
                 }
             }
@@ -792,16 +880,40 @@ async function handleSubmit() {
                 const txn = transactions.value.find(t => t.id === editingTxnId.value)
                 if (txn) {
                     const pattern = txn.recipient || txn.description
-                    smartPromptData.value = {
-                        txnId: editingTxnId.value,
-                        category: form.value.category || 'Uncategorized',
-                        pattern: pattern,
-                        count: 0,
-                        createRule: true,
-                        applyToSimilar: true,
-                        excludeFromReports: true
+                    try {
+                        const res = await financeApi.getMatchCount([pattern])
+                        smartPromptData.value = {
+                            txnId: editingTxnId.value,
+                            category: form.value.category || 'Uncategorized',
+                            pattern: pattern,
+                            count: res.data.count,
+                            createRule: true,
+                            applyToSimilar: res.data.count > 0,
+                            excludeFromReports: true
+                        }
+                        showSmartPrompt.value = true
+                    } catch (e) {
+                        console.error("Match count failed", e)
                     }
-                    showSmartPrompt.value = true
+                }
+            }
+
+            // --- Rename Detection ---
+            if (form.value.description !== originalDescription.value) {
+                try {
+                    // We use originalDescription to find matches to rename
+                    const res = await financeApi.getMatchCount([originalDescription.value], false)
+                    if (res.data.count > 0) {
+                        renamePromptData.value = {
+                            oldName: originalDescription.value,
+                            newName: form.value.description,
+                            count: res.data.count,
+                            syncToParser: true
+                        }
+                        showRenamePrompt.value = true
+                    }
+                } catch (e) {
+                    console.error("Rename check failed", e)
                 }
             }
         } else {
@@ -813,6 +925,25 @@ async function handleSubmit() {
     } catch (e) {
         console.error(e)
         notify.error("Failed to save transaction")
+    }
+}
+
+async function handleBulkRename() {
+    try {
+        loading.value = true
+        await financeApi.bulkRename(
+            renamePromptData.value.oldName,
+            renamePromptData.value.newName,
+            renamePromptData.value.syncToParser
+        )
+        notify.success(`Renamed ${renamePromptData.value.count} transactions`)
+        showRenamePrompt.value = false
+        fetchData()
+    } catch (e) {
+        console.error(e)
+        notify.error("Bulk rename failed")
+    } finally {
+        loading.value = false
     }
 }
 
@@ -1037,10 +1168,23 @@ onMounted(() => {
                                 <input type="checkbox" :checked="allSelected" @change="toggleSelectAll"
                                     :disabled="transactions.length === 0">
                             </th>
-                            <th class="col-date">Date</th>
-                            <th class="col-recipient">Recipient / Source</th>
+                            <th class="col-date cursor-pointer hover:bg-gray-50" @click="toggleTxnSort('date')">
+                                Date
+                                <span v-if="txnSortKey === 'date'" class="text-indigo-600 ml-1">{{ txnSortOrder ===
+                                    'asc' ? '↑' : '↓' }}</span>
+                            </th>
+                            <th class="col-recipient cursor-pointer hover:bg-gray-50"
+                                @click="toggleTxnSort('description')">
+                                Recipient / Source
+                                <span v-if="txnSortKey === 'description'" class="text-indigo-600 ml-1">{{ txnSortOrder
+                                    === 'asc' ? '↑' : '↓' }}</span>
+                            </th>
                             <th class="col-description">Description</th>
-                            <th class="col-amount">Amount</th>
+                            <th class="col-amount cursor-pointer hover:bg-gray-50" @click="toggleTxnSort('amount')">
+                                Amount
+                                <span v-if="txnSortKey === 'amount'" class="text-indigo-600 ml-1">{{ txnSortOrder ===
+                                    'asc' ? '↑' : '↓' }}</span>
+                            </th>
                             <th class="col-actions"></th>
                         </tr>
                     </thead>
@@ -1060,34 +1204,43 @@ onMounted(() => {
                             <td class="col-recipient">
                                 <div class="txn-recipient">
                                     <div class="txn-primary">{{ txn.recipient || txn.description }}</div>
+                                    <div class="txn-source-meta" v-if="txn.source">
+                                        <span class="source-icon-mini">{{ txn.source === 'SMS' ? '📱' : (txn.source ===
+                                            'EMAIL' ? '📧' : '⌨️') }}</span>
+                                        {{ txn.source }}
+                                    </div>
                                 </div>
                             </td>
                             <td class="col-description">
                                 <div class="txn-description">
-                                    <div class="txn-description-text">{{ txn.description }}</div>
+                                    <div class="txn-description-text">
+                                        {{ txn.description }}
+                                        <span v-if="txn.latitude || txn.location_name" class="location-trigger"
+                                            :title="txn.location_name || 'Location available'">
+                                            📍
+                                        </span>
+                                    </div>
                                     <div class="txn-meta-row">
                                         <span class="account-badge">{{ getAccountName(txn.account_id) }}</span>
-                                        <span class="txn-secondary" v-if="txn.source">{{ txn.source }}</span>
+
                                         <span v-if="txn.is_ai_parsed" class="ai-badge-mini"
                                             title="Extracted using Gemini AI">✨ AI</span>
-                                        <span v-if="txn.is_transfer" class="ai-badge-mini"
-                                            style="background: #ecfdf5; color: #059669; border-color: #059669;"
+                                        <span v-if="txn.is_transfer" class="ai-badge-mini active-transfer"
                                             title="Auto-detected as internal transfer">🔄 Self-Transfer</span>
-                                        <span v-if="txn.exclude_from_reports" class="ai-badge-mini"
-                                            style="background: #fee2e2; color: #991b1b; border-color: #fca5a5;"
-                                            title="Excluded from reports and analytics">🚫 Excluded</span>
-                                        <span v-if="txn.is_emi" class="ai-badge-mini"
-                                            style="background: #e0f2fe; color: #0369a1; border-color: #7dd3fc;"
-                                            title="Linked to EMI Loan">🏦 EMI Payment</span>
-                                        <span class="category-pill"
-                                            :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
-                                            <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
-                                                }}</span>
-                                            {{ getCategoryDisplay(txn.category).text }}
-                                        </span>
-                                        <span class="ref-id-pill" v-if="txn.is_transfer">
-                                            <span class="ref-icon">🔄</span> Transfer
-                                        </span>
+                                        <span v-if="txn.exclude_from_reports" class="ai-badge-mini active-hidden"
+                                            title="Excluded from reports and analytics">🚫 Hidden</span>
+                                        <span v-if="txn.is_emi" class="ai-badge-mini active-emi"
+                                            title="Linked to EMI Loan">🏦 EMI</span>
+
+                                        <div class="category-pill-wrapper">
+                                            <span class="category-pill"
+                                                :style="{ borderLeft: '3px solid ' + getCategoryDisplay(txn.category).color }">
+                                                <span class="category-icon">{{ getCategoryDisplay(txn.category).icon
+                                                    }}</span>
+                                                {{ getCategoryDisplay(txn.category).text }}
+                                            </span>
+                                        </div>
+
                                         <span class="ref-id-pill" v-if="txn.expense_group_id">
                                             <span class="ref-icon">📁</span> {{
                                                 getExpenseGroupName(txn.expense_group_id) }}
@@ -1107,9 +1260,9 @@ onMounted(() => {
                                 </div>
                             </td>
                             <td class="col-actions">
-                                <button class="icon-btn" @click="openEditModal(txn)" title="Edit">
+                                <button class="icon-btn-edit" @click="openEditModal(txn)" title="Edit">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                        stroke-width="2">
+                                        stroke-width="2.5">
                                         <path
                                             d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                                     </svg>
@@ -1188,6 +1341,17 @@ onMounted(() => {
                                 @click="triageSourceFilter = 'SMS'">SMS</button>
                             <button class="source-chip" :class="{ active: triageSourceFilter === 'EMAIL' }"
                                 @click="triageSourceFilter = 'EMAIL'">Email</button>
+                        </div>
+
+                        <!-- Sort Controls Pending -->
+                        <div class="flex items-center gap-2 ml-auto">
+                            <CustomSelect v-model="triageSortKey"
+                                :options="[{ label: 'Date', value: 'date' }, { label: 'Amount', value: 'amount' }, { label: 'Description', value: 'description' }]"
+                                class="w-32 text-xs" />
+                            <button @click="triageSortOrder = triageSortOrder === 'asc' ? 'desc' : 'asc'"
+                                class="btn-icon-circle-small bg-white border border-gray-200" title="Toggle Order">
+                                {{ triageSortOrder === 'asc' ? '↑' : '↓' }}
+                            </button>
                         </div>
                     </div>
 
@@ -1368,11 +1532,23 @@ onMounted(() => {
                                     🗑️ Dismiss {{ selectedTrainingIds.length }}
                                 </button>
                             </div>
-                            <button @click="fetchTriage(true)" class="btn-icon-circle-small amber-themed">🔄</button>
+                            <!-- Sort Controls Training -->
+                            <div class="flex items-center gap-2">
+                                <CustomSelect v-model="trainingSortKey"
+                                    :options="[{ label: 'Date', value: 'created_at' }, { label: 'Sender', value: 'sender' }]"
+                                    class="w-32 text-xs" />
+                                <button @click="trainingSortOrder = trainingSortOrder === 'asc' ? 'desc' : 'asc'"
+                                    class="btn-icon-circle-small bg-white border border-amber-200 text-amber-700"
+                                    title="Toggle Order">
+                                    {{ trainingSortOrder === 'asc' ? '↑' : '↓' }}
+                                </button>
+                                <button @click="fetchTriage(true)"
+                                    class="btn-icon-circle-small amber-themed">🔄</button>
+                            </div>
                         </div>
 
                         <div class="triage-grid">
-                            <div v-for="msg in unparsedMessages" :key="msg.id"
+                            <div v-for="msg in sortedTrainingMessages" :key="msg.id"
                                 class="glass-card triage-card training-theme"
                                 :class="{ 'selected': selectedTrainingIds.includes(msg.id) }">
                                 <div class="triage-card-header">
@@ -1380,7 +1556,7 @@ onMounted(() => {
                                         <input type="checkbox" v-model="selectedTrainingIds" :value="msg.id"
                                             class="mr-2" />
                                         <span class="source-tag" :class="msg.source.toLowerCase()">{{ msg.source
-                                        }}</span>
+                                            }}</span>
                                         <span class="ai-badge-mini"
                                             style="background: #fef3c7; color: #92400e; border-color: #f59e0b;">🤖 Needs
                                             Training</span>
@@ -1398,7 +1574,12 @@ onMounted(() => {
                                                 <span class="label">Subject:</span> {{ msg.subject }}
                                             </div>
                                         </div>
-                                        <pre class="training-raw-preview-premium">{{ msg.raw_content }}</pre>
+                                        <pre class="training-raw-preview-premium"
+                                            :class="{ 'expanded': expandedTrainingIds.has(msg.id) }">{{ msg.raw_content }}</pre>
+                                        <button v-if="msg.raw_content?.length > 150"
+                                            @click="toggleTrainingExpand(msg.id)" class="read-more-btn">
+                                            {{ expandedTrainingIds.has(msg.id) ? 'Collapse ▲' : 'Read More ▼' }}
+                                        </button>
                                     </div>
                                 </div>
 
@@ -1661,7 +1842,8 @@ onMounted(() => {
                             <label class="smart-option-item" v-if="smartPromptData.count > 0">
                                 <input type="checkbox" v-model="smartPromptData.applyToSimilar" class="checkbox-input">
                                 <span>
-                                    {{ smartPromptData.excludeFromReports ? 'Exclude' : 'Apply to' }}
+                                    {{ smartPromptData.excludeFromReports ? 'Exclude retrospectively' :
+                                        'Apply retrospectively to' }}
                                     <strong>{{ smartPromptData.count }}</strong> similar
                                     {{ smartPromptData.excludeFromReports ? '' : 'uncategorized' }}
                                     transactions
@@ -1689,6 +1871,38 @@ onMounted(() => {
                         <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
                             <button class="btn btn-outline" @click="showSmartPrompt = false">Skip</button>
                             <button class="btn btn-primary" @click="handleSmartCategorize">Confirm</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Smart Rename Modal -->
+            <div v-if="showRenamePrompt" class="modal-overlay-global">
+                <div class="modal-global" style="max-width: 450px;">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Bulk Rename ✏️</h2>
+                        <button class="btn-icon" @click="showRenamePrompt = false">✕</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <p style="margin-bottom: 1.25rem; color: #4b5563; line-height: 1.5;">
+                            You renamed <strong>{{ renamePromptData.oldName }}</strong> to <strong>{{
+                                renamePromptData.newName }}</strong>.
+                            Found <strong>{{ renamePromptData.count }}</strong> other transactions with the same name.
+                        </p>
+
+                        <div class="smart-options">
+                            <label class="smart-option-item">
+                                <input type="checkbox" v-model="renamePromptData.syncToParser" class="checkbox-input">
+                                <span>
+                                    <strong>Save as permanent lookup</strong> (Auto-rename this merchant in future)
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="modal-footer" style="padding: 1.5rem 0 0 0; border: none; background: transparent;">
+                            <button class="btn btn-outline" @click="showRenamePrompt = false">Only this one</button>
+                            <button class="btn btn-primary" @click="handleBulkRename">Rename All {{
+                                renamePromptData.count }}</button>
                         </div>
                     </div>
                 </div>
@@ -1931,13 +2145,37 @@ onMounted(() => {
     margin-bottom: 0.25rem;
 }
 
-.training-raw-preview {
+.training-raw-preview-premium {
     font-family: 'Monaco', 'Consolas', monospace;
     font-size: 0.75rem;
     line-height: 1.4;
     color: #4b5563;
     white-space: pre-wrap;
     margin: 0;
+    max-height: 100px;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.training-raw-preview-premium.expanded {
+    max-height: 1000px;
+}
+
+.read-more-btn {
+    background: none;
+    border: none;
+    color: #4f46e5;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.25rem 0;
+    margin-top: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.read-more-btn:hover {
+    text-decoration: underline;
 }
 
 .btn-label {
@@ -2370,12 +2608,34 @@ onMounted(() => {
     display: inline-flex;
     align-items: center;
     padding: 0.125rem 0.5rem;
-    background: #eff6ff;
-    color: #1e40af;
-    border-radius: 9999px;
+    background: #f1f5f9;
+    color: #475569;
+    border-radius: 4px;
     font-size: 0.65rem;
-    font-weight: 500;
+    font-weight: 600;
     white-space: nowrap;
+    border: 1px solid #e2e8f0;
+}
+
+.txn-source-meta {
+    font-size: 0.65rem;
+    color: #94a3b8;
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+}
+
+.source-icon-mini {
+    font-size: 0.75rem;
+}
+
+.location-trigger {
+    cursor: help;
+    font-size: 0.8rem;
+    margin-left: 4px;
+    opacity: 0.8;
 }
 
 .txn-secondary {
@@ -2393,21 +2653,45 @@ onMounted(() => {
 }
 
 /* Category Pill */
+.category-pill-wrapper {
+    display: inline-block;
+}
+
 .category-pill {
     display: inline-flex;
     align-items: center;
-    gap: 0.2rem;
-    padding: 0.125rem 0.5rem;
-    background: #f3f4f6;
-    color: #4b5563;
-    border-radius: 9999px;
-    font-size: 0.7rem;
-    font-weight: 500;
+    gap: 0.3rem;
+    padding: 0.15rem 0.6rem;
+    background: #ffffff;
+    color: #334155;
+    border-radius: 6px;
+    font-size: 0.725rem;
+    font-weight: 600;
     white-space: nowrap;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .category-icon {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
+}
+
+.ai-badge-mini.active-transfer {
+    background: #ecfdf5;
+    color: #059669;
+    border-color: #a7f3d0;
+}
+
+.ai-badge-mini.active-hidden {
+    background: #fff1f2;
+    color: #e11d48;
+    border-color: #fecdd3;
+}
+
+.ai-badge-mini.active-emi {
+    background: #eff6ff;
+    color: #2563eb;
+    border-color: #bfdbfe;
 }
 
 /* Amount Cell with Icon */
@@ -2645,24 +2929,28 @@ onMounted(() => {
 }
 
 /* Icon Button */
-.icon-btn {
+.icon-btn-edit {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 2rem;
+    height: 2rem;
     padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 0.375rem;
-    color: #6b7280;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    color: #64748b;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-.icon-btn:hover {
-    background: #f3f4f6;
-    color: #111827;
+.icon-btn-edit:hover {
+    background: #f8fafc;
+    color: #4f46e5;
+    border-color: #4f46e5;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 /* Empty State */
@@ -2763,6 +3051,76 @@ onMounted(() => {
 
 .half {
     flex: 1;
+}
+
+.bulk-action-bar {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e293b;
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+}
+
+.bulk-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.bulk-count {
+    background: #4f46e5;
+    color: white;
+    font-weight: 700;
+    font-size: 0.75rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.bulk-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.bulk-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.bulk-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 0.375rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.bulk-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.bulk-btn.danger:hover {
+    background: #ef4444;
+    border-color: #ef4444;
 }
 
 .form-input {

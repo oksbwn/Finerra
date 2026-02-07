@@ -27,13 +27,16 @@ def read_transactions(
     end_date: Optional[datetime] = None,
     search: Optional[str] = None,
     category: Optional[str] = None,
+    sort_by: Optional[str] = "date",
+    sort_order: Optional[str] = "desc",
     current_user: auth_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     skip = (page - 1) * limit
     items = TransactionService.get_transactions(
         db, str(current_user.tenant_id), account_id, skip, limit, start_date, end_date, 
-        search=search, category=category, user_role=current_user.role
+        search=search, category=category, user_role=current_user.role,
+        sort_by=sort_by, sort_order=sort_order
     )
     total = TransactionService.count_transactions(
         db, str(current_user.tenant_id), account_id, start_date, end_date, 
@@ -85,3 +88,33 @@ def smart_categorize_transaction(
         apply_to_similar=payload.apply_to_similar,
         exclude_from_reports=payload.exclude_from_reports
     )
+
+@router.post("/transactions/rules/{rule_id}/apply-retrospective")
+def apply_rule_retrospectively(
+    rule_id: str,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return TransactionService.apply_rule_retrospectively(db, rule_id, str(current_user.tenant_id))
+
+@router.post("/transactions/match-count")
+def get_match_count(
+    payload: schemas.MatchCountRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    count = TransactionService.get_matching_count(
+        db, payload.keywords, str(current_user.tenant_id), only_uncategorized=payload.only_uncategorized
+    )
+    return {"count": count}
+
+@router.post("/transactions/bulk-rename")
+def bulk_rename_transactions(
+    payload: schemas.BulkRenameRequest,
+    current_user: auth_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    count = TransactionService.bulk_rename(
+        db, payload.old_name, payload.new_name, str(current_user.tenant_id), payload.sync_to_parser
+    )
+    return {"message": f"Renamed {count} transactions", "count": count}

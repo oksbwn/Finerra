@@ -11,8 +11,24 @@ from parser.schemas.transaction import IngestionResult, ParsedItem, TransactionM
 from parser.parsers.bank.hdfc import HdfcSmsParser, HdfcEmailParser
 from parser.parsers.bank.icici import IciciSmsParser, IciciEmailParser
 from parser.parsers.bank.sbi import SbiSmsParser, SbiEmailParser
-from parser.parsers.bank.axis import AxisSmsParser
-from parser.parsers.bank.kotak import KotakSmsParser
+from parser.parsers.bank.axis import AxisSmsParser, AxisEmailParser
+from parser.parsers.bank.kotak import KotakSmsParser, KotakEmailParser
+from parser.parsers.bank.indusind import IndusIndSmsParser, IndusIndEmailParser
+from parser.parsers.bank.yesbank import YesBankSmsParser, YesBankEmailParser
+from parser.parsers.bank.pnb import PnbSmsParser, PnbEmailParser
+from parser.parsers.bank.bob import BobSmsParser, BobEmailParser
+from parser.parsers.bank.canara import CanaraSmsParser, CanaraEmailParser
+from parser.parsers.bank.unionbank import UnionBankSmsParser, UnionBankEmailParser
+from parser.parsers.bank.idfc import IdfcSmsParser, IdfcEmailParser
+from parser.parsers.bank.rbl import RblSmsParser, RblEmailParser
+from parser.parsers.bank.federal import FederalBankSmsParser, FederalBankEmailParser
+from parser.parsers.bank.idbi import IdbiSmsParser, IdbiEmailParser
+from parser.parsers.bank.indianbank import IndianBankSmsParser, IndianBankEmailParser
+from parser.parsers.bank.ausfb import AuSfbSmsParser, AuSfbEmailParser
+from parser.parsers.bank.bandhan import BandhanSmsParser, BandhanEmailParser
+from parser.parsers.bank.centralbank import CentralBankSmsParser, CentralBankEmailParser
+from parser.parsers.bank.boi import BoiSmsParser, BoiEmailParser
+from parser.parsers.bank.government_schemes import EpfoSmsParser, PpfSmsParser, NpsSmsParser, EpfoEmailParser, PpfEmailParser, NpsEmailParser
 from parser.parsers.bank.generic import GenericSmsParser
 from parser.parsers.registry import ParserRegistry
 from parser.parsers.file.universal_parser import UniversalParser
@@ -25,12 +41,53 @@ ParserRegistry.register_sms(IciciSmsParser())
 ParserRegistry.register_sms(SbiSmsParser())
 ParserRegistry.register_sms(AxisSmsParser())
 ParserRegistry.register_sms(KotakSmsParser())
+ParserRegistry.register_sms(IndusIndSmsParser())
+ParserRegistry.register_sms(YesBankSmsParser())
+ParserRegistry.register_sms(PnbSmsParser())
+ParserRegistry.register_sms(BobSmsParser())
+ParserRegistry.register_sms(CanaraSmsParser())
+ParserRegistry.register_sms(UnionBankSmsParser())
+ParserRegistry.register_sms(IdfcSmsParser())
+ParserRegistry.register_sms(RblSmsParser())
+ParserRegistry.register_sms(FederalBankSmsParser())
+ParserRegistry.register_sms(IdbiSmsParser())
+ParserRegistry.register_sms(IndianBankSmsParser())
+ParserRegistry.register_sms(AuSfbSmsParser())
+ParserRegistry.register_sms(BandhanSmsParser())
+ParserRegistry.register_sms(CentralBankSmsParser())
+ParserRegistry.register_sms(BoiSmsParser())
+# Government Schemes
+ParserRegistry.register_sms(EpfoSmsParser())
+ParserRegistry.register_sms(PpfSmsParser())
+ParserRegistry.register_sms(NpsSmsParser())
+# Generic fallback
 ParserRegistry.register_sms(GenericSmsParser())
 
 # Register Email Parsers
 ParserRegistry.register_email(HdfcEmailParser())
 ParserRegistry.register_email(IciciEmailParser())
 ParserRegistry.register_email(SbiEmailParser())
+ParserRegistry.register_email(AxisEmailParser())
+ParserRegistry.register_email(KotakEmailParser())
+ParserRegistry.register_email(IndusIndEmailParser())
+ParserRegistry.register_email(YesBankEmailParser())
+ParserRegistry.register_email(PnbEmailParser())
+ParserRegistry.register_email(BobEmailParser())
+ParserRegistry.register_email(CanaraEmailParser())
+ParserRegistry.register_email(UnionBankEmailParser())
+ParserRegistry.register_email(IdfcEmailParser())
+ParserRegistry.register_email(RblEmailParser())
+ParserRegistry.register_email(FederalBankEmailParser())
+ParserRegistry.register_email(IdbiEmailParser())
+ParserRegistry.register_email(IndianBankEmailParser())
+ParserRegistry.register_email(AuSfbEmailParser())
+ParserRegistry.register_email(BandhanEmailParser())
+ParserRegistry.register_email(CentralBankEmailParser())
+ParserRegistry.register_email(BoiEmailParser())
+# Government Schemes
+ParserRegistry.register_email(EpfoEmailParser())
+ParserRegistry.register_email(PpfEmailParser())
+ParserRegistry.register_email(NpsEmailParser())
 
 router = APIRouter(prefix="/v1/ingest", tags=["Ingestion"])
 
@@ -52,7 +109,7 @@ def ingest_sms(
     db: Session = Depends(get_db)
 ):
     pipeline = IngestionPipeline(db)
-    result = pipeline.run(payload.body, "SMS", payload.sender)
+    result = pipeline.run(payload.body, "SMS", sender=payload.sender, date_hint=payload.received_at)
     return result
 
 @router.post("/email", response_model=IngestionResult)
@@ -62,7 +119,7 @@ def ingest_email(
     db: Session = Depends(get_db)
 ):
     pipeline = IngestionPipeline(db)
-    result = pipeline.run(payload.body_text, "EMAIL", sender=payload.sender, subject=payload.subject)
+    result = pipeline.run(payload.body_text, "EMAIL", sender=payload.sender, subject=payload.subject, date_hint=payload.received_at)
     return result
 
 @router.post("/file", response_model=IngestionResult)

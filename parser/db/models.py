@@ -43,8 +43,18 @@ class PatternRule(Base):
     __tablename__ = "pattern_rules"
     
     id = Column(String, primary_key=True, default=generate_uuid)
-    source = Column(String, nullable=False) # SMS, EMAIL
+    source = Column(String, nullable=False)  # SMS, EMAIL, or bank name
     regex_pattern = Column(String, nullable=False)
     mapping_json = Column(JSON, nullable=False)
     is_active = Column(Boolean, default=True)
+    is_ai_generated = Column(Boolean, default=False)
+    confidence = Column(JSON, nullable=True)  # AI's confidence in this pattern
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class MerchantAlias(Base):
+    __tablename__ = "merchant_aliases"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    pattern = Column(String, nullable=False, unique=True) # The raw string to match (e.g. "BUNDL TECHNOLOGIES")
+    alias = Column(String, nullable=False) # The clean name (e.g. "Swiggy")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

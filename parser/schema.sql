@@ -40,6 +40,17 @@ CREATE TABLE pattern_rules (
 	regex_pattern VARCHAR NOT NULL, 
 	mapping_json JSON NOT NULL, 
 	is_active BOOLEAN DEFAULT TRUE, 
+	is_ai_generated BOOLEAN DEFAULT FALSE, 
+	confidence JSON, 
 	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id)
+);
+
+CREATE TABLE merchant_aliases (
+	id VARCHAR NOT NULL, 
+	pattern VARCHAR NOT NULL, 
+	alias VARCHAR NOT NULL, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+	PRIMARY KEY (id), 
+	UNIQUE (pattern)
 );

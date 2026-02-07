@@ -12,7 +12,7 @@ class GenericSmsParser(BaseSmsParser):
     DEBIT_PATTERN = re.compile(r"(?i)(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*debited\s*from.*?a/c\s*([xX]*\d+)(?:.*to\s+([^.]+))?", re.IGNORECASE)
     CREDIT_PATTERN = re.compile(r"(?i)(?:credited|deposited).*?(?:Rs\.?|INR)\s*([\d,]+\.?\d*).*?a/c\s*([xX]*\d+)(?:.*from\s+([^.]+))?", re.IGNORECASE)
     SPENT_PATTERN = re.compile(r"(?i)Spent\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*.*?card\s*([xX]*\d+)(?:.*at\s+([^.]+))?", re.IGNORECASE)
-    REF_PATTERN = re.compile(r"(?i)(?:Ref|UTR|TXN#|Ref\s*No|reference\s*number\s*is)[:\.\s-]+(\w{3,})")
+    REF_PATTERN = re.compile(r"(?i)\b(?:Ref|UTR|TXN#|Ref\s*No|reference\s*number)(?:[\s:\.-]|\bis\b)+([a-zA-Z0-9]{3,})")
 
     def can_handle(self, sender: str, message: str) -> bool:
         keywords = ["debited", "credited", "spent", "spent at", "payment", "txn", "upi"]
@@ -65,7 +65,7 @@ class GenericEmailParser(BaseEmailParser):
     DEBIT_PATTERN = re.compile(r"(?i)(?:A/c|Card)\s*(?:.*?|x*|X*)(\d+)\s*has\s*been\s*debited\s*for\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*on\s*(\d{2}-\d{2}-\d{2,4})\s*towards\s*(.*?)\.", re.IGNORECASE)
     GENERIC_ALERT_PATTERN = re.compile(r"(?i)(?:A/c|Card)\s*(?:.*?|x*|X*)(\d+):?\s*(?:Rs\.?|INR)\s*([\d,]+\.?\d*)\s*(?:spent|debited|spent\s*at)\s*(?:at|to)?\s*(.*?)\s*on\s*(\d{2}-\d{2}-\d{2,4})", re.IGNORECASE)
     REF_PATTERN = re.compile(
-        r"(?i)(?:Ref|UTR|TXN#|Ref\s*No|Reference\s*ID|reference\s*number|utr\s*no|Ref\s*ID)[:\.\s-]+(\w+)", 
+        r"(?i)\b(?:Ref|UTR|TXN#|Ref\s*No|Reference\s*ID|reference\s*number|utr\s*no|Ref\s*ID)(?:[\s:\.-]|\bis\b)+([a-zA-Z0-9]{3,})", 
         re.IGNORECASE
     )
 

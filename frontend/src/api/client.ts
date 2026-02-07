@@ -71,8 +71,8 @@ export const financeApi = {
     updateAccount: (id: string, data: AccountUpdate) => apiClient.put(`/finance/accounts/${id}`, data),
     deleteAccount: (id: string) => apiClient.delete(`/finance/accounts/${id}`),
     getAccountTransactionCount: (id: string) => apiClient.get(`/finance/accounts/${id}/transaction-count`),
-    getTransactions: (accountId?: string, page: number = 1, limit: number = 50, startDate?: string, endDate?: string, search?: string, category?: string) =>
-        apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate, search, category } }),
+    getTransactions: (accountId?: string, page: number = 1, limit: number = 50, startDate?: string, endDate?: string, search?: string, category?: string, sortBy: string = 'date', sortOrder: string = 'desc') =>
+        apiClient.get('/finance/transactions', { params: { account_id: accountId, page, limit, start_date: startDate, end_date: endDate, search, category, sort_by: sortBy, sort_order: sortOrder } }),
     createTransaction: (data: any) => apiClient.post('/finance/transactions', data),
     updateTransaction: (id: string, data: TransactionUpdate) => apiClient.put(`/finance/transactions/${id}`, data),
     smartCategorize: (data: { transaction_id: string, category: string, create_rule: boolean, apply_to_similar: boolean, exclude_from_reports?: boolean }) =>
@@ -86,6 +86,9 @@ export const financeApi = {
     ignoreSuggestion: (data: { pattern: string }) => apiClient.post('/finance/rules/suggestions/ignore', data),
     updateRule: (id: string, data: any) => apiClient.put(`/finance/rules/${id}`, data),
     deleteRule: (id: string) => apiClient.delete(`/finance/rules/${id}`),
+    applyRuleRetrospectively: (id: string) => apiClient.post(`/finance/transactions/rules/${id}/apply-retrospective`),
+    getMatchCount: (keywords: string[], onlyUncategorized: boolean = true) => apiClient.post('/finance/transactions/match-count', { keywords, only_uncategorized: onlyUncategorized }),
+    bulkRename: (old_name: string, new_name: string, sync_to_parser: boolean) => apiClient.post('/finance/transactions/bulk-rename', { old_name, new_name, sync_to_parser }),
 
     getCategories: (tree: boolean = false) => apiClient.get('/finance/categories', { params: { tree } }),
     createCategory: (data: any) => apiClient.post('/finance/categories', data),
@@ -143,7 +146,7 @@ export const financeApi = {
     updateTenant: (id: string, data: any) => apiClient.put(`/auth/tenants/${id}`, data),
 
     // Triage & Training
-    getTriage: (params?: { limit?: number, skip?: number }) => apiClient.get('/ingestion/triage', { params }),
+    getTriage: (params?: { limit?: number, skip?: number, sort_by?: string, sort_order?: string }) => apiClient.get('/ingestion/triage', { params }),
     approveTriage: (id: string, data: { category?: string, is_transfer?: boolean, to_account_id?: string, create_rule?: boolean, exclude_from_reports?: boolean }) => apiClient.post(`/ingestion/triage/${id}/approve`, data),
     rejectTriage: (id: string, createIgnoreRule: boolean = false) => apiClient.delete(`/ingestion/triage/${id}`, { params: { create_ignore_rule: createIgnoreRule } }),
     bulkRejectTriage: (ids: string[], createIgnoreRules: boolean = false) => apiClient.post('/ingestion/triage/bulk-reject', { pending_ids: ids, create_ignore_rules: createIgnoreRules }),
@@ -215,7 +218,7 @@ export const financeApi = {
 
 // Parser Microservice API (Port 8001)
 const parserClient = axios.create({
-    baseURL: import.meta.env.VITE_PARSER_API_URL || 'http://localhost:8001/v1',
+    baseURL: import.meta.env.VITE_PARSER_API_URL || '/parser',
     headers: {
         'Content-Type': 'application/json',
     },
@@ -229,6 +232,9 @@ export const parserApi = {
     getLogDetail: (id: string) => parserClient.get(`/logs/${id}`),
     getAiConfig: () => parserClient.get('/config/ai'),
     updateAiConfig: (data: any) => parserClient.post('/config/ai', data),
+    getAliases: () => parserClient.get('/config/aliases'),
+    createAlias: (pattern: string, alias: string) => parserClient.post('/config/aliases', { pattern, alias }),
+    deleteAlias: (id: string) => parserClient.delete(`/config/aliases/${id}`),
     getPatterns: () => parserClient.get('/config/patterns'),
     createPattern: (data: any) => parserClient.post('/config/patterns', data),
     deletePattern: (id: string) => parserClient.delete(`/config/patterns/${id}`),
@@ -239,7 +245,10 @@ export const aiApi = {
     updateSettings: (data: any) => apiClient.post('/ingestion/ai/settings', data),
     testConnection: (content: string) => apiClient.post('/ingestion/ai/test', { content }),
     listModels: (provider: string, apiKey?: string) => apiClient.get('/ingestion/ai/models', { params: { provider, api_key: apiKey } }),
-    generateSummaryInsights: (summary_data: any) => apiClient.post('/ingestion/ai/generate-insights', { summary_data })
+    generateSummaryInsights: (summary_data: any) => apiClient.post('/ingestion/ai/generate-insights', { summary_data }),
+    getAliases: () => apiClient.get('/ingestion/ai/aliases'),
+    createAlias: (pattern: string, alias: string) => apiClient.post('/ingestion/ai/aliases', { pattern, alias }),
+    deleteAlias: (id: string) => apiClient.delete(`/ingestion/ai/aliases/${id}`)
 }
 
 export const mobileApi = {

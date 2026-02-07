@@ -9,18 +9,19 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from parser.db.database import init_db
-# from parser.core.scheduler import start_cleanup_job
-from parser.api import ingestion, config, analytics, system
+from parser.core.scheduler import start_cleanup_job, stop_cleanup_job
+from parser.api import ingestion, config, analytics, system, patterns
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Init DB, Start Scheduler
     print("Starting Parser Service...")
     init_db()
-    # start_cleanup_job()
+    start_cleanup_job()  # ✅ Enable cleanup scheduler
     yield
     # Shutdown
     print("Shutting down Parser Service...")
+    stop_cleanup_job()  # ✅ Stop scheduler gracefully
 
 app = FastAPI(
     title="Financial Parser Microservice",
@@ -43,6 +44,7 @@ app.include_router(system.router)
 app.include_router(ingestion.router)
 app.include_router(config.router)
 app.include_router(analytics.router)
+app.include_router(patterns.router)
 
 if __name__ == "__main__":
     uvicorn.run("parser.main:app", host="0.0.0.0", port=8001, reload=True)
