@@ -78,6 +78,7 @@ export function useTriageState(
                 categories.value = catRes.data
             }
 
+
             const [res, trainingRes] = await Promise.all([
                 financeApi.getTriage({
                     limit: triagePagination.value.limit,
@@ -366,10 +367,20 @@ export function useTriageState(
         fetchTriage()
     })
 
-    // Watch search and source filter changes
-    watch([triageSearchQuery, triageSourceFilter], () => {
+    // Watch source filter changes (immediate)
+    watch(triageSourceFilter, () => {
         triagePagination.value.skip = 0
         fetchTriage()
+    })
+
+    // Watch search query changes (debounced)
+    let searchDebounce: any = null
+    watch(triageSearchQuery, () => {
+        if (searchDebounce) clearTimeout(searchDebounce)
+        searchDebounce = setTimeout(() => {
+            triagePagination.value.skip = 0
+            fetchTriage()
+        }, 400)
     })
 
     return {
