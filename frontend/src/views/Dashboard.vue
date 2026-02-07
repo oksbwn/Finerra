@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import MainLayout from '@/layouts/MainLayout.vue'
 import { financeApi } from '@/api/client'
 import { useRouter } from 'vue-router'
@@ -9,42 +9,21 @@ import { useAuthStore } from '@/stores/auth'
 import { useCurrency } from '@/composables/useCurrency'
 import Sparkline from '@/components/Sparkline.vue'
 import {
-    ChevronDown, Users, Wallet, PieChart, CreditCard
+    ChevronDown, Users, Wallet, PieChart, CreditCard, Landmark, Sparkles, Activity, CalendarDays
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const auth = useAuthStore()
 const { formatAmount } = useCurrency()
-const loading = ref(true)
 
-// Member Selection
+// --- State ---
+const loading = ref(true)
 const selectedMember = ref<string | null>(null)
 const familyMembers = ref<any[]>([])
-const showMemberDropdown = ref(false)
-const memberDropdownRef = ref<HTMLElement | null>(null)
-
-const selectedMemberName = computed(() => {
-    if (!selectedMember.value) return 'All Members'
-    const member = familyMembers.value.find(m => m.id === selectedMember.value)
-    return member ? (member.full_name || member.email) : 'All Members'
-})
-
-function selectMember(id: string | null) {
-    selectedMember.value = id
-    showMemberDropdown.value = false
-}
-
-function handleDropdownOutside(event: MouseEvent) {
-    if (memberDropdownRef.value && !memberDropdownRef.value.contains(event.target as Node)) {
-        showMemberDropdown.value = false
-    }
-}
-onMounted(() => {
-    document.addEventListener('click', handleDropdownOutside)
-})
-onUnmounted(() => {
-    document.removeEventListener('click', handleDropdownOutside)
-})
+const accounts = ref<any[]>([])
+const categories = ref<any[]>([])
+const budgets = ref<any[]>([])
+const expenseGroups = ref<any[]>([])
 
 const mfPortfolio = ref({
     invested: 0,
@@ -57,9 +36,11 @@ const mfPortfolio = ref({
     topPerformer: null as any,
     loading: true
 })
+
 const netWorthTrend = ref<number[]>([])
 const spendingTrend = ref<number[]>([])
 const recurringTransactions = ref<any[]>([])
+
 const metrics = ref({
     breakdown: {
         net_worth: 0,
@@ -85,8 +66,12 @@ const metrics = ref({
     currency: 'INR'
 })
 
-const budgets = ref<any[]>([])
-const categories = ref<any[]>([])
+// --- Computed ---
+const selectedMemberName = computed(() => {
+    if (!selectedMember.value) return 'All Members'
+    const member = familyMembers.value.find(m => m.id === selectedMember.value)
+    return member ? (member.full_name || member.email) : 'All Members'
+})
 
 const budgetPulse = computed(() => {
     return budgets.value
@@ -123,29 +108,35 @@ const upcomingBills = computed(() => {
         .slice(0, 3)
 })
 
-// Initialize composables
-const accounts = ref<any[]>([])
-const expenseGroups = ref<any[]>([])
+// --- Helpers & Composables ---
 const { formatDate, getCategoryDisplay } = useTransactionHelpers(accounts, categories, expenseGroups)
 const { getGreeting, getBankBrand } = useDashboardHelpers()
 
-// Adapter for getCategoryDetails to use getCategoryDisplay
+function selectMember(id: string | null) {
+    selectedMember.value = id
+}
+
 function getCategoryDetails(name: string) {
     const display = getCategoryDisplay(name)
     return { icon: display.icon, color: display.color }
 }
 
+const greetingEmoji = computed(() => {
+    const g = getGreeting()
+    if (g.includes('Morning')) return '🌅'
+    if (g.includes('Afternoon')) return '☀️'
+    return '🌙'
+})
+
+// --- Data Fetching ---
 async function fetchAllData() {
-    // Show skeleton initially
     loading.value = true
     mfPortfolio.value.loading = true
-
     const userId = selectedMember.value || undefined
 
-    // Hide main skeleton after a brief moment (data will populate progressively)
     setTimeout(() => { loading.value = false }, 300)
 
-    // 1. Metrics - highest priority
+    // 1. Metrics
     financeApi.getMetrics(undefined, undefined, undefined, userId)
         .then(res => { metrics.value = res.data })
         .catch(e => console.warn("Metrics fetch failed", e))
@@ -154,13 +145,10 @@ async function fetchAllData() {
     financeApi.getPortfolio(userId)
         .then(pfRes => {
             if (pfRes && pfRes.data && Array.isArray(pfRes.data)) {
-                let invested = 0
-                let current = 0
+                let invested = 0, current = 0
                 pfRes.data.forEach((h: any) => {
-                    const inv = Number(h.invested_value || h.investedValue || h.invested_amount || 0)
-                    const cur = Number(h.current_value || h.currentValue || h.value || 0)
-                    invested += inv
-                    current += cur
+                    invested += Number(h.invested_value || h.investedValue || h.invested_amount || 0)
+                    current += Number(h.current_value || h.currentValue || h.value || 0)
                 })
                 mfPortfolio.value.invested = invested
                 mfPortfolio.value.current = current
@@ -176,11 +164,11 @@ async function fetchAllData() {
             if (anRes && anRes.data) {
                 mfPortfolio.value.xirr = Number(anRes.data.xirr || 0)
                 mfPortfolio.value.allocation = anRes.data.asset_allocation || { equity: 0, debt: 0, hybrid: 0, other: 0 }
-                if (anRes.data.top_gainers && anRes.data.top_gainers.length > 0) {
+                if (anRes.data.top_gainers?.length > 0) {
                     const top = anRes.data.top_gainers[0]
                     mfPortfolio.value.topPerformer = {
-                        schemeName: top.scheme_name || top.schemeName || top.scheme,
-                        plPercent: Number(top.pl_percent || top.plPercent || top.returns || 0)
+                        schemeName: top.scheme_name || top.scheme,
+                        plPercent: Number(top.pl_percent || top.returns || 0)
                     }
                 }
                 mfPortfolio.value.loading = false
@@ -193,59 +181,53 @@ async function fetchAllData() {
 
     // 4. Timeline
     financeApi.getPerformanceTimeline('1m', '1d', userId)
-        .then(timelineRes => {
-            if (timelineRes && timelineRes.data && (Array.isArray(timelineRes.data.timeline) || Array.isArray(timelineRes.data))) {
-                const timelineArr = Array.isArray(timelineRes.data) ? timelineRes.data : timelineRes.data.timeline
-                mfPortfolio.value.trend = timelineArr.map((p: any) => Number(p.value || 0))
-            }
+        .then(res => {
+            const timeline = Array.isArray(res.data) ? res.data : (res.data.timeline || [])
+            mfPortfolio.value.trend = timeline.map((p: any) => Number(p.value || 0))
         })
         .catch(e => console.warn("Timeline fetch failed", e))
 
     // 5. Recurring
     financeApi.getRecurringTransactions()
-        .then(recurringRes => { recurringTransactions.value = recurringRes.data })
+        .then(res => { recurringTransactions.value = res.data })
         .catch(e => console.warn("Recurring fetch failed", e))
 
     // 6. Net Worth Trend
     financeApi.getNetWorthTimeline(30, userId)
-        .then(nwRes => {
-            if (nwRes && nwRes.data) {
-                netWorthTrend.value = nwRes.data.map((p: any) => Number(p.total || 0))
-            }
-        })
+        .then(res => { netWorthTrend.value = res.data.map((p: any) => Number(p.total || 0)) })
         .catch(e => console.warn("Net worth trend failed", e))
 
     // 7. Spending Trend
     financeApi.getSpendingTrend(userId)
-        .then(spendRes => {
-            if (spendRes && spendRes.data) {
-                spendingTrend.value = spendRes.data.map((p: any) => Number(p.amount || 0))
-            }
-        })
+        .then(res => { spendingTrend.value = res.data.map((p: any) => Number(p.amount || 0)) })
         .catch(e => console.warn("Spending trend failed", e))
 }
 
-onMounted(async () => {
-    // Fetch common data (once)
+async function fetchMetadata() {
     try {
-        const [usersRes, catRes, budgetRes] = await Promise.all([
+        const [usersRes, catRes, budgetRes, accRes, expRes] = await Promise.all([
             financeApi.getUsers(),
             financeApi.getCategories(),
-            financeApi.getBudgets()
+            financeApi.getBudgets(),
+            financeApi.getAccounts(),
+            financeApi.getExpenseGroups()
         ])
         familyMembers.value = usersRes.data
         categories.value = catRes.data
         budgets.value = budgetRes.data
+        accounts.value = accRes.data
+        expenseGroups.value = expRes.data
     } catch (e) {
-        console.error("Failed to fetch initial dashboard metadata", e)
+        console.error("Failed to fetch dashboard metadata", e)
     }
+}
 
+onMounted(async () => {
+    await fetchMetadata()
     await fetchAllData()
 })
 
-watch(selectedMember, () => {
-    fetchAllData()
-})
+watch(selectedMember, () => fetchAllData())
 </script>
 
 <template>
@@ -256,8 +238,7 @@ watch(selectedMember, () => {
                 class="d-flex flex-column flex-md-row justify-space-between align-start align-md-center mb-10 gap-6 reveal-anim">
                 <div>
                     <h1 class="text-h4 font-weight-black mb-1 d-flex align-center">
-                        <span class="mr-3">{{ getGreeting().includes('Morning') ? '🌅' :
-                            getGreeting().includes('Afternoon') ? '☀️' : '🌙' }}</span>
+                        <span class="mr-3">{{ greetingEmoji }}</span>
                         {{ getGreeting() }}, {{ (auth.user?.full_name || auth.user?.email || 'User').split(' ')[0] }}
                     </h1>
                     <p class="text-subtitle-1 text-slate-500 font-weight-bold">
@@ -472,7 +453,7 @@ watch(selectedMember, () => {
                                     'Transaction'
                                 }}</v-list-item-title>
                                 <v-list-item-subtitle class="text-caption font-weight-bold text-slate-400 mt-1">
-                                    {{ formatDate(txn.date) }} • {{ txn.account_owner_name || 'Personal' }}
+                                    {{ formatDate(txn.date).day }} • {{ txn.account_owner_name || 'Personal' }}
                                 </v-list-item-subtitle>
                                 <template v-slot:append>
                                     <div class="text-subtitle-1 font-weight-black"
@@ -505,7 +486,7 @@ watch(selectedMember, () => {
                                     <v-list-item-title class="font-weight-bold">{{ bill.description
                                     }}</v-list-item-title>
                                     <v-list-item-subtitle class="text-caption font-weight-bold text-rose-500">Due {{
-                                        formatDate(bill.next_date) }}</v-list-item-subtitle>
+                                        formatDate(bill.next_date).day }}</v-list-item-subtitle>
                                     <template v-slot:append>
                                         <div class="text-subtitle-1 font-weight-black">{{ formatAmount(bill.amount) }}
                                         </div>
