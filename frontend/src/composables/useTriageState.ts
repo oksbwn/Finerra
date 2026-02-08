@@ -87,7 +87,7 @@ export function useTriageState(
                     sort_order: triageSortOrder.value,
                     search: triageSearchQuery.value || undefined,
                     source: triageSourceFilter.value !== 'ALL' ? triageSourceFilter.value : undefined
-                }),
+                } as any),
                 financeApi.getTraining({
                     limit: trainingPagination.value.limit,
                     skip: trainingPagination.value.skip
