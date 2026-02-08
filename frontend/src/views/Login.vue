@@ -29,7 +29,8 @@ async function handleLogin() {
 
 <template>
     <v-app>
-        <v-main class="auth-page">
+        <v-main class="bg-grey-lighten-4 d-flex align-center position-relative overflow-hidden"
+            style="min-height: 100vh;">
             <!-- Animated Background Mesh -->
             <div class="mesh-background">
                 <div class="mesh-blob blob-1"></div>
@@ -37,54 +38,59 @@ async function handleLogin() {
                 <div class="mesh-blob blob-3"></div>
             </div>
 
-            <v-container class="auth-container" fluid>
-                <v-row align="center" justify="center" class="fill-height">
-                    <v-col cols="12" sm="8" md="4" lg="4">
-                        <v-card class="glass-card auth-card" :class="{ 'shake': error }" elevation="0">
-                            <div class="auth-header">
-                                <v-avatar size="64" class="logo-wrapper" rounded="lg">
+            <v-container class="position-relative" style="z-index: 10;" fluid>
+                <v-row align="center" justify="center">
+                    <v-col cols="12" sm="8" md="5" lg="4">
+                        <v-card class="pa-8 pa-sm-12 rounded-xl border elevation-0"
+                            style="background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);">
+                            <div class="text-center mb-8">
+                                <v-avatar size="64" rounded="lg" class="elevation-2 mb-6 bg-white">
                                     <v-img src="/logo.png" alt="WealthFam Logo" cover></v-img>
                                 </v-avatar>
-                                <h1 class="welcome-title">Welcome Back</h1>
-                                <p class="welcome-subtitle">Securely access your family wealth dashboard</p>
+                                <h1 class="text-h5 font-weight-black text-slate-900 mb-2">Welcome Back</h1>
+                                <p class="text-body-1 text-grey-darken-1 font-weight-medium">Securely access your family
+                                    wealth dashboard</p>
                             </div>
 
-                            <v-form @submit.prevent="handleLogin" class="auth-form">
+                            <v-form @submit.prevent="handleLogin">
                                 <v-text-field v-model="email" label="Email Address" placeholder="name@family.com"
-                                    variant="outlined" color="primary" required hide-details="auto"
-                                    class="premium-input">
+                                    variant="outlined" color="primary" required class="mb-4" rounded="lg"
+                                    hide-details="auto">
                                     <template v-slot:prepend-inner>
-                                        <Mail :size="20" class="input-icon" />
+                                        <Mail :size="20" class="text-grey-lighten-1 mr-2" />
                                     </template>
                                 </v-text-field>
 
-                                <div class="password-group">
-                                    <div class="label-row">
-                                        <span class="custom-label">Password</span>
-                                        <button type="button" class="forgot-link"
-                                            @click="showForgotDialog = true">Forgot?</button>
+                                <div class="mb-4">
+                                    <div class="d-flex justify-space-between align-center mb-1 px-1">
+                                        <span
+                                            class="text-caption font-weight-bold text-uppercase tracking-wider text-grey-darken-2">Password</span>
+                                        <v-btn variant="text" color="primary" size="x-small"
+                                            class="font-weight-bold pa-0" @click="showForgotDialog = true">
+                                            Forgot?
+                                        </v-btn>
                                     </div>
                                     <v-text-field v-model="password" placeholder="••••••••" variant="outlined"
-                                        color="primary" type="password" required hide-details="auto"
-                                        class="premium-input">
+                                        color="primary" type="password" required rounded="lg" hide-details="auto">
                                         <template v-slot:prepend-inner>
-                                            <Lock :size="20" class="input-icon" />
+                                            <Lock :size="20" class="text-grey-lighten-1 mr-2" />
                                         </template>
                                     </v-text-field>
                                 </div>
 
                                 <v-expand-transition>
-                                    <v-alert v-if="error" type="error" variant="tonal" class="error-alert"
-                                        density="compact">
+                                    <v-alert v-if="error" type="error" variant="tonal" class="mb-4 rounded-lg"
+                                        density="comfortable">
                                         {{ error }}
                                     </v-alert>
                                 </v-expand-transition>
 
-                                <v-btn type="submit" color="primary" size="x-large" block class="btn-primary-glow"
-                                    :loading="loading">
-                                    <div class="btn-content">
+                                <v-btn type="submit" color="primary" size="x-large" block
+                                    class="rounded-lg font-weight-bold text-none elevation-4 mt-2" :loading="loading"
+                                    style="height: 56px;">
+                                    <div class="d-flex align-center gap-2">
                                         Sign In
-                                        <ArrowRight :size="20" class="arrow-icon" />
+                                        <ArrowRight :size="20" />
                                     </div>
                                     <template v-slot:loader>
                                         <Loader2 :size="28" class="spinner" />
@@ -92,16 +98,21 @@ async function handleLogin() {
                                 </v-btn>
                             </v-form>
 
-                            <div class="auth-footer">
-                                <p>
+                            <div class="text-center mt-10">
+                                <p class="text-body-2 text-grey-darken-1 font-weight-medium">
                                     New to WealthFam?
-                                    <router-link to="/register" class="signup-link">Create Family Account</router-link>
+                                    <router-link to="/register"
+                                        class="text-primary text-decoration-none font-weight-bold">
+                                        Create Family Account
+                                    </router-link>
                                 </p>
                             </div>
                         </v-card>
 
-                        <div class="trust-footer">
-                            <p>Enterprise-grade security for your family's future</p>
+                        <div class="text-center mt-8 overflow-hidden">
+                            <p class="text-overline tracking-widest text-grey-darken-1" style="opacity: 0.7;">
+                                Enterprise-grade security for your family's future
+                            </p>
                         </div>
                     </v-col>
                 </v-row>
@@ -109,17 +120,18 @@ async function handleLogin() {
 
             <!-- Forgot Password Dialog -->
             <v-dialog v-model="showForgotDialog" max-width="400">
-                <v-card class="glass-card pa-4" style="border-radius: 1.5rem !important;">
-                    <v-card-title class="text-h5 font-weight-bold">Reset Password</v-card-title>
-                    <v-card-text>
+                <v-card class="pa-6 rounded-xl overflow-hidden">
+                    <v-card-title class="text-h5 font-weight-bold px-0">Reset Password</v-card-title>
+                    <v-card-text class="text-body-1 px-0 py-4">
                         For security reasons, please contact your <strong>Family Administrator</strong> to reset your
                         password.
                         <br /><br />
                         If you are the administrator and lost access, please contact WealthFam support.
                     </v-card-text>
-                    <v-card-actions>
+                    <v-card-actions class="px-0 pb-0">
                         <v-spacer></v-spacer>
-                        <v-btn color="primary" variant="text" @click="showForgotDialog = false">Got it</v-btn>
+                        <v-btn color="primary" variant="flat" rounded="lg" @click="showForgotDialog = false">Got
+                            it</v-btn>
                     </v-card-actions>
                 </v-card>
             </v-dialog>
@@ -128,16 +140,7 @@ async function handleLogin() {
 </template>
 
 <style scoped>
-.auth-page {
-    position: relative;
-    overflow: hidden;
-    background: #f8fafc;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-}
-
-/* Mesh Background Animation */
+/* Mesh Background Animation preserved for premium feel */
 .mesh-background {
     position: absolute;
     top: 0;
@@ -192,138 +195,6 @@ async function handleLogin() {
     }
 }
 
-.auth-container {
-    position: relative;
-    z-index: 10;
-    padding: 1rem;
-}
-
-.auth-card {
-    padding: 2.5rem;
-    border-radius: 2rem !important;
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.5) !important;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1) !important;
-}
-
-.auth-header {
-    text-align: center;
-    margin-bottom: 2rem;
-}
-
-.logo-wrapper {
-    background: white !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    margin-bottom: 1.5rem;
-}
-
-.welcome-title {
-    font-size: 1.875rem;
-    font-weight: 800;
-    color: #0f172a;
-    letter-spacing: -0.025em;
-    margin-bottom: 0.5rem;
-}
-
-.welcome-subtitle {
-    color: #64748b;
-    font-size: 0.875rem;
-    font-weight: 500;
-}
-
-.auth-form {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
-
-.premium-input :deep(.v-field__outline) {
-    --v-field-border-opacity: 0.1;
-    border-radius: 0.75rem;
-}
-
-.premium-input :deep(.v-field--focused .v-field__outline) {
-    --v-field-border-opacity: 1;
-    box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
-}
-
-.input-icon {
-    margin-right: 0.5rem;
-    color: #94a3b8;
-}
-
-.password-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.label-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 0.25rem;
-}
-
-.custom-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #334155;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.forgot-link {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #4f46e5;
-    text-decoration: none;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-}
-
-.forgot-link:hover {
-    text-decoration: underline;
-}
-
-.error-alert {
-    border-radius: 0.5rem;
-    margin-top: 0.5rem;
-}
-
-.btn-primary-glow {
-    height: 3.5rem !important;
-    border-radius: 0.75rem !important;
-    font-size: 1.125rem !important;
-    font-weight: 700 !important;
-    background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%) !important;
-    color: white !important;
-    transition: all 0.2s !important;
-}
-
-.btn-primary-glow:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
-}
-
-.btn-content {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.arrow-icon {
-    transition: transform 0.2s;
-}
-
-.btn-primary-glow:hover .arrow-icon {
-    transform: translateX(4px);
-}
-
 .spinner {
     animation: spin 1s linear infinite;
 }
@@ -338,71 +209,8 @@ async function handleLogin() {
     }
 }
 
-.auth-footer {
-    margin-top: 2.5rem;
-    text-align: center;
-}
-
-.auth-footer p {
-    font-size: 0.875rem;
-    color: #64748b;
-}
-
-.signup-link {
-    color: #4f46e5;
-    font-weight: 700;
-    text-decoration: none;
-}
-
-.signup-link:hover {
-    text-decoration: underline;
-}
-
-.trust-footer {
-    margin-top: 2rem;
-    text-align: center;
-    opacity: 0.6;
-}
-
-.trust-footer p {
-    font-size: 0.625rem;
-    font-weight: 700;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-}
-
-.shake {
-    animation: shake 0.5s cubic-bezier(.36, .07, .19, .97) both;
-}
-
-@keyframes shake {
-
-    10%,
-    90% {
-        transform: translate3d(-1px, 0, 0);
-    }
-
-    20%,
-    80% {
-        transform: translate3d(2px, 0, 0);
-    }
-
-    30%,
-    50%,
-    70% {
-        transform: translate3d(-4px, 0, 0);
-    }
-
-    40%,
-    60% {
-        transform: translate3d(4px, 0, 0);
-    }
-}
-
-@media (max-width: 600px) {
-    .auth-card {
-        padding: 1.5rem;
-    }
+/* Custom gap utility as Vuetify 3's gap is often restricted to flex/grid containers with classes */
+.gap-2 {
+    gap: 0.5rem;
 }
 </style>
